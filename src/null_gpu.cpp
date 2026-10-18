@@ -79,11 +79,16 @@ void NullGpu::update_texture(gpu::Texture texture, uint32_t level, uint32_t face
     mix_bytes(data.data(), data.size());
 }
 
-Result<gpu::Program> NullGpu::create_program(Bytes vertex_binary, Bytes pixel_binary) {
+Result<gpu::Program> NullGpu::create_program(const gpu::ProgramDesc& desc) {
     ++programs_created;
     mix(0xA1);
-    mix_bytes(vertex_binary.data(), vertex_binary.size());
-    mix_bytes(pixel_binary.data(), pixel_binary.size());
+    mix(desc.key);
+    for (const auto* m : {desc.vertex, desc.pixel}) {
+        if (!m) { mix(0); continue; }
+        mix_bytes(m->spirv.data(), m->spirv.size() * 4);
+        mix(m->constant_registers);
+        mix(m->sampler_mask);
+    }
     return {Status::ok, gpu::Program{++next_id}};
 }
 
@@ -93,6 +98,7 @@ void NullGpu::begin_pass(const gpu::PassDesc& pass) {
     for (const auto& c : pass.colors) mix(c.value);
     mix(pass.depth_stencil.value);
     mix(uint64_t(pass.clear_color) | uint64_t(pass.clear_depth) << 1 | uint64_t(pass.clear_stencil) << 2);
+    for (int i = 0; i < 4; ++i) mix(uint32_t(pass.rect[i]));
     mix(pass.clear_argb);
     mix_value(pass.clear_z);
     mix(pass.clear_stencil_value);
@@ -128,10 +134,7 @@ void NullGpu::draw(const gpu::DrawDesc& s) {
     mix(uint64_t(d.stencil_ref) | uint64_t(d.stencil_read_mask) << 8 | uint64_t(d.stencil_write_mask) << 16);
     mix(uint64_t(s.raster.cull) | uint64_t(s.raster.wireframe) << 8);
     mix_value(s.raster.depth_bias); mix_value(s.raster.slope_scale_bias);
-    mix_value(s.pixel_fixed.alpha_ref); mix(s.pixel_fixed.fog_argb); mix_value(s.pixel_fixed.fog_start); mix_value(s.pixel_fixed.fog_end); mix_value(s.pixel_fixed.fog_density); mix(s.pixel_fixed.texture_factor_argb);
     mix(uint64_t(s.topology)); mix(uint32_t(s.base_vertex)); mix(s.first_index); mix(s.index_count); mix(s.vertex_count);
-    for (int i = 0; i < 4; ++i) mix(uint32_t(s.viewport[i]));
-    mix_value(s.depth_range[0]); mix_value(s.depth_range[1]);
     for (int i = 0; i < 4; ++i) mix(uint32_t(s.scissor[i]));
     mix(s.scissor_enabled);
     vertices_drawn += s.vertex_count;

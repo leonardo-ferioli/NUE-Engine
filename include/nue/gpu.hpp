@@ -1,9 +1,12 @@
-// Platform API, graphics level B: the small GPU interface ("what a modern API does"), implemented by the bgfx adapter.
+// nue_d3d9, level B: the small GPU interface ("what a modern API does"), implemented by the bgfx adapter and by the null Gpu.
 //
 // The Direct3D 9 layer builds one DrawDesc per draw from its state shadow. There is no in-place buffer update on purpose: bgfx applies
-// resource updates before the frame's draws, so data that changes between draws goes through `allocate_transient` or a new static buffer
-// (docs/PLATFORM_API.md, 3.5). Enumerations here are the modern ones (zero-based, no Direct3D numbering); the layer translates.
+// resource updates before the frame's draws, so data that changes between draws goes through `allocate_transient` or a new static buffer.
+// Enumerations here are the modern ones (zero-based, no Direct3D numbering); the layer translates. Shaders arrive as SPIR-V modules in the
+// conventions of nue/shader/d3d9_to_spirv.hpp (a uniform block per stage, textures at binding 2 + stage, samplers at 18 + stage); the backend
+// turns them into whatever its renderer consumes.
 #pragma once
+#include "nue/shader/d3d9_to_spirv.hpp"
 #include "nue/types.hpp"
 
 namespace nue::gpu {
@@ -12,16 +15,16 @@ using Buffer = Id<struct BufferTag>;
 using Texture = Id<struct TextureTag>;
 using Program = Id<struct ProgramTag>;
 
-// The swap chain's colour target and its own depth buffer, as pass attachments.
+// The swap chain's colour target (and, for passes that use it, the backend's own depth buffer), as a pass attachment.
 inline constexpr Texture backbuffer{0xFFFFFFFFu};
 
 enum class Format : uint8_t {
-    rgba8, bgra8, r5g6b5, a4r4g4b4, a1r5g5b5, r8, a8, rg8, rgba16f, rgba32f, d16, d24s8, d32f, bc1, bc2, bc3, astc4x4, etc2_rgba8, count
+    rgba8, bgra8, r5g6b5, a4r4g4b4, a1r5g5b5, r8, a8, rg8, rgba16f, rgba32f, r16f, r32f, rg16f, rg32f, d16, d24s8, d32f, bc1, bc2, bc3, astc4x4, etc2_rgba8, count
 };
 enum class Topology : uint8_t { points, lines, line_strip, triangles, triangle_strip };   // fans are converted to lists by the layer
 
-// Vertex elements keep the Direct3D 9 numbering of type (D3DDECLTYPE_*) and semantic (D3DDECLUSAGE_*): they are the shader's input contract and the
-// shader path maps them to its own attributes.
+// Vertex elements keep the Direct3D 9 numbering of type (D3DDECLTYPE_*) and semantic (D3DDECLUSAGE_*): they are the shader's input contract and
+// the backend maps them to its own attributes. `bgra` marks D3DCOLOR (the shader swizzles it: see TranslateOptions::bgra_attributes).
 struct VertexAttribute { uint8_t stream = 0; uint16_t offset = 0; uint8_t type = 0, semantic = 0, index = 0; };
 
 struct SamplerDesc {
@@ -64,13 +67,11 @@ struct RasterState {
     friend bool operator==(const RasterState&, const RasterState&) = default;
 };
 
-// What the pixel stage takes from the render state of Direct3D 9 even when a shader is bound (alpha test, fog after the shader).
-struct PixelFixedParams {
-    float alpha_ref = 0.0f;                   // 0..1
-    uint32_t fog_argb = 0;
-    float fog_start = 0.0f, fog_end = 1.0f, fog_density = 1.0f;
-    uint32_t texture_factor_argb = 0xFFFFFFFFu;
-    friend bool operator==(const PixelFixedParams&, const PixelFixedParams&) = default;
+// One program: a vertex and a pixel module. `key` identifies it for caches and for the deterministic call hash of the null Gpu.
+struct ProgramDesc {
+    uint64_t key = 0;
+    const shader::TranslateResult* vertex = nullptr;
+    const shader::TranslateResult* pixel = nullptr;
 };
 
 struct DrawDesc {
@@ -83,23 +84,23 @@ struct DrawDesc {
     std::span<const VertexAttribute> layout;
     Texture textures[16];
     SamplerDesc samplers[16];
-    Bytes vertex_constants, pixel_constants;                 // packed float4 arrays from register 0: only as many registers as the program reads
+    // Contents of the uniform block of each stage: `fixup` registers (viewport/depth/half-pixel for vertex shaders; alpha test and fog for pixel
+    // shaders) followed by the float constant registers the program reads; packed float4.
+    Bytes vertex_constants, pixel_constants;
     BlendState blend;
     DepthStencilState depth_stencil;
     RasterState raster;
-    PixelFixedParams pixel_fixed;
     Topology topology = Topology::triangles;
     int32_t base_vertex = 0;                                 // added to every index
     uint32_t first_index = 0, index_count = 0, vertex_count = 0;
-    int32_t viewport[4] = {};
-    float depth_range[2] = {0.0f, 1.0f};
-    int32_t scissor[4] = {};
+    int32_t scissor[4] = {};                                 // x, y, width, height
     bool scissor_enabled = false;
 };
 
 struct PassDesc {
     Texture colors[4];
     Texture depth_stencil;
+    int32_t rect[4] = {};                                    // x, y, width, height of the area drawn to and cleared (zeros: the whole attachment)
     bool clear_color = false, clear_depth = false, clear_stencil = false;
     uint32_t clear_argb = 0;
     float clear_z = 1.0f;
@@ -110,6 +111,9 @@ struct GpuCaps {
     bool texture_format[static_cast<size_t>(Format::count)] = {};
     uint32_t max_texture_size = 0, max_anisotropy = 1;
     bool instancing = false, mrt = false;
+    bool origin_bottom_left = false;                         // OpenGL-style render targets
+    bool homogeneous_depth = false;                          // clip-space depth in [-1, 1] (OpenGL)
+    const char* name = "";
 };
 
 class Gpu {   // game thread; the backend's render thread hides behind it
@@ -122,13 +126,14 @@ public:
     virtual Result<Buffer>  allocate_transient(uint32_t bytes, uint32_t stride, MutableBytes& out) = 0;
     virtual Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube) = 0;
     virtual void            update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) = 0;
-    virtual Result<Program> create_program(Bytes vertex_binary, Bytes pixel_binary) = 0;   // the bgfx shader container produced by the shader path
+    virtual Result<Program> create_program(const ProgramDesc&) = 0;
     virtual void begin_pass(const PassDesc&) = 0;
     virtual void draw(const DrawDesc&) = 0;
     virtual void end_pass() = 0;
     virtual Status present(uint32_t swap_interval) = 0;
     virtual Status resize(uint32_t width, uint32_t height) = 0;
-    virtual void   read_back(Texture, uint32_t level, MutableBytes out) = 0;
+    // Copies the colour contents of a texture (or the last presented frame for `backbuffer`) as 32-bit BGRA; waits for the GPU (rare, slow).
+    virtual Status read_back(Texture, uint32_t& width, uint32_t& height, std::vector<std::byte>& bgra) = 0;
     virtual void   destroy(Buffer) = 0;
     virtual void   destroy(Texture) = 0;
     virtual void   destroy(Program) = 0;

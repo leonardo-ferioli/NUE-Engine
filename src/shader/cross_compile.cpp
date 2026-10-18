@@ -1,4 +1,4 @@
-#include "shader/cross_compile.hpp"
+#include "nue/shader/cross_compile.hpp"
 #include "spirv_glsl.hpp"
 #include "spirv_hlsl.hpp"
 #include "spirv_msl.hpp"

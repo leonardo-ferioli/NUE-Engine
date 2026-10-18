@@ -1,7 +1,7 @@
 // SPIR-V -> shading language text for the bgfx renderers that consume source (docs/PLATFORM_API.md, 3.4): GLSL ES 3.0 and GLSL 3.30 for
 // OpenGL (ES), MSL for Metal, HLSL (shader model 5) for Direct3D 11/12. Vulkan takes the SPIR-V itself. Uses SPIRV-Cross (Apache-2.0).
 #pragma once
-#include "shader/d3d9_shader.hpp"
+#include "nue/shader/d3d9_shader.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>

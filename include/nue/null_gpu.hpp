@@ -19,13 +19,13 @@ public:
     Result<gpu::Buffer> allocate_transient(uint32_t bytes, uint32_t stride, MutableBytes& out) override;
     Result<gpu::Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube) override;
     void update_texture(gpu::Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
-    Result<gpu::Program> create_program(Bytes vertex_binary, Bytes pixel_binary) override;
+    Result<gpu::Program> create_program(const gpu::ProgramDesc& desc) override;
     void begin_pass(const gpu::PassDesc&) override;
     void draw(const gpu::DrawDesc& state) override;
     void end_pass() override { mix(0xE1); ++pass_ends; }
     Status present(uint32_t interval) override;
     Status resize(uint32_t, uint32_t) override { return Status::ok; }
-    void read_back(gpu::Texture, uint32_t, MutableBytes out) override { for (auto& b : out) b = std::byte{0}; }
+    Status read_back(gpu::Texture, uint32_t& width, uint32_t& height, std::vector<std::byte>& bgra) override { width = height = 0; bgra.clear(); return Status::unsupported; }
     void destroy(gpu::Buffer) override { mix(0xD1); ++destroyed; }
     void destroy(gpu::Texture) override { mix(0xD2); ++destroyed; }
     void destroy(gpu::Program) override { mix(0xD3); ++destroyed; }

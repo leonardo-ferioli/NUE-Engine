@@ -21,7 +21,7 @@ enum Op : uint16_t {
     SampledImage = 86, ImageSampleImplicitLod = 87, ImageSampleProjImplicitLod = 91,
     ConvertFToS = 110, ConvertSToF = 111,
     IAdd = 128, FNegate = 127, FAdd = 129, FSub = 131, FMul = 133, FDiv = 136, Dot = 148,
-    LogicalOr = 166, LogicalAnd = 167, LogicalNot = 168, Select = 169, FOrdLessThan = 184, FOrdGreaterThan = 186, FOrdGreaterThanEqual = 190, Any = 154,
+    LogicalOr = 166, LogicalAnd = 167, LogicalNot = 168, Select = 169, FOrdEqual = 180, FOrdNotEqual = 182, FOrdLessThan = 184, FOrdGreaterThan = 186, FOrdLessThanEqual = 188, FOrdGreaterThanEqual = 190, Any = 154,
     SelectionMerge = 247, Label = 248, Branch = 249, BranchConditional = 250, Kill = 252, Return = 253
 };
 enum StorageClass : uint32_t { UniformConstant = 0, Input = 1, Uniform = 2, Output = 3, Function_ = 7 };

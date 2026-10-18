@@ -2,7 +2,7 @@
 // (docs/PLATFORM_API.md, 3.4): one uniform block per stage (set 0, binding 0 = vertex, 1 = pixel) holding a fixup vec4 and the float
 // constants, textures at binding 2 + stage, samplers at binding 18 + stage, vertex inputs at the location of their bgfx attribute.
 #pragma once
-#include "shader/d3d9_shader.hpp"
+#include "nue/shader/d3d9_shader.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -14,13 +14,20 @@ struct TranslateOptions {
     uint8_t sampler_dim[16] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
     // D3DTTFF_PROJECTED per stage: 0 = not projected, 3 = divide by the third coordinate, 4 = divide by the fourth.
     uint8_t projected[16] = {};
-    // Vertex shaders: move clip-space xy by u_fix.xy * w, the Direct3D 9 pixel-centre offset. The layer sets u_fix = (+1/width, -1/height):
-    // measured against the real Direct3D 9 device (the opposite sign, and no shift, both differ from it by up to 7/255).
-    bool half_pixel_fixup = true;
+    // Vertex shaders: the viewport, depth range and half-pixel offset of Direct3D 9 are applied to the clip-space position from the first two
+    // registers of the uniform block (fix0 = scale x, scale y, bias x, bias y; fix1 = scale z, bias z): x' = x * sx + w * bx and so on.
+    // The layer computes them from the viewport, the render target size and the pixel-centre rule (see Layer::fixup_registers).
+    bool viewport_fixup = true;
     // Pixel shaders below 2.0 clamp constant registers to [-1, 1] when they are read.
     bool clamp_ps1_constants = true;
-    // OpenGL(ES): the constants are plain uniforms (bgfx finds uniforms by name), not a uniform block; the other renderers use the block.
-    bool plain_uniforms = false;
+    // Vertex shaders: bit n set = the input bound to bgfx attribute n holds a D3DCOLOR (stored B,G,R,A): the shader reads it as R,G,B,A.
+    uint32_t bgra_attributes = 0;
+    // Pixel shaders: alpha test after the shader (D3DCMP_*: 0 = off, 1 never ... 8 always; reference in fix0.x) and fog (0 = off, 1 = linear from the
+    // interpolated fog factor of the vertex stage, which is already the blend factor; fix0.yzw hold start, end, density for table fog, fix1 the colour).
+    uint8_t alpha_func = 0;
+    uint8_t fog_mode = 0;
+    // The first constant registers of the uniform block that are not shader constants.
+    static constexpr uint32_t fixup_registers = 2;
 };
 
 struct VertexInput { uint16_t reg; uint32_t usage, usage_index; uint32_t attribute; };   // attribute = bgfx::Attrib::Enum (also the SPIR-V location)

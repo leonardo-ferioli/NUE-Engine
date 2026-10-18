@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -77,8 +78,17 @@ struct ReplayStats {
     uint64_t by_op[256] = {};
 };
 
+// Callbacks the replay tool uses to follow a trace (all optional).
+struct ReplayHooks {
+    std::function<void(uint32_t window, uint32_t frame)> window_begin;
+    std::function<void(uint32_t window, uint32_t frame)> window_end;
+    std::function<void(uint32_t frame)> frame_marker;                                       // the game's frame number, before its Present
+    std::function<void(uint32_t frame, uint32_t width, uint32_t height, uint32_t format)> reference_image;   // a reference image exists for this frame
+    std::function<void(uint64_t presented_frames)> presented;                               // after each Present
+};
+
 // Feeds a trace to a Level A device. Objects are re-created through the device and mapped from their recorded ids; lock/unlock pairs
 // are replayed with the recorded data written into the staging memory. Stops after `max_frames` presents (0 = whole trace).
-bool replay(TraceReader& reader, Device& device, ReplayStats& stats, std::string& error, uint64_t max_frames = 0);
+bool replay(TraceReader& reader, Device& device, ReplayStats& stats, std::string& error, uint64_t max_frames = 0, const ReplayHooks* hooks = nullptr);
 
 }  // namespace nue::d3d9

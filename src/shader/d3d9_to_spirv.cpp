@@ -1,4 +1,4 @@
-#include "shader/d3d9_to_spirv.hpp"
+#include "nue/shader/d3d9_to_spirv.hpp"
 #include "shader/spirv_builder.hpp"
 #include <algorithm>
 #include <array>
@@ -42,7 +42,7 @@ struct Lowering {
     bool ok = true;
 
     uint32_t f32 = 0, vec4 = 0, vec3 = 0, vec2 = 0, boolean = 0, bvec4 = 0, fn_vec4_ptr = 0;
-    uint32_t ubo_var = 0, fix_var = 0, c_var = 0;
+    uint32_t ubo_var = 0, fog_input = 0;
     uint32_t constants = 0;
     std::vector<uint32_t> interface_ids;
 
@@ -51,6 +51,7 @@ struct Lowering {
     std::map<uint32_t, uint32_t> inputs_global;              // v# / interpolants, keyed by (type<<8|index): Input variable
     std::map<uint32_t, std::array<float, 4>> defs;           // def c#
     std::map<uint32_t, VertexInput> vs_inputs;               // by register
+    uint32_t attribute_of_register[16] = {};
     uint32_t image_var[16] = {}, sampler_var[16] = {};
     uint32_t image_dim[16] = {};
     uint32_t addr_var = 0;
@@ -107,6 +108,7 @@ struct Lowering {
         b.decorate(var, Location, {in.attribute});
         interface_ids.push_back(var);
         out.inputs.push_back(in);
+        attribute_of_register[reg & 15] = in.attribute;
         return inputs_global[key] = var;
     }
 
@@ -134,8 +136,7 @@ struct Lowering {
             return b.const_vec4(v[0], v[1], v[2], v[3]);
         }
         if (index >= constants) { fail("constant register beyond the uniform block"); return b.const_vec4(0, 0, 0, 0); }
-        const uint32_t pointer = o.plain_uniforms ? b.emit(AccessChain, b.type_ptr(UniformConstant, vec4), {c_var, b.const_uint(index)})
-                                                  : b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(1), b.const_uint(index)});
+        const uint32_t pointer = b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(2), b.const_uint(index)});
         uint32_t value = b.load(vec4, pointer);
         if (ps() && sm1() && o.clamp_ps1_constants) value = b.ext(vec4, FClamp, {value, splat(-1.0f), splat(1.0f)});
         return value;
@@ -147,14 +148,19 @@ struct Lowering {
             const uint32_t a0x = component(b.load(vec4, addr_var), 0);
             const uint32_t index = b.emit(IAdd, b.type_int(), {b.emit(ConvertFToS, b.type_int(), {a0x}), b.const_int(int32_t(s.index))});
             const uint32_t clamped = b.ext(b.type_int(), SClamp, {index, b.const_int(0), b.const_int(int32_t(constants) - 1)});
-            const uint32_t pointer = o.plain_uniforms ? b.emit(AccessChain, b.type_ptr(UniformConstant, vec4), {c_var, clamped})
-                                                      : b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(1), clamped});
+            const uint32_t pointer = b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(2), clamped});
             return b.load(vec4, pointer);
         }
         switch (s.type) {
         case RegType::temp: return b.load(vec4, temp(s.index));
         case RegType::const_float: return constant_value(s.index);
-        case RegType::input: return b.load(vec4, ps() ? interpolant(RegType::input, s.index) : vertex_input(s.index));
+        case RegType::input: {
+            if (ps()) return b.load(vec4, interpolant(RegType::input, s.index));
+            uint32_t value = b.load(vec4, vertex_input(s.index));
+            const uint32_t attribute = attribute_of_register[s.index];
+            if (attribute < 32 && ((o.bgra_attributes >> attribute) & 1)) value = b.emit(VectorShuffle, vec4, {value, value, 2u, 1u, 0u, 3u});
+            return value;
+        }
         case RegType::addr_texture:
             if (!ps()) { fail("a0 as a source is not supported yet"); return b.const_vec4(0, 0, 0, 0); }
             return b.load(vec4, texreg(s.index));
@@ -350,24 +356,21 @@ struct Lowering {
                 }
             }
         }
-        // constants: a uniform block { vec4 u_fix; vec4 c[constants]; } (Vulkan, Metal, Direct3D) or two plain uniforms (OpenGL)
+        // constants: a uniform block { vec4 u_fix0; vec4 u_fix1; vec4 c[constants]; } (the OpenGL backends flatten it into plain uniforms of these names)
         const uint32_t c_array = b.type_array(vec4, constants);
-        if (o.plain_uniforms) {
-            fix_var = b.global_variable(vec4, UniformConstant, "u_fix");
-            c_var = b.global_variable(c_array, UniformConstant, ps() ? "u_psc" : "u_vsc");
-        } else {
-            b.decorate(c_array, ArrayStride, {16});
-            const uint32_t block = b.type_struct({vec4, c_array}, "ubo" + std::to_string(constants));
-            b.decorate(block, Block);
-            b.decorate_member(block, 0, Offset, {0});
-            b.decorate_member(block, 1, Offset, {16});
-            b.set_member_name(block, 0, "u_fix");
-            b.set_member_name(block, 1, ps() ? "u_psc" : "u_vsc");
-            b.set_name(block, ps() ? "PixelConstants" : "VertexConstants");
-            ubo_var = b.global_variable(block, Uniform, ps() ? "ps_constants" : "vs_constants");
-            b.decorate(ubo_var, DescriptorSet, {0});
-            b.decorate(ubo_var, Binding, {ps() ? 1u : 0u});
-        }
+        b.decorate(c_array, ArrayStride, {16});
+        const uint32_t block = b.type_struct({vec4, vec4, c_array}, "ubo" + std::to_string(constants));
+        b.decorate(block, Block);
+        b.decorate_member(block, 0, Offset, {0});
+        b.decorate_member(block, 1, Offset, {16});
+        b.decorate_member(block, 2, Offset, {32});
+        b.set_member_name(block, 0, "u_fix0");
+        b.set_member_name(block, 1, "u_fix1");
+        b.set_member_name(block, 2, ps() ? "u_psc" : "u_vsc");
+        b.set_name(block, ps() ? "PixelConstants" : "VertexConstants");
+        ubo_var = b.global_variable(block, Uniform, ps() ? "ps_constants" : "vs_constants");
+        b.decorate(ubo_var, DescriptorSet, {0});
+        b.decorate(ubo_var, Binding, {ps() ? 1u : 0u});
 
         const uint32_t entry_label = b.begin_block();
         (void)entry_label;
@@ -410,10 +413,10 @@ struct Lowering {
             const uint32_t sink = b.local_variable(vec4, "interface_sink");
             for (uint16_t i = 0; i < 2; ++i) b.store(sink, b.load(vec4, interpolant(RegType::input, i)));
             for (uint16_t i = 0; i < 8; ++i) b.store(sink, b.load(vec4, interpolant(RegType::addr_texture, i)));
-            const uint32_t fog = b.global_variable(f32, Input, "vary10");
-            b.decorate(fog, Location, {10});
-            interface_ids.push_back(fog);
-            b.store(sink, b.emit(CompositeConstruct, vec4, {b.load(f32, fog), b.const_float(0.0f), b.const_float(0.0f), b.const_float(0.0f)}));
+            fog_input = b.global_variable(f32, Input, "vary10");
+            b.decorate(fog_input, Location, {10});
+            interface_ids.push_back(fog_input);
+            b.store(sink, b.emit(CompositeConstruct, vec4, {b.load(f32, fog_input), b.const_float(0.0f), b.const_float(0.0f), b.const_float(0.0f)}));
         }
         // ---- epilogue
         uint32_t color_out = 0, pos_out = 0;
@@ -425,6 +428,32 @@ struct Lowering {
             if (sm1()) value = b.load(vec4, temp(0));   // pixel shaders 1.x return r0
             else if (outputs.count((uint32_t(RegType::color_out) << 8) | 0)) value = b.load(vec4, output(RegType::color_out, 0));
             else value = b.const_vec4(0, 0, 0, 0);
+            if (o.fog_mode) {   // the interpolated fog factor of the vertex stage is the blend factor (1 = no fog)
+                const uint32_t f = b.load(f32, fog_input);
+                const uint32_t f4 = b.emit(CompositeConstruct, vec4, {f, f, f, b.const_float(1.0f)});
+                const uint32_t fog_color = b.load(vec4, b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(1)}));
+                value = b.ext(vec4, FMix, {fog_color, value, f4});
+            }
+            if (o.alpha_func && o.alpha_func != 8) {   // Direct3D 9 compares the alpha quantised to 8 bits with the reference (0..255)
+                const uint32_t ref = component(b.load(vec4, b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(0)})), 0);
+                const uint32_t alpha = b.ext(f32, Floor, {b.emit(FAdd, f32, {b.emit(FMul, f32, {component(value, 3), b.const_float(255.0f)}), b.const_float(0.5f)})});
+                uint32_t pass;
+                switch (o.alpha_func) {
+                case 1: pass = b.emit(FOrdLessThan, boolean, {b.const_float(1.0f), b.const_float(0.0f)}); break;   // never
+                case 2: pass = b.emit(FOrdLessThan, boolean, {alpha, ref}); break;
+                case 3: pass = b.emit(FOrdEqual, boolean, {alpha, ref}); break;
+                case 4: pass = b.emit(FOrdLessThanEqual, boolean, {alpha, ref}); break;
+                case 5: pass = b.emit(FOrdGreaterThan, boolean, {alpha, ref}); break;
+                case 6: pass = b.emit(FOrdNotEqual, boolean, {alpha, ref}); break;
+                default: pass = b.emit(FOrdGreaterThanEqual, boolean, {alpha, ref}); break;
+                }
+                const uint32_t keep = b.new_id(), discard = b.new_id();
+                b.emit_void(SelectionMerge, {keep, 0});
+                b.emit_void(BranchConditional, {pass, keep, discard});
+                b.label(discard);
+                b.emit_void(Kill, {});
+                b.label(keep);
+            }
             b.store(var, value);
             color_out = var;
         } else {
@@ -432,12 +461,15 @@ struct Lowering {
             b.decorate(pos_out, BuiltIn, {Position});
             interface_ids.push_back(pos_out);
             uint32_t pos = outputs.count((uint32_t(RegType::rast_out) << 8) | 0) ? b.load(vec4, output(RegType::rast_out, 0)) : b.const_vec4(0, 0, 0, 1);
-            if (o.half_pixel_fixup) {
-                const uint32_t fix = o.plain_uniforms ? b.load(vec4, fix_var)
-                                                      : b.load(vec4, b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(0)}));
+            if (o.viewport_fixup) {
+                const uint32_t fix0 = b.load(vec4, b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(0)}));
+                const uint32_t fix1 = b.load(vec4, b.emit(AccessChain, b.type_ptr(Uniform, vec4), {ubo_var, b.const_uint(1)}));
                 const uint32_t w = component(pos, 3);
-                const uint32_t dx = b.emit(FMul, f32, {component(fix, 0), w}), dy = b.emit(FMul, f32, {component(fix, 1), w});
-                pos = b.emit(FAdd, vec4, {pos, b.emit(CompositeConstruct, vec4, {dx, dy, b.const_float(0.0f), b.const_float(0.0f)})});
+                auto scaled = [&](uint32_t value, uint32_t scale, uint32_t bias) { return b.emit(FAdd, f32, {b.emit(FMul, f32, {value, scale}), b.emit(FMul, f32, {w, bias})}); };
+                const uint32_t x = scaled(component(pos, 0), component(fix0, 0), component(fix0, 2));
+                const uint32_t y = scaled(component(pos, 1), component(fix0, 1), component(fix0, 3));
+                const uint32_t z = scaled(component(pos, 2), component(fix1, 0), component(fix1, 1));
+                pos = b.emit(CompositeConstruct, vec4, {x, y, z, w});
             }
             b.store(pos_out, pos);
             for (auto& [key, local] : outputs) {
