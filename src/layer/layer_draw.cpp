@@ -3,6 +3,7 @@
 #include "layer/layer.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace nue::d3d9 {
@@ -67,6 +68,7 @@ Declaration declaration_from_fvf(uint32_t fvf) {
         d.elements.push_back(e);
         d.attributes.push_back(gpu::VertexAttribute{0, offset, type, usage, index});
         if (type == dt_d3dcolor) d.bgra_attributes |= 1u << shader::bgfx_attribute_for(usage, index);
+        if (type == dt_ubyte4) d.uint_attributes |= 1u << shader::bgfx_attribute_for(usage, index);
         offset = uint16_t(offset + size);
     };
     const uint32_t pos = fvf & fvf_posmask;
@@ -103,7 +105,7 @@ bool LayerImpl::buffer_is_dynamic(BufferObject& b) {
 gpu::Buffer LayerImpl::static_gpu_buffer(BufferObject& b) {
     if (b.gpu && b.gpu_version == b.version) { b.used_since_update = true; return b.gpu; }
     if (b.gpu) retired_buffers_.push_back(b.gpu);
-    auto r = gpu_.create_static_buffer(Bytes(b.shadow.data(), b.shadow.size()), b.index);
+    auto r = gpu_.create_static_buffer(Bytes(b.shadow.data(), b.shadow.size()), !b.index ? gpu::BufferKind::vertex : b.format_or_fvf == fmt_index32 ? gpu::BufferKind::index32 : gpu::BufferKind::index16);
     b.gpu = r ? r.value : gpu::Buffer{};
     b.gpu_version = b.version;
     b.used_since_update = true;
@@ -118,7 +120,7 @@ gpu::Buffer LayerImpl::transient_copy(BufferObject& source, uint32_t byte_offset
     auto cached = transient_cache_.find(key);
     if (cached != transient_cache_.end()) { ++stats_.transient_dedupe_hits; return cached->second; }
     MutableBytes out;
-    auto r = gpu_.allocate_transient(bytes, stride, out);
+    auto r = gpu_.allocate_transient(bytes, stride, false, out);
     if (!r) return {};
     const uint64_t available = byte_offset < source.shadow.size() ? source.shadow.size() - byte_offset : 0;
     const size_t n = size_t(std::min<uint64_t>(available, bytes));
@@ -148,13 +150,13 @@ const shader::TranslateResult* LayerImpl::translate(ShaderObject& s, uint32_t, c
     return raw;
 }
 
-LayerImpl::DrawProgram LayerImpl::select_program(const Declaration* declaration, const DeviceState& st) {
+LayerImpl::DrawProgram LayerImpl::select_program(const Declaration* declaration, const DeviceState& st, ShaderObject* vs, ShaderObject* ps, bool vertex_fog_from_fixed_function) {
     DrawProgram out;
-    ShaderObject* vs = shaders_.get(st.vertex_shader);
-    ShaderObject* ps = shaders_.get(st.pixel_shader);
     if (!vs || !ps || !vs->valid || !ps->valid) return out;
     shader::TranslateOptions vo;
     vo.bgra_attributes = declaration ? declaration->bgra_attributes : 0;
+    vo.uint_attributes = declaration ? declaration->uint_attributes : 0;
+    vo.sint_attributes = declaration ? declaration->sint_attributes : 0;
     shader::TranslateOptions po;
     uint64_t po_key = 0;
     for (uint32_t i = 0; i < 16; ++i) {
@@ -164,19 +166,20 @@ LayerImpl::DrawProgram LayerImpl::select_program(const Declaration* declaration,
     }
     for (uint32_t i = 0; i < 8; ++i) {
         const uint32_t flags = st.tss[i][tss_texturetransformflags];
-        po.projected[i] = (flags & 0x100) ? ((flags & 0xFF) == 4 ? 4 : 3) : 0;
+        // D3DTTFF_PROJECTED divides by the last coordinate: the third when three coordinates are passed, otherwise the fourth
+        po.projected[i] = (flags & 0x100) ? ((flags & 0xFF) == 3 ? 3 : 4) : 0;
         po_key |= uint64_t(po.projected[i] == 4 ? 2 : po.projected[i] == 3 ? 1 : 0) << (16 + 2 * i);
     }
     if (st.rs[rs_alphatestenable] && st.rs[rs_alphafunc] != cmp_always) po.alpha_func = uint8_t(st.rs[rs_alphafunc]);
     if (st.rs[rs_fogenable]) {
-        if (st.rs[rs_fogtablemode] == 0) po.fog_mode = 1;
+        if (st.rs[rs_fogtablemode] == 0 || vertex_fog_from_fixed_function) po.fog_mode = 1;
         else note_unsupported("table fog with a pixel shader");
     }
     po_key |= uint64_t(po.alpha_func) << 32 | uint64_t(po.fog_mode) << 36;
-    out.vertex = translate(*vs, st.vertex_shader, vo, vo.bgra_attributes | (1ull << 40));
+    out.vertex = translate(*vs, st.vertex_shader, vo, (uint64_t(vo.bgra_attributes) + 1) * 0x9E3779B97F4A7C15ull ^ (uint64_t(vo.uint_attributes) + 3) * 0xC2B2AE3D27D4EB4Full ^ (uint64_t(vo.sint_attributes) + 7) * 0x165667B19E3779F9ull);
     out.pixel = translate(*ps, st.pixel_shader, po, po_key | (1ull << 41));
     if (!out.vertex || !out.pixel) return out;
-    const uint64_t key = (vs->hash * 0x9E3779B97F4A7C15ull) ^ (ps->hash + 0x7F4A7C15ull + (vs->hash << 6)) ^ (uint64_t(vo.bgra_attributes) << 7) ^ (po_key * 0xC2B2AE3D27D4EB4Full);
+    const uint64_t key = (vs->hash * 0x9E3779B97F4A7C15ull) ^ (ps->hash + 0x7F4A7C15ull + (vs->hash << 6)) ^ (uint64_t(vo.bgra_attributes) << 7) ^ (uint64_t(vo.uint_attributes) * 0x2545F4914F6CDD1Dull) ^ (uint64_t(vo.sint_attributes) * 0x9E3779B97F4A7C15ull) ^ (po_key * 0xC2B2AE3D27D4EB4Full);
     auto found = programs_.find(key);
     if (found == programs_.end()) {
         gpu::ProgramDesc desc{key, out.vertex, out.pixel};
@@ -212,12 +215,10 @@ void LayerImpl::fill_pixel_fixup(float* fix) const {
     fix[4] = float((c >> 16) & 0xFF) / 255.0f; fix[5] = float((c >> 8) & 0xFF) / 255.0f; fix[6] = float(c & 0xFF) / 255.0f; fix[7] = float(c >> 24) / 255.0f;
 }
 
-void LayerImpl::collect_constants(std::vector<std::byte>& out, bool vertex, const shader::TranslateResult& tr, const float* fix) {
+void LayerImpl::collect_constants(std::vector<std::byte>& out, const Float4* regs, uint32_t available, const shader::TranslateResult& tr, const float* fix) {
     const uint32_t count = tr.constant_registers;
     out.resize(size_t(2 + count) * 16);
     std::memcpy(out.data(), fix, 32);
-    const Float4* regs = vertex ? state_.vs_constants.data() : state_.ps_constants.data();
-    const uint32_t available = vertex ? uint32_t(state_.vs_constants.size()) : uint32_t(state_.ps_constants.size());
     const uint32_t n = std::min(count, available);
     std::memcpy(out.data() + 32, regs, size_t(n) * 16);
     if (n < count) std::memset(out.data() + 32 + size_t(n) * 16, 0, size_t(count - n) * 16);
@@ -302,17 +303,37 @@ void LayerImpl::draw_up(uint32_t primitive, uint32_t primitive_count, Bytes vert
 void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_vertex, uint32_t vertex_count, uint32_t start_index, uint32_t primitive_count,
                         const uint8_t* up_vertices, uint32_t up_bytes, uint32_t up_stride) {
     ++stats_.draws;
+    if (stats_.draws - 1 < options_.debug_draw_first || stats_.draws - 1 > options_.debug_draw_last) return;
     if (primitive < 8) ++stats_.draw_by_primitive[primitive];
+    if (options_.debug_draw_first == options_.debug_draw_last && options_.log) {
+        char text[512];
+        std::snprintf(text, sizeof text, "DRAW %llu: prim %u base %d min %u count %u start %u primcount %u up %d stride %u vs %u ps %u decl %u fvf %x ib %u streams: %u/%u/%u %u/%u/%u",
+                      (unsigned long long)(stats_.draws - 1), primitive, base_vertex, min_vertex, vertex_count, start_index, primitive_count, up_vertices ? 1 : 0, up_stride, state_.vertex_shader, state_.pixel_shader,
+                      state_.declaration, state_.fvf, state_.index_buffer, state_.streams[0].buffer, state_.streams[0].offset, state_.streams[0].stride, state_.streams[1].buffer, state_.streams[1].offset, state_.streams[1].stride);
+        log(text);
+        std::snprintf(text, sizeof text, "  states: z %u zw %u zfunc %u cull %u ablend %u src %u dst %u atest %u afunc %u aref %u cw %u stencil %u clipplane %u fog %u depthbias %x rt0 %u ds %u vp %u,%u %ux%u %f-%f",
+                      state_.rs[rs_zenable], state_.rs[rs_zwriteenable], state_.rs[rs_zfunc], state_.rs[rs_cullmode], state_.rs[rs_alphablendenable], state_.rs[rs_srcblend], state_.rs[rs_destblend], state_.rs[rs_alphatestenable],
+                      state_.rs[rs_alphafunc], state_.rs[rs_alpharef], state_.rs[rs_colorwriteenable], state_.rs[rs_stencilenable], state_.rs[rs_clipplaneenable], state_.rs[rs_fogenable], state_.rs[rs_depthbias],
+                      state_.render_targets[0], state_.depth_stencil, state_.viewport.x, state_.viewport.y, state_.viewport.width, state_.viewport.height, state_.viewport.min_z, state_.viewport.max_z);
+        log(text);
+        if (const Declaration* dd = declarations_.get(state_.declaration)) for (const auto& e : dd->elements) {
+            std::snprintf(text, sizeof text, "  element stream %u offset %u type %u usage %u/%u", e.stream, e.offset, e.type, e.usage, e.usage_index);
+            log(text);
+        }
+        for (uint32_t i = 0; i < 4; ++i) if (const TextureObject* t = textures_.get(state_.textures[i])) {
+            std::snprintf(text, sizeof text, "  tex%u: id %u %ux%u levels %u usage %u fmt %u cube %d | filter min %u mag %u mip %u addr %u/%u | tss flags %x tci %x", i, state_.textures[i], t->width, t->height, t->levels, t->usage, t->format, t->cube ? 1 : 0,
+                          state_.ss[i][ss_minfilter], state_.ss[i][ss_magfilter], state_.ss[i][ss_mipfilter], state_.ss[i][ss_addressu], state_.ss[i][ss_addressv], state_.tss[i][tss_texturetransformflags], state_.tss[i][tss_texcoordindex]);
+            log(text);
+        }
+        if (auto* v = shaders_.get(state_.vertex_shader)) log(std::string("VS:") + char(10) + shader::disassemble(v->program));
+        if (auto* p = shaders_.get(state_.pixel_shader)) log(std::string("PS:") + char(10) + shader::disassemble(p->program));
+    }
     const bool up = up_vertices != nullptr;
     if (!primitive_count || primitive < 1 || primitive > 6) return;
 
     ShaderObject* vs = shaders_.get(state_.vertex_shader);
     ShaderObject* ps = shaders_.get(state_.pixel_shader);
-    if (!vs || !ps) {   // the fixed-function pipeline is generated from the state: not implemented yet
-        ++stats_.draws_fixed_function; ++stats_.draws_skipped;
-        note_unsupported("draw with the fixed-function pipeline");
-        return;
-    }
+    const bool ff_vertex = vs == nullptr, ff_pixel = ps == nullptr;
     ensure_pass();
     if (!pass_open_) { ++stats_.draws_skipped; return; }
 
@@ -324,8 +345,15 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         decl = &cached->second;
     }
     if (!decl) { ++stats_.draws_skipped; return; }
+    if (ff_vertex || ff_pixel) {
+        ++stats_.draws_fixed_function;
+        if (options_.log && stats_.draws_fixed_function <= 4) { char t[96]; std::snprintf(t, sizeof t, "fixed-function draw number %llu (draw index %llu)", (unsigned long long)stats_.draws_fixed_function, (unsigned long long)(stats_.draws - 1)); log(t); }
+        if (state_.rs[rs_lighting] && ff_vertex) note_unsupported("fixed-function lighting (drawn unlit with the vertex colours)");
+        if (ff_vertex) vs = fixed_function_vertex(*decl);
+        if (ff_pixel) ps = fixed_function_pixel();
+    }
 
-    DrawProgram program = select_program(decl, state_);
+    DrawProgram program = select_program(decl, state_, vs, ps, ff_vertex);
     if (!program.ok) { ++stats_.draws_skipped; return; }
 
     gpu::DrawDesc d;
@@ -341,7 +369,7 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         const uint32_t vertices = std::min(up_bytes / up_stride, std::max(index_count, 1u));
         const uint32_t bytes = std::max(vertices * up_stride, 1u);
         MutableBytes out;
-        auto r = gpu_.allocate_transient(bytes, up_stride, out);
+        auto r = gpu_.allocate_transient(bytes, up_stride, false, out);
         if (!r) { ++stats_.draws_skipped; return; }
         std::memcpy(out.data(), up_vertices, std::min<uint32_t>(bytes, up_bytes));
         ++stats_.transient_copies; stats_.transient_bytes += bytes;
@@ -353,7 +381,7 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
             const bool wide = vertices > 65535;
             const uint32_t isz = wide ? 4 : 2;
             MutableBytes iout;
-            auto ir = gpu_.allocate_transient(triangles * 3 * isz, isz, iout);
+            auto ir = gpu_.allocate_transient(triangles * 3 * isz, isz, true, iout);
             if (!ir) { ++stats_.draws_skipped; return; }
             for (uint32_t t = 0; t < triangles; ++t) {
                 const uint32_t tri[3] = {0, t + 1, t + 2};
@@ -429,7 +457,7 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
             const bool wide = index32;
             const uint32_t out_isz = wide ? 4 : 2;
             MutableBytes iout;
-            auto ir = gpu_.allocate_transient(out_count * out_isz, out_isz, iout);
+            auto ir = gpu_.allocate_transient(out_count * out_isz, out_isz, true, iout);
             if (!ir) { ++stats_.draws_skipped; return; }
             auto fetch = [&](uint32_t i) -> uint32_t {
                 uint32_t v;
@@ -468,13 +496,20 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
     // ---- constants
     float vfix[8], pfix[8];
     fill_vertex_fixup(vfix, pass_attachments_);
+    const bool robust_equal = ff_vertex && state_.rs[rs_zfunc] == cmp_equal;
+    if (robust_equal) vfix[5] -= 1e-5f;   // see below: a fixed-function redraw cannot reproduce the depth of a shader pass bit for bit
     fill_pixel_fixup(pfix);
-    collect_constants(vs_constants_scratch_, true, *program.vertex, vfix);
-    collect_constants(ps_constants_scratch_, false, *program.pixel, pfix);
+    if (ff_vertex) { fill_ff_vertex_constants(ff_constants_); collect_constants(vs_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.vertex, vfix); }
+    else collect_constants(vs_constants_scratch_, state_.vs_constants.data(), uint32_t(state_.vs_constants.size()), *program.vertex, vfix);
+    if (ff_pixel) { fill_ff_pixel_constants(ff_constants_); collect_constants(ps_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.pixel, pfix); }
+    else collect_constants(ps_constants_scratch_, state_.ps_constants.data(), uint32_t(state_.ps_constants.size()), *program.pixel, pfix);
     d.vertex_constants = Bytes(vs_constants_scratch_.data(), vs_constants_scratch_.size());
     d.pixel_constants = Bytes(ps_constants_scratch_.data(), ps_constants_scratch_.size());
 
     fill_states(d);
+    // D3DCMP_EQUAL redraws through the fixed-function path (the game redraws geometry with its own transform): the transform of the first pass cannot be
+    // reproduced bit for bit, so the test becomes "less or equal" and the redraw is pulled a hair towards the camera.
+    if (robust_equal) d.depth_stencil.depth_func = gpu::Compare::less_equal;
     gpu_.draw(d);
 }
 

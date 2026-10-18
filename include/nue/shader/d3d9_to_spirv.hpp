@@ -22,6 +22,9 @@ struct TranslateOptions {
     bool clamp_ps1_constants = true;
     // Vertex shaders: bit n set = the input bound to bgfx attribute n holds a D3DCOLOR (stored B,G,R,A): the shader reads it as R,G,B,A.
     uint32_t bgra_attributes = 0;
+    // Vertex shaders: attributes whose data the GPU hands over as integers (D3DDECLTYPE_UBYTE4: unsigned, SHORT2/SHORT4: signed), which the shader
+    // converts to float as Direct3D 9 does. Bit n = bgfx attribute n.
+    uint32_t uint_attributes = 0, sint_attributes = 0;
     // Pixel shaders: alpha test after the shader (D3DCMP_*: 0 = off, 1 never ... 8 always; reference in fix0.x) and fog (0 = off, 1 = linear from the
     // interpolated fog factor of the vertex stage, which is already the blend factor; fix0.yzw hold start, end, density for table fog, fix1 the colour).
     uint8_t alpha_func = 0;
@@ -37,6 +40,7 @@ struct TranslateResult {
     Stage stage = Stage::vertex;
     uint32_t constant_registers = 0;       // float constants the uniform block holds (the "c" array length)
     uint32_t sampler_mask = 0;             // stages sampled
+    uint8_t sampler_dim[16] = {};          // 1 = 2D, 2 = 3D, 3 = cube, per sampled stage
     std::vector<VertexInput> inputs;       // vertex shaders
     uint32_t interpolants_read = 0;        // pixel shaders: bit 0/1 = v0/v1 (colours), bit 2+n = texcoord n
     std::string error;

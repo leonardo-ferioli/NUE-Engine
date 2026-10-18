@@ -1,0 +1,125 @@
+#include "shader_container.hpp"
+#include "nue/shader/cross_compile.hpp"
+#include <chrono>
+#include <cstring>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+namespace nue::gpu {
+namespace {
+
+void put8(std::vector<uint8_t>& v, uint8_t x) { v.push_back(x); }
+void put16(std::vector<uint8_t>& v, uint16_t x) { v.push_back(uint8_t(x)); v.push_back(uint8_t(x >> 8)); }
+void put32(std::vector<uint8_t>& v, uint32_t x) { for (int i = 0; i < 4; ++i) v.push_back(uint8_t(x >> (8 * i))); }
+
+constexpr uint8_t kUniformFragmentBit = 0x10, kUniformSamplerBit = 0x20;
+constexpr uint8_t kVec4 = 2;   // bgfx::UniformType::Vec4 (Sampler = 0, End = 1, Vec4 = 2)
+
+struct Uniform { std::string name; uint8_t type; uint8_t num; uint16_t reg_index, reg_count; uint8_t tex_dimension; };
+
+std::vector<uint8_t> assemble(bool fragment, const std::vector<Uniform>& uniforms, const uint8_t* code, size_t code_size, const std::vector<uint16_t>& attributes, uint16_t cbuffer_size) {
+    std::vector<uint8_t> out;
+    put8(out, fragment ? 'F' : 'V'); put8(out, 'S'); put8(out, 'H'); put8(out, 13);
+    put32(out, 0); put32(out, 0);        // input / output hashes (the stages are linked by location)
+    put32(out, 0); put32(out, 0);        // raw SRV / UAV bindings
+    put16(out, uint16_t(uniforms.size()));
+    for (const Uniform& u : uniforms) {
+        put8(out, uint8_t(u.name.size()));
+        out.insert(out.end(), u.name.begin(), u.name.end());
+        put8(out, uint8_t(u.type | (fragment ? kUniformFragmentBit : 0)));
+        put8(out, u.num);
+        put16(out, u.reg_index);
+        put16(out, u.reg_count);
+        put8(out, 0);                    // texture component: float
+        put8(out, u.tex_dimension);
+        put16(out, 0);                   // texture format: unknown
+    }
+    put32(out, uint32_t(code_size));
+    out.insert(out.end(), code, code + code_size);
+    put8(out, 0);
+    put8(out, uint8_t(attributes.size()));
+    for (uint16_t a : attributes) put16(out, a);
+    put16(out, cbuffer_size);
+    return out;
+}
+
+uint8_t dimension_id(uint32_t dim) { return dim == 3 ? 4 : dim == 2 ? 6 : 2; }   // cube, 3D, 2D (bgfx TextureDimension ids)
+
+#ifdef _WIN32
+struct Blob { struct VT { void* qi; ULONG(__stdcall* add_ref)(Blob*); ULONG(__stdcall* release)(Blob*); void*(__stdcall* pointer)(Blob*); SIZE_T(__stdcall* size)(Blob*); }* vt; };
+using D3DCompileFn = HRESULT(__stdcall*)(const void*, SIZE_T, const char*, const void*, void*, const char*, const char*, UINT, UINT, Blob**, Blob**);
+
+D3DCompileFn d3d_compile() {
+    static D3DCompileFn fn = [] {
+        HMODULE m = LoadLibraryA("d3dcompiler_47.dll");
+        return m ? reinterpret_cast<D3DCompileFn>(GetProcAddress(m, "D3DCompile")) : nullptr;
+    }();
+    return fn;
+}
+#endif
+
+double ms_since(std::chrono::steady_clock::time_point t0) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); }
+
+}  // namespace
+
+uint16_t bgfx_attribute_id(uint32_t attribute) {
+    static const uint16_t ids[] = {0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0018, 0x0019, 0x000e, 0x000f,
+                                   0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x001a, 0x001b, 0x001c, 0x001d, 0x001e, 0x001f, 0x0020, 0x0021};
+    return attribute < sizeof(ids) / sizeof(ids[0]) ? ids[attribute] : 0xFFFF;
+}
+
+bool build_container(const shader::TranslateResult& t, ShaderTarget target, ContainerResult& out) {
+    const bool fragment = t.stage == shader::Stage::pixel;
+    const uint16_t count = uint16_t(shader::TranslateOptions::fixup_registers + t.constant_registers);
+    std::vector<Uniform> uniforms;
+    uniforms.push_back({fragment ? "u_ps" : "u_vs", kVec4, uint8_t(std::min<uint32_t>(count, 255)), 0, count, 0});
+    for (uint32_t s = 0; s < 16; ++s) {
+        if (!(t.sampler_mask & (1u << s))) continue;
+        const uint32_t dim = t.sampler_dim[s];
+        uniforms.push_back({"s_tex" + std::to_string(s), uint8_t(kUniformSamplerBit), 1, uint16_t(target == ShaderTarget::spirv ? 2 + s : s), 0, dimension_id(dim)});
+    }
+    std::vector<uint16_t> attributes;
+    if (!fragment) for (const auto& in : t.inputs) attributes.push_back(bgfx_attribute_id(in.attribute));
+
+    if (target == ShaderTarget::spirv) {
+        out.bytes = assemble(fragment, uniforms, reinterpret_cast<const uint8_t*>(t.spirv.data()), t.spirv.size() * 4, attributes, uint16_t(count * 16));
+        return true;
+    }
+    if (target == ShaderTarget::dxbc) {
+#ifdef _WIN32
+        std::string hlsl;
+        auto t0 = std::chrono::steady_clock::now();
+        shader::CrossOptions co;
+        if (!shader::cross_compile(t.spirv, t.stage, shader::Target::hlsl50, co, hlsl, out.error)) return false;
+        out.cross_ms = ms_since(t0);
+        D3DCompileFn compile = d3d_compile();
+        if (!compile) { out.error = "d3dcompiler_47.dll not found"; return false; }
+        t0 = std::chrono::steady_clock::now();
+        Blob* code = nullptr; Blob* errors = nullptr;
+        const HRESULT hr = compile(hlsl.data(), hlsl.size(), "nue", nullptr, nullptr, "main", fragment ? "ps_5_0" : "vs_5_0", 0, 0, &code, &errors);
+        out.compile_ms = ms_since(t0);
+        if (FAILED(hr) || !code) {
+            out.error = "D3DCompile failed: ";
+            if (errors) out.error += std::string(static_cast<const char*>(errors->vt->pointer(errors)), errors->vt->size(errors));
+            out.error += "\n" + hlsl;
+            if (errors) errors->vt->release(errors);
+            return false;
+        }
+        out.bytes = assemble(fragment, uniforms, static_cast<const uint8_t*>(code->vt->pointer(code)), code->vt->size(code), attributes, uint16_t(count * 16));
+        code->vt->release(code);
+        if (errors) errors->vt->release(errors);
+        return true;
+#else
+        out.error = "DXBC needs Windows";
+        return false;
+#endif
+    }
+    out.error = "shader target not implemented";
+    return false;
+}
+
+}  // namespace nue::gpu

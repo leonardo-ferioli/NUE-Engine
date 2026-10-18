@@ -15,11 +15,12 @@ class NullGpu final : public gpu::Gpu {
 public:
     NullGpu();
     const gpu::GpuCaps& caps() override { return capabilities; }
-    Result<gpu::Buffer> create_static_buffer(Bytes initial, bool index_buffer) override;
-    Result<gpu::Buffer> allocate_transient(uint32_t bytes, uint32_t stride, MutableBytes& out) override;
+    Result<gpu::Buffer> create_static_buffer(Bytes initial, gpu::BufferKind kind) override;
+    Result<gpu::Buffer> allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) override;
     Result<gpu::Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube) override;
     void update_texture(gpu::Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<gpu::Program> create_program(const gpu::ProgramDesc& desc) override;
+    void copy_texture(gpu::Texture dst, const int32_t* dst_rect4, gpu::Texture src, const int32_t* src_rect4, bool linear) override;
     void begin_pass(const gpu::PassDesc&) override;
     void draw(const gpu::DrawDesc& state) override;
     void end_pass() override { mix(0xE1); ++pass_ends; }
@@ -32,7 +33,7 @@ public:
 
     gpu::GpuCaps capabilities;
     uint32_t next_id = 0;
-    uint64_t draws = 0, frames = 0, passes = 0, pass_ends = 0, textures_created = 0, programs_created = 0, texture_updates = 0, texture_bytes = 0, destroyed = 0, buffers_created = 0,
+    uint64_t copies = 0, draws = 0, frames = 0, passes = 0, pass_ends = 0, textures_created = 0, programs_created = 0, texture_updates = 0, texture_bytes = 0, destroyed = 0, buffers_created = 0,
              static_buffer_bytes = 0, transient_bytes = 0, transient_allocations = 0, vertices_drawn = 0, indices_drawn = 0, constant_bytes = 0;
     uint64_t call_hash = 0xcbf29ce484222325ull;
     gpu::Program last_draw_program;

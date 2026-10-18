@@ -8,18 +8,19 @@
 namespace nue::shader {
 
 // bgfx::Attrib::Enum (vendored bgfx, include/bgfx/defines.h order): Position 0, Normal 1, Tangent 2, Bitangent 3, Color0..3 = 4..7, Indices 8,
-// Weight 9, TexCoord0..13 = 10..23. The point-size usage has no attribute of its own and travels as the last texture coordinate.
+// Weight 9, TexCoord0..15 = 10..25. The point-size usage has no attribute of its own and travels as the last texture coordinate.
 uint32_t bgfx_attribute_for(uint32_t usage, uint32_t usage_index) {
     switch (usage) {
     case 0: return 0;                                        // position
     case 1: return 9;                                        // blend weight
     case 2: return 8;                                        // blend indices
     case 3: return 1;                                        // normal
-    case 5: return 10 + std::min<uint32_t>(usage_index, 13); // texcoord
+    case 9: return 0;                                        // position (pre-transformed)
+    case 5: return 10 + std::min<uint32_t>(usage_index, 15); // texcoord
     case 6: return 2;                                        // tangent
     case 7: return 3;                                        // binormal
     case 10: return 4 + std::min<uint32_t>(usage_index, 3);  // colour
-    default: return 23;
+    default: return 25;
     }
 }
 
@@ -52,6 +53,7 @@ struct Lowering {
     std::map<uint32_t, std::array<float, 4>> defs;           // def c#
     std::map<uint32_t, VertexInput> vs_inputs;               // by register
     uint32_t attribute_of_register[16] = {};
+    uint32_t integer_input[32] = {};   // 0 float, 1 unsigned integer, 2 signed integer (by bgfx attribute)
     uint32_t image_var[16] = {}, sampler_var[16] = {};
     uint32_t image_dim[16] = {};
     uint32_t addr_var = 0;
@@ -104,7 +106,10 @@ struct Lowering {
             static const uint32_t index_of[16] = {0, 0, 0, 0, 0, 0, 1, 0, 1, 2, 3, 4, 5, 6, 7, 1};
             in.usage = usage_of[reg & 15]; in.usage_index = index_of[reg & 15]; in.attribute = bgfx_attribute_for(in.usage, in.usage_index);
         }
-        const uint32_t var = b.global_variable(vec4, Input, bgfx_attribute_name(in.attribute));
+        const bool is_uint = in.attribute < 32 && ((o.uint_attributes >> in.attribute) & 1), is_sint = in.attribute < 32 && ((o.sint_attributes >> in.attribute) & 1);
+        const uint32_t input_type = is_uint ? b.type_vec(b.type_uint(), 4) : is_sint ? b.type_vec(b.type_int(), 4) : vec4;
+        integer_input[in.attribute < 32 ? in.attribute : 0] = is_uint ? 1 : is_sint ? 2 : 0;
+        const uint32_t var = b.global_variable(input_type, Input, bgfx_attribute_name(in.attribute));
         b.decorate(var, Location, {in.attribute});
         interface_ids.push_back(var);
         out.inputs.push_back(in);
@@ -123,6 +128,7 @@ struct Lowering {
             b.decorate(sampler_var[stage], DescriptorSet, {0});
             b.decorate(sampler_var[stage], Binding, {18 + stage});
             out.sampler_mask |= 1u << stage;
+            out.sampler_dim[stage] = uint8_t(dim);
         }
         return image_var[stage];
     }
@@ -156,8 +162,13 @@ struct Lowering {
         case RegType::const_float: return constant_value(s.index);
         case RegType::input: {
             if (ps()) return b.load(vec4, interpolant(RegType::input, s.index));
-            uint32_t value = b.load(vec4, vertex_input(s.index));
+            const uint32_t var = vertex_input(s.index);
             const uint32_t attribute = attribute_of_register[s.index];
+            const uint32_t kind = attribute < 32 ? integer_input[attribute] : 0;
+            uint32_t value;
+            if (kind == 1) value = b.emit(ConvertUToF, vec4, {b.load(b.type_vec(b.type_uint(), 4), var)});
+            else if (kind == 2) value = b.emit(ConvertSToF, vec4, {b.load(b.type_vec(b.type_int(), 4), var)});
+            else value = b.load(vec4, var);
             if (attribute < 32 && ((o.bgra_attributes >> attribute) & 1)) value = b.emit(VectorShuffle, vec4, {value, value, 2u, 1u, 0u, 3u});
             return value;
         }
@@ -278,7 +289,14 @@ struct Lowering {
         case op_max: { auto a = source(in.src[0]), c = source(in.src[1]); write(in.dst, b.ext(vec4, FMax, {a, c})); return; }
         case op_rcp: { auto a = component(source(in.src[0]), 0); write(in.dst, replicate(b.emit(FDiv, f32, {b.const_float(1.0f), a}))); return; }
         case op_rsq: { auto a = b.ext(f32, FAbs, {component(source(in.src[0]), 0)}); write(in.dst, replicate(b.ext(f32, InverseSqrt, {a}))); return; }
-        case op_exp: case op_expp: { auto a = component(source(in.src[0]), 0); write(in.dst, replicate(b.ext(f32, Exp2, {a}))); return; }
+        case op_exp: case op_expp: {
+            auto a = component(source(in.src[0]), 0);
+            if (in.opcode == op_expp && !ps() && sm1()) {   // expp of vertex shader 1.x: the vector form (2^floor(x), x - floor(x), 2^x, 1); exp itself is scalar
+                const uint32_t fl = b.ext(f32, Floor, {a});
+                write(in.dst, b.emit(CompositeConstruct, vec4, {b.ext(f32, Exp2, {fl}), b.emit(FSub, f32, {a, fl}), b.ext(f32, Exp2, {a}), b.const_float(1.0f)}));
+            } else write(in.dst, replicate(b.ext(f32, Exp2, {a})));
+            return;
+        }
         case op_log: case op_logp: { auto a = b.ext(f32, FAbs, {component(source(in.src[0]), 0)}); write(in.dst, replicate(b.ext(f32, Log2, {a}))); return; }
         case op_frc: write(in.dst, b.ext(vec4, Fract, {source(in.src[0])})); return;
         case op_slt: { auto a = source(in.src[0]), c = source(in.src[1]); write(in.dst, compare_select(FOrdLessThan, a, c, splat(1.0f), splat(0.0f))); return; }

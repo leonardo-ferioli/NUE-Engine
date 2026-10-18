@@ -1,0 +1,35 @@
+// The bgfx adapter: gpu::Gpu on top of bgfx (Direct3D 11 / 12, Vulkan, OpenGL (ES), Metal). The game's frame is rendered into an offscreen
+// colour target of the game's own size; present() draws it to the window (scaling is free) and calls bgfx::frame().
+#pragma once
+#include "nue/gpu.hpp"
+#include <memory>
+#include <string>
+
+namespace nue::gpu {
+
+enum class Renderer { automatic, d3d11, d3d12, vulkan, opengl, metal, noop };
+
+struct BgfxOptions {
+    void* window = nullptr;                  // native window handle (HWND on Windows); null with Renderer::noop
+    uint32_t window_width = 1280, window_height = 720;
+    Renderer renderer = Renderer::automatic;
+    bool vsync = false;
+    bool single_threaded = true;             // call bgfx::renderFrame() before init: no render thread (deterministic, easy to debug)
+    uint32_t transient_vertex_mb = 64, transient_index_mb = 16;
+};
+
+struct BgfxStats {
+    uint64_t programs = 0, shader_builds = 0, views = 0, draws = 0;
+    double cross_ms = 0, compile_ms = 0;     // SPIR-V -> HLSL/GLSL/MSL and the shader compiler, accumulated
+    const char* renderer_name = "";
+};
+
+class BgfxGpu : public Gpu {
+public:
+    virtual const BgfxStats& stats() const = 0;
+    virtual void set_window_size(uint32_t width, uint32_t height) = 0;
+};
+
+std::unique_ptr<BgfxGpu> create_bgfx_gpu(const BgfxOptions& options, std::string& error);
+
+}  // namespace nue::gpu

@@ -21,6 +21,7 @@ inline constexpr Texture backbuffer{0xFFFFFFFFu};
 enum class Format : uint8_t {
     rgba8, bgra8, r5g6b5, a4r4g4b4, a1r5g5b5, r8, a8, rg8, rgba16f, rgba32f, r16f, r32f, rg16f, rg32f, d16, d24s8, d32f, bc1, bc2, bc3, astc4x4, etc2_rgba8, count
 };
+enum class BufferKind : uint8_t { vertex, index16, index32 };
 enum class Topology : uint8_t { points, lines, line_strip, triangles, triangle_strip };   // fans are converted to lists by the layer
 
 // Vertex elements keep the Direct3D 9 numbering of type (D3DDECLTYPE_*) and semantic (D3DDECLUSAGE_*): they are the shader's input contract and
@@ -99,6 +100,7 @@ struct DrawDesc {
 
 struct PassDesc {
     Texture colors[4];
+    uint8_t color_layer[4] = {}, color_mip[4] = {};            // cube face / mip level of each colour attachment
     Texture depth_stencil;
     int32_t rect[4] = {};                                    // x, y, width, height of the area drawn to and cleared (zeros: the whole attachment)
     bool clear_color = false, clear_depth = false, clear_stencil = false;
@@ -120,13 +122,15 @@ class Gpu {   // game thread; the backend's render thread hides behind it
 public:
     virtual ~Gpu() = default;
     virtual const GpuCaps& caps() = 0;
-    virtual Result<Buffer>  create_static_buffer(Bytes initial, bool index_buffer) = 0;   // immutable after creation
-    // Memory valid for this frame only (dynamic data, user-pointer draws): `bytes` of vertices of `stride` bytes (or of indices when stride is 2 or 4).
+    virtual Result<Buffer>  create_static_buffer(Bytes initial, BufferKind kind) = 0;   // immutable after creation
+    // Memory valid for this frame only (dynamic data, user-pointer draws): `bytes` of vertices of `stride` bytes, or of indices (`index`, stride 2 or 4).
     // `out` receives the span to fill. Draw it with offset 0.
-    virtual Result<Buffer>  allocate_transient(uint32_t bytes, uint32_t stride, MutableBytes& out) = 0;
+    virtual Result<Buffer>  allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) = 0;
     virtual Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube) = 0;
     virtual void            update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) = 0;
     virtual Result<Program> create_program(const ProgramDesc&) = 0;
+    // Copies (and, when the sizes differ, stretches) a rectangle {x, y, w, h} of `src` into `dst`; null rectangles are the whole texture.
+    virtual void copy_texture(Texture dst, const int32_t* dst_rect4, Texture src, const int32_t* src_rect4, bool linear) = 0;
     virtual void begin_pass(const PassDesc&) = 0;
     virtual void draw(const DrawDesc&) = 0;
     virtual void end_pass() = 0;

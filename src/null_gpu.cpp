@@ -42,15 +42,16 @@ void NullGpu::mix_bytes(const void* data, size_t size) {
     mix(tail ^ (uint64_t(size) << 56));
 }
 
-Result<gpu::Buffer> NullGpu::create_static_buffer(Bytes initial, bool index_buffer) {
+Result<gpu::Buffer> NullGpu::create_static_buffer(Bytes initial, gpu::BufferKind kind) {
     ++buffers_created;
     static_buffer_bytes += initial.size();
-    mix(0xB1 + index_buffer);
+    mix(0xB1 + uint64_t(kind));
     mix_bytes(initial.data(), initial.size());
     return {Status::ok, gpu::Buffer{++next_id}};
 }
 
-Result<gpu::Buffer> NullGpu::allocate_transient(uint32_t bytes, uint32_t stride, MutableBytes& out) {
+Result<gpu::Buffer> NullGpu::allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) {
+    mix(index);
     transient.emplace_back(bytes);
     out = MutableBytes(transient.back().data(), transient.back().size());
     transient_bytes += bytes;
@@ -92,10 +93,17 @@ Result<gpu::Program> NullGpu::create_program(const gpu::ProgramDesc& desc) {
     return {Status::ok, gpu::Program{++next_id}};
 }
 
+void NullGpu::copy_texture(gpu::Texture dst, const int32_t* dst_rect4, gpu::Texture src, const int32_t* src_rect4, bool linear) {
+    mix(0xC3); mix(dst.value); mix(src.value); mix(linear);
+    for (int i = 0; i < 4; ++i) { mix(dst_rect4 ? uint32_t(dst_rect4[i]) : 0xFFFFFFFFu); mix(src_rect4 ? uint32_t(src_rect4[i]) : 0xFFFFFFFFu); }
+    ++copies;
+}
+
 void NullGpu::begin_pass(const gpu::PassDesc& pass) {
     ++passes;
     mix(0xE0);
     for (const auto& c : pass.colors) mix(c.value);
+    for (int i = 0; i < 4; ++i) mix(uint64_t(pass.color_layer[i]) | uint64_t(pass.color_mip[i]) << 8);
     mix(pass.depth_stencil.value);
     mix(uint64_t(pass.clear_color) | uint64_t(pass.clear_depth) << 1 | uint64_t(pass.clear_stencil) << 2);
     for (int i = 0; i < 4; ++i) mix(uint32_t(pass.rect[i]));

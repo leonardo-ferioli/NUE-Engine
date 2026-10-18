@@ -19,7 +19,7 @@ enum Op : uint16_t {
     Decorate = 71, MemberDecorate = 72,
     VectorShuffle = 79, CompositeConstruct = 80, CompositeExtract = 81,
     SampledImage = 86, ImageSampleImplicitLod = 87, ImageSampleProjImplicitLod = 91,
-    ConvertFToS = 110, ConvertSToF = 111,
+    ConvertFToS = 110, ConvertSToF = 111, ConvertUToF = 112,
     IAdd = 128, FNegate = 127, FAdd = 129, FSub = 131, FMul = 133, FDiv = 136, Dot = 148,
     LogicalOr = 166, LogicalAnd = 167, LogicalNot = 168, Select = 169, FOrdEqual = 180, FOrdNotEqual = 182, FOrdLessThan = 184, FOrdGreaterThan = 186, FOrdLessThanEqual = 188, FOrdGreaterThanEqual = 190, Any = 154,
     SelectionMerge = 247, Label = 248, Branch = 249, BranchConditional = 250, Kill = 252, Return = 253
@@ -40,6 +40,7 @@ public:
     uint32_t type_bool() { return cached("bool", [&](uint32_t id) { inst(types_, spv::TypeBool, {id}); }); }
     uint32_t type_float() { return cached("f32", [&](uint32_t id) { inst(types_, spv::TypeFloat, {id, 32}); }); }
     uint32_t type_int() { return cached("i32", [&](uint32_t id) { inst(types_, spv::TypeInt, {id, 32, 1}); }); }
+    uint32_t type_uint() { return cached("u32", [&](uint32_t id) { inst(types_, spv::TypeInt, {id, 32, 0}); }); }
     uint32_t type_vec(uint32_t component, uint32_t count) {
         return cached("vec" + std::to_string(component) + "x" + std::to_string(count), [&](uint32_t id) { inst(types_, spv::TypeVector, {id, component, count}); });
     }

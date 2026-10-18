@@ -16,6 +16,8 @@ struct LayerOptions {
     bool keep_texture_copies = false;
     // Dump the first N translated shader pairs' failures to the log callback.
     void (*log)(const char* message) = nullptr;
+    // Debugging: only draws numbered first..last (counted over the whole replay) are executed.
+    uint64_t debug_draw_first = 0, debug_draw_last = ~0ull;
 };
 
 // What the layer did, for tests, the replay tool and the performance work.
@@ -31,6 +33,7 @@ struct LayerStats {
 class Layer : public Device {
 public:
     virtual const LayerStats& stats() const = 0;
+    virtual void flush() = 0;                 // closes the open pass so that everything drawn so far is submitted to the Gpu
     virtual std::string report() const = 0;   // human-readable summary of unsupported features met so far
 };
 

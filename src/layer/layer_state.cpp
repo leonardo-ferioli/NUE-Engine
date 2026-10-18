@@ -176,10 +176,11 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
         switch (s->kind) {
         case SurfaceObject::Kind::backbuffer: tex = gpu::backbuffer; break;
         case SurfaceObject::Kind::render_target: tex = s->gpu; break;
-        case SurfaceObject::Kind::texture_level: if (auto* t = textures_.get(s->texture)) tex = t->gpu; break;
+        case SurfaceObject::Kind::texture_level: if (auto* t = textures_.get(s->texture)) { tex = t->gpu; } break;
         default: break;
         }
         a.color[i] = tex;
+        if (s->kind == SurfaceObject::Kind::texture_level) { a.layer[i] = uint8_t(s->face); a.mip[i] = uint8_t(s->level); }
         if (i == 0) { a.width = s->width; a.height = s->height; }
     }
     a.valid = bool(a.color[0]);
@@ -188,7 +189,7 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
 }
 
 bool LayerImpl::same_attachments(const gpu::PassDesc& p, const Attachment& a) const {
-    for (int i = 0; i < 4; ++i) if (!(p.colors[i] == a.color[i])) return false;
+    for (int i = 0; i < 4; ++i) if (!(p.colors[i] == a.color[i]) || p.color_layer[i] != a.layer[i] || p.color_mip[i] != a.mip[i]) return false;
     return p.depth_stencil == a.depth;
 }
 
@@ -201,7 +202,7 @@ void LayerImpl::end_pass() {
 
 void LayerImpl::open_pass(const Attachment& a) {
     pass_ = gpu::PassDesc{};
-    for (int i = 0; i < 4; ++i) pass_.colors[i] = a.color[i];
+    for (int i = 0; i < 4; ++i) { pass_.colors[i] = a.color[i]; pass_.color_layer[i] = a.layer[i]; pass_.color_mip[i] = a.mip[i]; }
     pass_.depth_stencil = a.depth;
     pass_attachments_ = a;
     pass_open_ = true;

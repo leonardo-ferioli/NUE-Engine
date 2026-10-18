@@ -70,6 +70,12 @@ bool cross_compile(const std::vector<uint32_t>& spirv, Stage stage, Target targe
                 smp.stage = model; smp.desc_set = 0; smp.binding = 18 + n; smp.sampler.register_space = 0; smp.sampler.register_binding = n;
                 compiler.add_hlsl_resource_binding(smp);
             }
+            if (stage == Stage::vertex) {   // bgfx's Direct3D 11 input layouts use these semantic names for its vertex attributes
+                static const char* const semantics[] = {"POSITION0", "NORMAL0", "TANGENT0", "BITANGENT0", "COLOR0", "COLOR1", "COLOR2", "COLOR3", "BLENDINDICES0", "BLENDWEIGHT0",
+                    "TEXCOORD0", "TEXCOORD1", "TEXCOORD2", "TEXCOORD3", "TEXCOORD4", "TEXCOORD5", "TEXCOORD6", "TEXCOORD7", "TEXCOORD8", "TEXCOORD9", "TEXCOORD10",
+                    "TEXCOORD11", "TEXCOORD12", "TEXCOORD13", "TEXCOORD14", "TEXCOORD15"};
+                for (uint32_t i = 0; i < 26; ++i) compiler.add_vertex_attribute_remap(spirv_cross::HLSLVertexAttributeRemap{i, semantics[i]});
+            }
             text = compiler.compile();
             return true;
         }

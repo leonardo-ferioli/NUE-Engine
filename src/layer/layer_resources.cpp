@@ -1,6 +1,7 @@
 // Layer: device lifecycle, resource creation and destruction, locks and unlocks.
 #include "layer/layer.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace nue::d3d9 {
@@ -344,6 +345,8 @@ Result<DeclarationId> LayerImpl::create_vertex_declaration(std::span<const uint8
         d.attributes.push_back(gpu::VertexAttribute{el.stream, el.offset, el.type, el.usage, el.usage_index});
         d.stream_mask |= 1u << (el.stream & 15);
         if (el.type == dt_d3dcolor) d.bgra_attributes |= 1u << shader::bgfx_attribute_for(el.usage, el.usage_index);
+        if (el.type == dt_ubyte4) d.uint_attributes |= 1u << shader::bgfx_attribute_for(el.usage, el.usage_index);
+        if (el.type == dt_short2 || el.type == dt_short4) d.sint_attributes |= 1u << shader::bgfx_attribute_for(el.usage, el.usage_index);
     }
     return {Status::ok, DeclarationId{declarations_.add(std::move(d))}};
 }
@@ -370,10 +373,34 @@ Result<ShaderId> LayerImpl::create_pixel_shader(std::span<const uint32_t> byteco
     return {Status::ok, ShaderId{shaders_.add(std::move(s))}};
 }
 
-Status LayerImpl::stretch_rect(SurfaceId, const int32_t*, SurfaceId, const int32_t*, uint32_t) {
+Status LayerImpl::stretch_rect(SurfaceId from, const int32_t* fr, SurfaceId to, const int32_t* tr, uint32_t filter) {
     ++stats_.stretch_rects;
-    note_unsupported("stretch_rect");
-    return Status::unsupported;
+    if (stats_.stretch_rects < 12) {
+        SurfaceObject* a = surfaces_.get(from.value); SurfaceObject* b = surfaces_.get(to.value);
+        char text[256];
+        std::snprintf(text, sizeof text, "stretch_rect #%llu: %s %ux%u fmt %u rect %d -> %s %ux%u fmt %u rect %d filter %u", (unsigned long long)stats_.stretch_rects,
+                      a ? (a->kind == SurfaceObject::Kind::backbuffer ? "backbuffer" : a->kind == SurfaceObject::Kind::render_target ? "rt" : a->kind == SurfaceObject::Kind::texture_level ? "texture" : "depth") : "?", a ? a->width : 0, a ? a->height : 0, a ? a->format : 0, fr ? 1 : 0,
+                      b ? (b->kind == SurfaceObject::Kind::backbuffer ? "backbuffer" : b->kind == SurfaceObject::Kind::render_target ? "rt" : b->kind == SurfaceObject::Kind::texture_level ? "texture" : "depth") : "?", b ? b->width : 0, b ? b->height : 0, b ? b->format : 0, tr ? 1 : 0, filter);
+        log(text);
+    }
+    auto texture_of = [&](SurfaceObject* surface) -> gpu::Texture {
+        if (!surface) return {};
+        switch (surface->kind) {
+        case SurfaceObject::Kind::backbuffer: return gpu::backbuffer;
+        case SurfaceObject::Kind::render_target: return surface->gpu;
+        case SurfaceObject::Kind::texture_level: { if (surface->level != 0) return {}; auto* t = textures_.get(surface->texture); return t ? t->gpu : gpu::Texture{}; }
+        default: return {};
+        }
+    };
+    const gpu::Texture src = texture_of(surfaces_.get(from.value)), dst = texture_of(surfaces_.get(to.value));
+    if (!src || !dst) { note_unsupported("stretch_rect between these surface kinds"); return Status::unsupported; }
+    end_pass();
+    auto rect = [](const int32_t* r, int32_t out[4]) { out[0] = r[0]; out[1] = r[1]; out[2] = r[2] - r[0]; out[3] = r[3] - r[1]; };
+    int32_t sr[4], dr[4];
+    if (fr) rect(fr, sr);
+    if (tr) rect(tr, dr);
+    gpu_.copy_texture(dst, tr ? dr : nullptr, src, fr ? sr : nullptr, filter == texf_linear);
+    return Status::ok;
 }
 
 }  // namespace nue::d3d9

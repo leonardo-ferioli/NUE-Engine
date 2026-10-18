@@ -22,6 +22,7 @@ struct Declaration {
     std::vector<gpu::VertexAttribute> attributes;   // the same, in the form the Gpu takes
     uint32_t stream_mask = 0;
     uint32_t bgra_attributes = 0;                   // bgfx attribute bit per D3DCOLOR element
+    uint32_t uint_attributes = 0, sint_attributes = 0;   // UBYTE4, SHORT2/SHORT4 elements: the GPU delivers integers
 };
 
 struct ShaderObject {
@@ -106,6 +107,7 @@ public:
     ~LayerImpl() override;
     const LayerStats& stats() const override { return stats_; }
     std::string report() const override;
+    void flush() override { end_pass(); }
 
     // ---- Device
     Status reset(const DeviceParams&) override;
@@ -197,7 +199,7 @@ private:
     void init_state(DeviceState&);
 
     // surfaces and passes
-    struct Attachment { gpu::Texture color[4]; gpu::Texture depth; uint32_t width = 0, height = 0; bool valid = false; };
+    struct Attachment { gpu::Texture color[4]; uint8_t layer[4] = {}, mip[4] = {}; gpu::Texture depth; uint32_t width = 0, height = 0; bool valid = false; };
     Attachment resolve_attachments();
     bool same_attachments(const gpu::PassDesc&, const Attachment&) const;
     void end_pass();
@@ -214,11 +216,15 @@ private:
 
     // shaders and programs
     struct DrawProgram { gpu::Program program; const shader::TranslateResult* vertex = nullptr; const shader::TranslateResult* pixel = nullptr; bool ok = false; };
-    DrawProgram select_program(const Declaration* declaration, const DeviceState& st);
+    DrawProgram select_program(const Declaration* declaration, const DeviceState& st, ShaderObject* vs, ShaderObject* ps, bool vertex_fog_from_fixed_function);
+    ShaderObject* fixed_function_vertex(const Declaration&);
+    ShaderObject* fixed_function_pixel();
+    void fill_ff_vertex_constants(std::array<Float4, 48>&) const;
+    void fill_ff_pixel_constants(std::array<Float4, 48>&) const;
     const shader::TranslateResult* translate(ShaderObject&, uint32_t shader_id, const shader::TranslateOptions&, uint64_t options_key);
     void fill_vertex_fixup(float* fix, const Attachment&) const;
     void fill_pixel_fixup(float* fix) const;
-    void collect_constants(std::vector<std::byte>& out, bool vertex, const shader::TranslateResult&, const float* fix);
+    void collect_constants(std::vector<std::byte>& out, const Float4* regs, uint32_t available, const shader::TranslateResult&, const float* fix);
 
     // drawing
     void do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_vertex, uint32_t vertex_count, uint32_t start_index, uint32_t primitive_count,
@@ -266,6 +272,8 @@ private:
     std::vector<std::byte> scratch_, vs_constants_scratch_, ps_constants_scratch_, index_scratch_;
     std::vector<gpu::Texture> pending_destroy_textures_;
     std::map<uint32_t, Declaration> fvf_declarations_;
+    std::unordered_map<uint64_t, std::unique_ptr<ShaderObject>> ff_shaders_;
+    std::array<Float4, 48> ff_constants_{};
     std::map<uint32_t, uint32_t> remap_streams_;
     std::vector<gpu::VertexAttribute> layout_scratch_;
 };
