@@ -91,6 +91,20 @@ uint64_t cache_key(const shader::TranslateResult& t, ShaderTarget target) {
 }
 }  // namespace
 
+#ifdef _WIN32
+// The HLSL compiler and SPIRV-Cross can need several hundred KB of stack. A host that calls us on a small stack (the recompiled game's own 1 MB guest
+// stack, when this runs inside a d3d9.dll) must not be able to overflow it, so the compilation runs on a thread with a large one.
+template <class F> void run_on_large_stack(F&& work) {
+    struct Job { F* work; } job{&work};
+    HANDLE thread = CreateThread(nullptr, 16u << 20, [](LPVOID p) -> DWORD { (*static_cast<Job*>(p)->work)(); return 0; }, &job, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (!thread) { work(); return; }
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+}
+#else
+template <class F> void run_on_large_stack(F&& work) { work(); }
+#endif
+
 bool build_container(const shader::TranslateResult& t, ShaderTarget target, ContainerResult& out, const std::string& cache_dir) {
     std::filesystem::path cache_file;
     if (target == ShaderTarget::dxbc && !cache_dir.empty()) {
@@ -109,7 +123,9 @@ bool build_container(const shader::TranslateResult& t, ShaderTarget target, Cont
             std::fclose(f);
         }
     }
-    if (!build_container_uncached(t, target, out)) return false;
+    bool built = false;
+    run_on_large_stack([&] { built = build_container_uncached(t, target, out); });
+    if (!built) return false;
     if (!cache_file.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(cache_dir, ec);

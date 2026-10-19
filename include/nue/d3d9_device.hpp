@@ -64,6 +64,7 @@ public:
     virtual Status unlock_texture(TextureId, uint32_t level, uint32_t face) = 0;
     virtual Result<SurfaceId> texture_surface(TextureId, uint32_t level, uint32_t face) = 0;
     virtual Result<SurfaceId> back_buffer(uint32_t swap_chain, uint32_t index) = 0;
+    virtual SurfaceId auto_depth_stencil() { return {}; }   // the depth surface the device made for the back buffer (none when the game asked for none)
     virtual Status stretch_rect(SurfaceId from, const int32_t* from_rect4, SurfaceId to, const int32_t* to_rect4, uint32_t filter) = 0;
 
     // state: plain stores into the shadow; nothing reaches the GPU until a draw

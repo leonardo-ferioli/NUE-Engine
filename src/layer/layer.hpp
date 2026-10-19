@@ -120,6 +120,7 @@ public:
     std::string report() const override;
     void flush() override { end_pass(); }
     std::string profile_report() const override;
+    SurfaceId auto_depth_stencil() override { return SurfaceId{auto_depth_surface_}; }
     void reset_profile() override { for (auto& p : prof_) p = 0; }
     std::string recent_draws() const override { std::string s; for (const auto& d : recent_) s += d + char(10); return s; }
 

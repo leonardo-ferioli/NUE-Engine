@@ -39,7 +39,25 @@ static NullRun run_null(const std::string& folder, uint64_t frames) {
     return out;
 }
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+// Crash report for the field: where (module + offset, to be looked up with llvm-symbolizer and the .pdb) and what.
+static LONG WINAPI crash_filter(EXCEPTION_POINTERS* info) {
+    HMODULE module = nullptr;
+    char name[MAX_PATH] = "?";
+    const void* address = info->ExceptionRecord->ExceptionAddress;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(address), &module)) GetModuleFileNameA(module, name, MAX_PATH);
+    std::fprintf(stderr, "crash: exception %08lx at %p = %s+0x%llx\n", info->ExceptionRecord->ExceptionCode, address, name, (unsigned long long)(static_cast<const char*>(address) - reinterpret_cast<const char*>(module)));
+    if (info->ExceptionRecord->NumberParameters >= 2) std::fprintf(stderr, "  %s of address %p\n", info->ExceptionRecord->ExceptionInformation[0] == 0 ? "read" : info->ExceptionRecord->ExceptionInformation[0] == 1 ? "write" : "execute", reinterpret_cast<void*>(info->ExceptionRecord->ExceptionInformation[1]));
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    SetUnhandledExceptionFilter(crash_filter);
+#endif
     if (argc < 3) { std::fprintf(stderr, "usage: nue_replay <trace folder> --null [--frames N] [--twice]\n"); return 2; }
     std::string folder = argv[1];
     uint64_t frames = 0;

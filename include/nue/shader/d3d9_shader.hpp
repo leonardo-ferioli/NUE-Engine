@@ -78,6 +78,8 @@ struct Program {
 
 // Decodes a complete shader (version token to END token). Returns false and sets `error` on anything it does not understand.
 bool decode(std::span<const uint32_t> tokens, Program& out, std::string& error);
+// Number of tokens of a shader whose size is not known (D3D9 gives only a pointer): up to and including the end token; 0 when it is not a shader.
+size_t token_count(const uint32_t* tokens);
 
 // Text in the style of Microsoft's disassembler ("mul r0, t0, v0", "add r0.xyz, r0, r0", "+ mov r0.w, r0.w", "dcl_position v0").
 std::string disassemble(const Program&);

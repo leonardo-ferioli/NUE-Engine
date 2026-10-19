@@ -1,0 +1,13 @@
+; Optional. Copy next to d3d9.dll as nue_d3d9.ini. Environment variables NUE_RENDERER, NUE_VSYNC and NUE_RENDER_THREAD override these values.
+[graphics]
+; d3d11 (default) or vulkan
+renderer=d3d11
+; honour the game's present interval (0 = never wait for the display)
+vsync=1
+; run bgfx's backend on its own thread (faster; 0 = everything on the game thread)
+render_thread=1
+; nue_d3d9.log next to the dll (what the game asked for that the translator cannot do is summarised when the device is released)
+log=1
+log_unsupported=1
+; compiled shaders are kept here between runs (default: nue_shader_cache next to the dll)
+;shader_cache=

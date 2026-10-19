@@ -183,7 +183,13 @@ struct Sampler {
                 Sleep(1);
                 if (SuspendThread(target) == DWORD(-1)) continue;
                 CONTEXT ctx{}; ctx.ContextFlags = CONTEXT_CONTROL;
-                if (GetThreadContext(target, &ctx) && samples.size() < samples.capacity()) { samples.push_back(ctx.Rip); ++total; }
+                if (GetThreadContext(target, &ctx) && samples.size() < samples.capacity()) { samples.push_back(
+#ifdef _WIN64
+                    ctx.Rip
+#else
+                    ctx.Eip
+#endif
+                    ); ++total; }
                 ResumeThread(target);
             }
             CloseHandle(target);

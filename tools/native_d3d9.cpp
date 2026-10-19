@@ -3,6 +3,7 @@
 #include "native_d3d9.hpp"
 #include <d3d9.h>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -24,7 +25,13 @@ public:
     }
     bool init(void* hwnd, std::string& error) {
         hwnd_ = static_cast<HWND>(hwnd);
-        d3d_ = Direct3DCreate9(D3D_SDK_VERSION);
+        if (const char* dll = std::getenv("NUE_D3D9_DLL")) {   // test the drop-in d3d9.dll (nue_d3d9_dll) instead of the system runtime: same trace, through its COM objects
+            HMODULE module = LoadLibraryA(dll);
+            using Create = IDirect3D9*(WINAPI*)(UINT);
+            auto create = module ? reinterpret_cast<Create>(GetProcAddress(module, "Direct3DCreate9")) : nullptr;
+            if (!create) { error = std::string("cannot load Direct3DCreate9 from ") + dll; return false; }
+            d3d_ = create(D3D_SDK_VERSION);
+        } else d3d_ = Direct3DCreate9(D3D_SDK_VERSION);
         if (!d3d_) { error = "Direct3DCreate9 failed"; return false; }
         return true;
     }
