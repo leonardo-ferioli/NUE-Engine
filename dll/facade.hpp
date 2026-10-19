@@ -18,6 +18,9 @@ namespace nue::facade {
 
 void log(const char* format, ...);                 // nue_d3d9.log next to the dll (config: log=0 turns it off)
 HRESULT to_hresult(Status status);
+// Direct3D 9 forces the x87 control word to single precision with every exception masked (0x007F) when a device is created or reset, unless
+// D3DCREATE_FPU_PRESERVE is given, and leaves it that way: games that unmask exceptions before CreateDevice rely on it (measured with the real runtime).
+void apply_d3d9_fpu_mode(DWORD behaviour_flags);
 extern const char* volatile g_last_call;           // the COM method the game thread is in (for crash reports and the heartbeat)
 extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create, g_counter_calls;
 HRESULT trace_result(const char* method, HRESULT hr);

@@ -150,6 +150,7 @@ HRESULT Device9::Reset(D3DPRESENT_PARAMETERS* pp) try { NUE_CALL();
     const d3d9::DeviceParams params = params_from(*pp, w, h);
     const Status status = dev->reset(params);
     if (status != Status::ok) return to_hresult(status);
+    apply_d3d9_fpu_mode(creation_.BehaviorFlags);
     pp_ = *pp;
     pp_.BackBufferWidth = w; pp_.BackBufferHeight = h;
     if (pp_.BackBufferFormat == D3DFMT_UNKNOWN) pp_.BackBufferFormat = D3DFMT_X8R8G8B8;

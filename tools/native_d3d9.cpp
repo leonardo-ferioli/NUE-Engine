@@ -4,6 +4,9 @@
 #include <d3d9.h>
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
+#include <float.h>
+#include <xmmintrin.h>
 #include <cstring>
 #include <vector>
 
@@ -48,15 +51,25 @@ public:
         pp.AutoDepthStencilFormat = D3DFORMAT(p.depth_format ? p.depth_format : D3DFMT_D24S8);
         pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
         width_ = p.back_width; height_ = p.back_height;
+        const bool fpu_report = std::getenv("NUE_FPU_REPORT") != nullptr;   // x87 control word and MXCSR around CreateDevice (a library that unmasks floating point exceptions crashes the game later)
+        auto report = [&](const char* when) { if (fpu_report) std::fprintf(stderr, "FPU %s: x87 control %04x, MXCSR %08x\n", when, _control87(0, 0) & 0xFFFF, _mm_getcsr()); };
+        report("before CreateDevice");
         if (!device_) {
             HRESULT hr = d3d_->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd_, D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &pp, &device_);
             if (FAILED(hr)) hr = d3d_->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd_, D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &pp, &device_);
+            report("after CreateDevice");
             return SUCCEEDED(hr) ? Status::ok : Status::unsupported;
         }
         return SUCCEEDED(device_->Reset(&pp)) ? Status::ok : Status::device_lost;
     }
     Status test_cooperative_level() override { return SUCCEEDED(device_->TestCooperativeLevel()) ? Status::ok : Status::device_lost; }
-    Status present() override { device_->EndScene(); in_scene_ = false; const HRESULT hr = device_->Present(nullptr, nullptr, nullptr, nullptr); return SUCCEEDED(hr) ? Status::ok : Status::device_lost; }
+    Status present() override {
+        device_->EndScene(); in_scene_ = false;
+        const HRESULT hr = device_->Present(nullptr, nullptr, nullptr, nullptr);
+        static unsigned frames = 0;
+        if (std::getenv("NUE_FPU_REPORT") && (++frames == 1 || frames == 2 || frames == 30 || frames == 100)) std::fprintf(stderr, "FPU after present %u: x87 control %04x, MXCSR %08x\n", frames, _control87(0, 0) & 0xFFFF, _mm_getcsr());
+        return SUCCEEDED(hr) ? Status::ok : Status::device_lost;
+    }
 
     Result<TextureId> create_texture(uint32_t w, uint32_t h, uint32_t levels, uint32_t usage, uint32_t format, uint32_t pool) override {
         IDirect3DTexture9* t = nullptr;

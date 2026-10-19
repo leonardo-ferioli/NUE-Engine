@@ -90,6 +90,19 @@ void log(const char* format, ...) {
 
 void device_destroyed() { --g_devices; }
 
+void apply_d3d9_fpu_mode(DWORD behaviour_flags) {
+#if defined(_M_IX86) || defined(__i386__)
+    unsigned short control = 0x007F;   // single precision, round to nearest, everything masked
+    if (behaviour_flags & D3DCREATE_FPU_PRESERVE) {   // the caller's precision is kept, but invalid-operation, zero-divide, overflow and underflow are masked anyway
+        __asm__ volatile("fnstcw %0" : "=m"(control));
+        control |= 0x001D;
+    }
+    __asm__ volatile("fldcw %0" : : "m"(control));
+#else
+    (void)behaviour_flags;   // x86-64: SSE math, the x87 control word is not used
+#endif
+}
+
 // ---- diagnostics: what happened when the game dies or stops ----------------------------------------------------------------------------
 
 HRESULT trace_result(const char* method, HRESULT hr) {
@@ -271,12 +284,13 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
 
     D3DCAPS9 caps{};
     GetDeviceCaps(adapter, type, &caps);
+    apply_d3d9_fpu_mode(behaviour);
     D3DDEVICE_CREATION_PARAMETERS creation{adapter, type, focus, behaviour};
     *pp = filled;
     auto* device = new Device9(this, core, creation, filled, caps, window);
     ++g_devices;
     *out = device;
-    log("CreateDevice: %ux%u, back buffer format %d, depth %d, %s, interval %u, window %ux%u, renderer %s%s", filled.BackBufferWidth, filled.BackBufferHeight, int(filled.BackBufferFormat),
+    log("CreateDevice: behaviour flags 0x%lx, %ux%u, back buffer format %d, depth %d, %s, interval %u, window %ux%u, renderer %s%s", static_cast<unsigned long>(behaviour), filled.BackBufferWidth, filled.BackBufferHeight, int(filled.BackBufferFormat),
         filled.EnableAutoDepthStencil ? int(filled.AutoDepthStencilFormat) : 0, filled.Windowed ? "windowed" : "fullscreen", unsigned(filled.PresentationInterval), window_w, window_h,
         core->gpu->stats().renderer_name, options.single_threaded ? "" : " (render thread)");
     return D3D_OK;
