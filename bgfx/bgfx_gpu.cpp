@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bgfx/bgfx.h>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -242,6 +243,37 @@ BgfxGpuImpl::~BgfxGpuImpl() {
     bgfx::shutdown();
 }
 
+namespace {
+// Routes bgfx's fatal errors and backend messages to the host's log (a fatal error would otherwise only reach the debugger and then abort silently).
+struct LogCallback final : bgfx::CallbackI {
+    void (*log)(const char*) = nullptr;
+    void fatal(const char* file, uint16_t line, bgfx::Fatal::Enum code, const char* text) override {
+        char buffer[1024];
+        std::snprintf(buffer, sizeof buffer, "bgfx FATAL %d at %s:%u: %s", int(code), file ? file : "?", unsigned(line), text ? text : "");
+        if (log) log(buffer);
+        if (code != bgfx::Fatal::DebugCheck) std::abort();
+    }
+    void traceVargs(const char* file, uint16_t line, const char* format, va_list args) override {
+        char buffer[1024];
+        const int n = std::snprintf(buffer, sizeof buffer, "bgfx %s:%u: ", file ? file : "?", unsigned(line));
+        if (n > 0 && size_t(n) < sizeof buffer) std::vsnprintf(buffer + n, sizeof buffer - size_t(n), format, args);
+        for (char* p = buffer; *p; ++p) if (*p == 10 || *p == 13) *p = ' ';
+        if (log) log(buffer);
+    }
+    void profilerBegin(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerBeginLiteral(const char*, uint32_t, const char*, uint16_t) override {}
+    void profilerEnd() override {}
+    uint32_t cacheReadSize(uint64_t) override { return 0; }
+    bool cacheRead(uint64_t, void*, uint32_t) override { return false; }
+    void cacheWrite(uint64_t, const void*, uint32_t) override {}
+    void screenShot(const char*, uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, const void*, uint32_t, bool) override {}
+    void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
+    void captureEnd() override {}
+    void captureFrame(const void*, uint32_t) override {}
+};
+LogCallback g_log_callback;
+}  // namespace
+
 bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     options_ = options;
     if (options.single_threaded) bgfx::renderFrame();
@@ -262,6 +294,7 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     init.limits.maxTransientVbSize = options.transient_vertex_mb << 20;
     init.limits.maxTransientIbSize = options.transient_index_mb << 20;
     init.limits.numDrawCalls = 1 << 15;
+    if (options.log) { g_log_callback.log = options.log; init.callback = &g_log_callback; }
     if (!bgfx::init(init)) { error = "bgfx::init failed"; return false; }
     initialised_ = true;
     renderer_ = bgfx::getRendererType();

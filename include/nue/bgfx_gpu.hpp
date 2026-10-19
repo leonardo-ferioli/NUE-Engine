@@ -16,6 +16,7 @@ struct BgfxOptions {
     bool vsync = false;
     bool single_threaded = true;             // call bgfx::renderFrame() before init: no render thread (deterministic, easy to debug)
     uint32_t transient_vertex_mb = 64, transient_index_mb = 16;
+    void (*log)(const char* message) = nullptr;   // bgfx's own messages: fatal errors and backend warnings (Direct3D errors), one string each
     std::string shader_cache_dir;            // compiled shaders are kept here between runs (empty: no disk cache); avoids a ~20 ms stall per new program
 };
 

@@ -6,11 +6,17 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <csignal>
+#include <exception>
 #include <mutex>
+#include <thread>
+#include <typeinfo>
 
 namespace nue::facade {
 
 HMODULE g_module = nullptr;
+const char* volatile g_last_call = "(none yet)";
+std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
 
 namespace {
 
@@ -84,9 +90,91 @@ void log(const char* format, ...) {
 
 void device_destroyed() { --g_devices; }
 
+// ---- diagnostics: what happened when the game dies or stops ----------------------------------------------------------------------------
+
+HRESULT trace_result(const char* method, HRESULT hr) {
+    if (!FAILED(hr)) return hr;
+    static std::mutex mutex;
+    static std::map<std::string, int> seen;
+    std::lock_guard<std::mutex> lock(mutex);
+    char key[160];
+    std::snprintf(key, sizeof key, "%s %08lx", method, static_cast<unsigned long>(hr));
+    if (seen[key]++ < 3) log("call failed: %s returned 0x%08lx%s", method, static_cast<unsigned long>(hr), seen[key] == 3 ? " (not reported again)" : "");
+    return hr;
+}
+
+HRESULT guard_failed(const char* method) {
+    std::string what = "unknown";
+    try { throw; } catch (const std::exception& e) { what = std::string(typeid(e).name()) + ": " + e.what(); } catch (...) {}
+    log("C++ exception inside %s: %s", method, what.c_str());
+    return D3DERR_INVALIDCALL;
+}
+
+namespace {
+
+LONG CALLBACK exception_logger(EXCEPTION_POINTERS* info) {
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    const void* address = info->ExceptionRecord->ExceptionAddress;
+    HMODULE module = nullptr;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(address), &module);
+    const bool ours = module == g_module;
+    const bool fatal = code == EXCEPTION_STACK_OVERFLOW || code == EXCEPTION_ILLEGAL_INSTRUCTION || code == EXCEPTION_ARRAY_BOUNDS_EXCEEDED;
+    static std::atomic<int> cxx_logged{0};
+    if (code == 0xE06D7363 && cxx_logged++ < 20) log("C++ exception thrown (first chance) while in %s", g_last_call);
+    if (ours || fatal) {
+        char name[MAX_PATH] = "?";
+        if (module) GetModuleFileNameA(module, name, MAX_PATH);
+        log("EXCEPTION %08lx at %p (%s+0x%llx) while in %s", static_cast<unsigned long>(code), address, name, (unsigned long long)(static_cast<const char*>(address) - reinterpret_cast<const char*>(module)), g_last_call);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void on_terminate() {
+    std::string what = "unknown";
+    try { if (auto e = std::current_exception()) std::rethrow_exception(e); } catch (const std::exception& e) { what = std::string(typeid(e).name()) + ": " + e.what(); } catch (...) {}
+    log("FATAL: std::terminate called (exception: %s) while in %s", what.c_str(), g_last_call);
+    std::abort();
+}
+
+void on_abort(int) { log("FATAL: abort() called while in %s", g_last_call); }
+
+void on_invalid_parameter(const wchar_t* expression, const wchar_t* function, const wchar_t* file, unsigned line, uintptr_t) {
+    log("FATAL: invalid parameter passed to the C runtime (%ls in %ls, %ls:%u) while in %s", expression ? expression : L"?", function ? function : L"?", file ? file : L"?", line, g_last_call);
+}
+
+void heartbeat() {
+    unsigned last = 0;
+    int quiet = 0;
+    for (;;) {
+        Sleep(3000);
+        const unsigned now = g_counter_calls.load();
+        if (now != last) {
+            log("alive: %u calls, %u presents, %u draws, %u resources created, in %s", now, g_counter_present.load(), g_counter_draw.load(), g_counter_create.load(), g_last_call);
+            quiet = 0;
+        } else if (++quiet == 1 || quiet % 10 == 0) log("no Direct3D 9 call for %d s (last: %s)", quiet * 3, g_last_call);
+        last = now;
+    }
+}
+
+void install_diagnostics() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::set_terminate(on_terminate);
+        std::signal(SIGABRT, on_abort);
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+        _set_invalid_parameter_handler(on_invalid_parameter);
+        AddVectoredExceptionHandler(1, exception_logger);
+        std::thread(heartbeat).detach();
+    });
+}
+
+}  // namespace
+
+
 // ---- IDirect3D9 -------------------------------------------------------------------------------------------------------------------------
 
 Direct3D9::Direct3D9() {
+    install_diagnostics();
     char system[MAX_PATH] = {};
     GetSystemDirectoryA(system, MAX_PATH);   // in a 32-bit process on 64-bit Windows this is SysWOW64
     const std::string path = std::string(system) + "\\d3d9.dll";
@@ -156,6 +244,7 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     options.vsync = cfg.vsync && pp->PresentationInterval != D3DPRESENT_INTERVAL_IMMEDIATE;
     options.single_threaded = !cfg.render_thread;
     options.shader_cache_dir = cfg.shader_cache;
+    options.log = log_line;
     std::string error;
     auto gpu_owner = gpu::create_bgfx_gpu(options, error);
     if (!gpu_owner) { log("CreateDevice failed: bgfx could not start (%s)", error.c_str()); return D3DERR_NOTAVAILABLE; }

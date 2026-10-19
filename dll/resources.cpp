@@ -6,6 +6,7 @@
 namespace nue::facade {
 
 HRESULT to_hresult(Status status) {
+    if (status != Status::ok) trace_result(g_last_call ? g_last_call : "?", status == Status::unsupported ? D3DERR_NOTAVAILABLE : D3DERR_INVALIDCALL);
     switch (status) {
     case Status::ok: return D3D_OK;
     case Status::unsupported: return D3DERR_NOTAVAILABLE;
@@ -57,18 +58,18 @@ Texture9::~Texture9() {
     if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_);
 }
 
-HRESULT Texture9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
+HRESULT Texture9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Texture9::GetLevelDesc(UINT level, D3DSURFACE_DESC* desc) {
-    if (!desc || level >= levels_) return D3DERR_INVALIDCALL;
+HRESULT Texture9::GetLevelDesc(UINT level, D3DSURFACE_DESC* desc) try {
+    if (!desc || level >= levels_) return trace_result(__func__, D3DERR_INVALIDCALL);
     fill_desc(desc, format_, D3DRTYPE_SURFACE, usage_, pool_, D3DMULTISAMPLE_NONE, level_size(width_, level), level_size(height_, level));
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Texture9::GetSurfaceLevel(UINT level, IDirect3DSurface9** out) {
-    if (!out || level >= levels_) return D3DERR_INVALIDCALL;
+HRESULT Texture9::GetSurfaceLevel(UINT level, IDirect3DSurface9** out) try {
+    if (!out || level >= levels_) return trace_result(__func__, D3DERR_INVALIDCALL);
     auto* dev = info.core->dev();
-    if (!dev) return D3DERR_INVALIDCALL;
+    if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!surfaces_[level]) {
         auto r = dev->texture_surface(id_, level, 0);
         if (!r) return to_hresult(r.status);
@@ -79,23 +80,23 @@ HRESULT Texture9::GetSurfaceLevel(UINT level, IDirect3DSurface9** out) {
     surfaces_[level]->AddRef();   // forwarded to this texture
     *out = surfaces_[level];
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Texture9::LockRect(UINT level, D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) {
+HRESULT Texture9::LockRect(UINT level, D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) try {
     auto* dev = info.core->dev();
-    if (!dev || !locked || level >= levels_) return D3DERR_INVALIDCALL;
+    if (!dev || !locked || level >= levels_) return trace_result(__func__, D3DERR_INVALIDCALL);
     const int32_t r[4] = {rect ? rect->left : 0, rect ? rect->top : 0, rect ? rect->right : 0, rect ? rect->bottom : 0};
     auto lock = dev->lock_texture(id_, level, 0, rect ? r : nullptr, flags);
     if (!lock) return lock.status == Status::unsupported ? D3DERR_INVALIDCALL : to_hresult(lock.status);
     locked->pBits = lock.value.data; locked->Pitch = INT(lock.value.pitch);
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Texture9::UnlockRect(UINT level) {
+HRESULT Texture9::UnlockRect(UINT level) try {
     auto* dev = info.core->dev();
-    if (!dev || level >= levels_) return D3DERR_INVALIDCALL;
+    if (!dev || level >= levels_) return trace_result(__func__, D3DERR_INVALIDCALL);
     return to_hresult(dev->unlock_texture(id_, level, 0));
-}
+} catch (...) { return guard_failed(__func__); }
 
 // ---- CubeTexture9 ------------------------------------------------------------------------------------------------------------------------
 
@@ -110,18 +111,18 @@ CubeTexture9::~CubeTexture9() {
     if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_);
 }
 
-HRESULT CubeTexture9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
+HRESULT CubeTexture9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT CubeTexture9::GetLevelDesc(UINT level, D3DSURFACE_DESC* desc) {
-    if (!desc || level >= levels_) return D3DERR_INVALIDCALL;
+HRESULT CubeTexture9::GetLevelDesc(UINT level, D3DSURFACE_DESC* desc) try {
+    if (!desc || level >= levels_) return trace_result(__func__, D3DERR_INVALIDCALL);
     fill_desc(desc, format_, D3DRTYPE_SURFACE, usage_, pool_, D3DMULTISAMPLE_NONE, level_size(edge_, level), level_size(edge_, level));
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT CubeTexture9::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9** out) {
-    if (!out || level >= levels_ || UINT(face) >= 6) return D3DERR_INVALIDCALL;
+HRESULT CubeTexture9::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9** out) try {
+    if (!out || level >= levels_ || UINT(face) >= 6) return trace_result(__func__, D3DERR_INVALIDCALL);
     auto* dev = info.core->dev();
-    if (!dev) return D3DERR_INVALIDCALL;
+    if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     IDirect3DSurface9*& slot = surfaces_[size_t(face) * levels_ + level];
     if (!slot) {
         auto r = dev->texture_surface(id_, level, UINT(face));
@@ -133,23 +134,23 @@ HRESULT CubeTexture9::GetCubeMapSurface(D3DCUBEMAP_FACES face, UINT level, IDire
     slot->AddRef();
     *out = slot;
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT CubeTexture9::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) {
+HRESULT CubeTexture9::LockRect(D3DCUBEMAP_FACES face, UINT level, D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) try {
     auto* dev = info.core->dev();
-    if (!dev || !locked || level >= levels_ || UINT(face) >= 6) return D3DERR_INVALIDCALL;
+    if (!dev || !locked || level >= levels_ || UINT(face) >= 6) return trace_result(__func__, D3DERR_INVALIDCALL);
     const int32_t r[4] = {rect ? rect->left : 0, rect ? rect->top : 0, rect ? rect->right : 0, rect ? rect->bottom : 0};
     auto lock = dev->lock_texture(id_, level, UINT(face), rect ? r : nullptr, flags);
-    if (!lock) return D3DERR_INVALIDCALL;
+    if (!lock) return trace_result(__func__, D3DERR_INVALIDCALL);
     locked->pBits = lock.value.data; locked->Pitch = INT(lock.value.pitch);
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT CubeTexture9::UnlockRect(D3DCUBEMAP_FACES face, UINT level) {
+HRESULT CubeTexture9::UnlockRect(D3DCUBEMAP_FACES face, UINT level) try {
     auto* dev = info.core->dev();
-    if (!dev || level >= levels_ || UINT(face) >= 6) return D3DERR_INVALIDCALL;
+    if (!dev || level >= levels_ || UINT(face) >= 6) return trace_result(__func__, D3DERR_INVALIDCALL);
     return to_hresult(dev->unlock_texture(id_, level, UINT(face)));
-}
+} catch (...) { return guard_failed(__func__); }
 
 // ---- Surface9 ----------------------------------------------------------------------------------------------------------------------------
 
@@ -170,16 +171,16 @@ ULONG Surface9::release() {
     return r;
 }
 
-HRESULT Surface9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
+HRESULT Surface9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Surface9::GetContainer(REFIID riid, void** out) {
-    if (!out) return D3DERR_INVALIDCALL;
+HRESULT Surface9::GetContainer(REFIID riid, void** out) try {
+    if (!out) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (container_) return container_->QueryInterface(riid, out);
     return E_NOINTERFACE;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Surface9::GetDesc(D3DSURFACE_DESC* desc) {
-    if (!desc) return D3DERR_INVALIDCALL;
+HRESULT Surface9::GetDesc(D3DSURFACE_DESC* desc) try {
+    if (!desc) return trace_result(__func__, D3DERR_INVALIDCALL);
     DWORD usage = 0;
     D3DPOOL pool = D3DPOOL_DEFAULT;
     if (kind_ == Kind::render_target || kind_ == Kind::back_buffer) usage = D3DUSAGE_RENDERTARGET;
@@ -188,106 +189,106 @@ HRESULT Surface9::GetDesc(D3DSURFACE_DESC* desc) {
     if (kind_ == Kind::texture_level) { usage = texture_usage_; pool = texture_pool_; }
     fill_desc(desc, format_, D3DRTYPE_SURFACE, usage, pool, multisample_, width_, height_);
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Surface9::LockRect(D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) {
-    if (!locked) return D3DERR_INVALIDCALL;
+HRESULT Surface9::LockRect(D3DLOCKED_RECT* locked, const RECT* rect, DWORD flags) try {
+    if (!locked) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (kind_ == Kind::system_memory) {
         const UINT bpp = bytes_per_pixel(format_), pitch = width_ * bpp;
         const UINT x = rect ? UINT(rect->left) : 0, y = rect ? UINT(rect->top) : 0;
-        if (x >= width_ || y >= height_) return D3DERR_INVALIDCALL;
+        if (x >= width_ || y >= height_) return trace_result(__func__, D3DERR_INVALIDCALL);
         locked->pBits = memory_.data() + size_t(y) * pitch + size_t(x) * bpp;
         locked->Pitch = INT(pitch);
         locked_ = true;
         return D3D_OK;
     }
-    if (kind_ != Kind::texture_level) return D3DERR_INVALIDCALL;   // render targets cannot be locked
+    if (kind_ != Kind::texture_level) return trace_result(__func__, D3DERR_INVALIDCALL);   // render targets cannot be locked
     auto* dev = info.core->dev();
-    if (!dev) return D3DERR_INVALIDCALL;
+    if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     const int32_t r[4] = {rect ? rect->left : 0, rect ? rect->top : 0, rect ? rect->right : 0, rect ? rect->bottom : 0};
     auto lock = dev->lock_texture(texture_, level_, face_, rect ? r : nullptr, flags);
-    if (!lock) return D3DERR_INVALIDCALL;
+    if (!lock) return trace_result(__func__, D3DERR_INVALIDCALL);
     locked->pBits = lock.value.data; locked->Pitch = INT(lock.value.pitch);
     locked_ = true;
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
-HRESULT Surface9::UnlockRect() {
-    if (!locked_) return D3DERR_INVALIDCALL;
+HRESULT Surface9::UnlockRect() try {
+    if (!locked_) return trace_result(__func__, D3DERR_INVALIDCALL);
     locked_ = false;
     if (kind_ == Kind::system_memory) return D3D_OK;
     auto* dev = info.core->dev();
     return dev ? to_hresult(dev->unlock_texture(texture_, level_, face_)) : D3DERR_INVALIDCALL;
-}
+} catch (...) { return guard_failed(__func__); }
 
 // ---- buffers -----------------------------------------------------------------------------------------------------------------------------
 
 VertexBuffer9::~VertexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT VertexBuffer9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT VertexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) {
+HRESULT VertexBuffer9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT VertexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) try {
     auto* dev = info.core->dev();
-    if (!dev || !data) return D3DERR_INVALIDCALL;
+    if (!dev || !data) return trace_result(__func__, D3DERR_INVALIDCALL);
     auto r = dev->lock_buffer(id_, offset, size, flags);
-    if (!r) return D3DERR_INVALIDCALL;
+    if (!r) return trace_result(__func__, D3DERR_INVALIDCALL);
     *data = r.value.data;
     return D3D_OK;
-}
-HRESULT VertexBuffer9::Unlock() { auto* dev = info.core->dev(); return dev ? to_hresult(dev->unlock_buffer(id_)) : D3DERR_INVALIDCALL; }
-HRESULT VertexBuffer9::GetDesc(D3DVERTEXBUFFER_DESC* d) {
-    if (!d) return D3DERR_INVALIDCALL;
+} catch (...) { return guard_failed(__func__); }
+HRESULT VertexBuffer9::Unlock() try { auto* dev = info.core->dev(); return dev ? to_hresult(dev->unlock_buffer(id_)) : D3DERR_INVALIDCALL; } catch (...) { return guard_failed(__func__); }
+HRESULT VertexBuffer9::GetDesc(D3DVERTEXBUFFER_DESC* d) try {
+    if (!d) return trace_result(__func__, D3DERR_INVALIDCALL);
     d->Format = D3DFMT_VERTEXDATA; d->Type = D3DRTYPE_VERTEXBUFFER; d->Usage = usage_; d->Pool = pool_; d->Size = length_; d->FVF = fvf_;
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
 IndexBuffer9::~IndexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT IndexBuffer9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT IndexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) {
+HRESULT IndexBuffer9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT IndexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) try {
     auto* dev = info.core->dev();
-    if (!dev || !data) return D3DERR_INVALIDCALL;
+    if (!dev || !data) return trace_result(__func__, D3DERR_INVALIDCALL);
     auto r = dev->lock_buffer(id_, offset, size, flags);
-    if (!r) return D3DERR_INVALIDCALL;
+    if (!r) return trace_result(__func__, D3DERR_INVALIDCALL);
     *data = r.value.data;
     return D3D_OK;
-}
-HRESULT IndexBuffer9::Unlock() { auto* dev = info.core->dev(); return dev ? to_hresult(dev->unlock_buffer(id_)) : D3DERR_INVALIDCALL; }
-HRESULT IndexBuffer9::GetDesc(D3DINDEXBUFFER_DESC* d) {
-    if (!d) return D3DERR_INVALIDCALL;
+} catch (...) { return guard_failed(__func__); }
+HRESULT IndexBuffer9::Unlock() try { auto* dev = info.core->dev(); return dev ? to_hresult(dev->unlock_buffer(id_)) : D3DERR_INVALIDCALL; } catch (...) { return guard_failed(__func__); }
+HRESULT IndexBuffer9::GetDesc(D3DINDEXBUFFER_DESC* d) try {
+    if (!d) return trace_result(__func__, D3DERR_INVALIDCALL);
     d->Format = format_; d->Type = D3DRTYPE_INDEXBUFFER; d->Usage = usage_; d->Pool = pool_; d->Size = length_;
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
 // ---- declarations, shaders, state blocks -------------------------------------------------------------------------------------------------
 
 VertexDeclaration9::~VertexDeclaration9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT VertexDeclaration9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT VertexDeclaration9::GetDeclaration(D3DVERTEXELEMENT9* elements, UINT* count) {
-    if (!count) return D3DERR_INVALIDCALL;
+HRESULT VertexDeclaration9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT VertexDeclaration9::GetDeclaration(D3DVERTEXELEMENT9* elements, UINT* count) try {
+    if (!count) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (elements) std::memcpy(elements, elements_.data(), elements_.size() * sizeof(D3DVERTEXELEMENT9));
     *count = UINT(elements_.size());
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
 VertexShader9::~VertexShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT VertexShader9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT VertexShader9::GetFunction(void* data, UINT* size) {
-    if (!size) return D3DERR_INVALIDCALL;
+HRESULT VertexShader9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT VertexShader9::GetFunction(void* data, UINT* size) try {
+    if (!size) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (data) std::memcpy(data, code_.data(), code_.size() * 4);
     *size = UINT(code_.size() * 4);
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
 PixelShader9::~PixelShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT PixelShader9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT PixelShader9::GetFunction(void* data, UINT* size) {
-    if (!size) return D3DERR_INVALIDCALL;
+HRESULT PixelShader9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT PixelShader9::GetFunction(void* data, UINT* size) try {
+    if (!size) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (data) std::memcpy(data, code_.data(), code_.size() * 4);
     *size = UINT(code_.size() * 4);
     return D3D_OK;
-}
+} catch (...) { return guard_failed(__func__); }
 
 StateBlock9::~StateBlock9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
-HRESULT StateBlock9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; }
-HRESULT StateBlock9::Apply() { auto* dev = info.core->dev(); if (!dev) return D3DERR_INVALIDCALL; dev->apply(id_); return D3D_OK; }
+HRESULT StateBlock9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT StateBlock9::Apply() try { auto* dev = info.core->dev(); if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL); dev->apply(id_); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 // ---- swap chain --------------------------------------------------------------------------------------------------------------------------
 
@@ -295,7 +296,7 @@ HRESULT SwapChain9::Present(const RECT* a, const RECT* b, HWND c, const RGNDATA*
 HRESULT SwapChain9::GetBackBuffer(UINT index, D3DBACKBUFFER_TYPE type, IDirect3DSurface9** out) { return device_->GetBackBuffer(0, index, type, out); }
 HRESULT SwapChain9::GetRasterStatus(D3DRASTER_STATUS* status) { return device_->GetRasterStatus(0, status); }
 HRESULT SwapChain9::GetDisplayMode(D3DDISPLAYMODE* mode) { return device_->GetDisplayMode(0, mode); }
-HRESULT SwapChain9::GetDevice(IDirect3DDevice9** out) { if (!out) return D3DERR_INVALIDCALL; *out = device_; device_->AddRef(); return D3D_OK; }
-HRESULT SwapChain9::GetPresentParameters(D3DPRESENT_PARAMETERS* pp) { if (!pp) return D3DERR_INVALIDCALL; *pp = device_->pp_; return D3D_OK; }
+HRESULT SwapChain9::GetDevice(IDirect3DDevice9** out) { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = device_; device_->AddRef(); return D3D_OK; }
+HRESULT SwapChain9::GetPresentParameters(D3DPRESENT_PARAMETERS* pp) { if (!pp) return trace_result(__func__, D3DERR_INVALIDCALL); *pp = device_->pp_; return D3D_OK; }
 
 }  // namespace nue::facade

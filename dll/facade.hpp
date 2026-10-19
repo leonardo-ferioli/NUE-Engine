@@ -18,6 +18,11 @@ namespace nue::facade {
 
 void log(const char* format, ...);                 // nue_d3d9.log next to the dll (config: log=0 turns it off)
 HRESULT to_hresult(Status status);
+extern const char* volatile g_last_call;           // the COM method the game thread is in (for crash reports and the heartbeat)
+extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create, g_counter_calls;
+HRESULT trace_result(const char* method, HRESULT hr);
+HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
+#define NUE_CALL() (::nue::facade::g_last_call = __func__, ++::nue::facade::g_counter_calls)
 void device_destroyed();                           // lets the factory create another device (bgfx is a singleton)
 
 struct Config {
@@ -343,7 +348,7 @@ public:
     STDMETHOD(SetCursorProperties)(UINT, UINT, IDirect3DSurface9*) override { return D3D_OK; }
     STDMETHOD_(void, SetCursorPosition)(int, int, DWORD) override {}
     STDMETHOD_(BOOL, ShowCursor)(BOOL show) override { const BOOL old = cursor_; cursor_ = show; return old; }
-    STDMETHOD(CreateAdditionalSwapChain)(D3DPRESENT_PARAMETERS*, IDirect3DSwapChain9**) override { return D3DERR_NOTAVAILABLE; }
+    STDMETHOD(CreateAdditionalSwapChain)(D3DPRESENT_PARAMETERS*, IDirect3DSwapChain9**) override { return unsupported("CreateAdditionalSwapChain"); }
     STDMETHOD(GetSwapChain)(UINT index, IDirect3DSwapChain9** out) override;
     STDMETHOD_(UINT, GetNumberOfSwapChains)() override { return 1; }
     STDMETHOD(Reset)(D3DPRESENT_PARAMETERS* pp) override;
@@ -448,7 +453,7 @@ public:
     STDMETHOD(DrawRectPatch)(UINT, const float*, const D3DRECTPATCH_INFO*) override { return unsupported("DrawRectPatch"); }
     STDMETHOD(DrawTriPatch)(UINT, const float*, const D3DTRIPATCH_INFO*) override { return unsupported("DrawTriPatch"); }
     STDMETHOD(DeletePatch)(UINT) override { return unsupported("DeletePatch"); }
-    STDMETHOD(CreateQuery)(D3DQUERYTYPE, IDirect3DQuery9**) override { return D3DERR_NOTAVAILABLE; }   // the game falls back when queries are not offered
+    STDMETHOD(CreateQuery)(D3DQUERYTYPE, IDirect3DQuery9**) override { return unsupported("CreateQuery"); }   // the game falls back when queries are not offered
 
     HRESULT unsupported(const char* what);
     const std::shared_ptr<Core>& core() const { return core_; }
