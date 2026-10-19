@@ -110,7 +110,7 @@ static void test_layer_null_gpu() {
     draw_triangle(a, true);
     draw_triangle(b, true);
     CHECK(g1.seen == 1);
-    CHECK(g1.draws == 1 && g1.frames == 1 && g1.passes == 1);
+    CHECK(g1.draws == 1 && g1.frames == 1 && g1.passes == 2);   // the frame, plus the pass that clears the alpha of the X8R8G8B8 backbuffer at reset
     CHECK(g1.last.topology == gpu::Topology::triangles);
     CHECK(g1.last.index_count == 3 && g1.last.vertex_stride[0] == 16);
     CHECK(g1.layout.size() == 2 && g1.layout[0].semantic == 0 && g1.layout[1].semantic == 10);   // position, colour

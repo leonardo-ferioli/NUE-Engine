@@ -2,6 +2,7 @@
 #include "layer/layer.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace nue::d3d9 {
@@ -91,6 +92,7 @@ Status LayerImpl::reset(const DeviceParams& p) {
     params_ = p;
     if (p.back_width && p.back_height) {
         gpu_.resize(p.back_width, p.back_height);
+        if (!format_has_alpha(p.back_format)) init_opaque_target(gpu::backbuffer);
         if (!backbuffer_surface_) {
             SurfaceObject s; s.alive = true; s.kind = SurfaceObject::Kind::backbuffer; s.width = p.back_width; s.height = p.back_height; s.format = p.back_format;
             backbuffer_surface_ = surfaces_.add(std::move(s));
@@ -141,6 +143,7 @@ Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uin
     t.alive = true; t.width = width; t.height = height; t.usage = usage; t.format = format; t.pool = pool; t.info = &info;
     t.render_target = (usage & (usage_rendertarget | usage_depthstencil)) != 0;
     t.levels = levels ? levels : mip_count(width, height);
+    if (t.render_target && std::getenv("NUE_LOG_RT")) std::fprintf(stderr, "render target texture %ux%u levels %u format %u usage %x%c", width, height, t.levels, format, usage, 10);
     if (usage & usage_autogenmipmap) t.levels = std::max(t.levels, 1u);
     if (pool == pool_systemmem || pool == pool_scratch) {
         t.locks.resize(t.levels);
@@ -177,6 +180,7 @@ Result<SurfaceId> LayerImpl::create_render_target(uint32_t width, uint32_t heigh
     auto r = gpu_.create_texture(width, height, 1, render_target_format(info), true, false);
     if (!r) return {r.status, {}};
     s.gpu = r.value;
+    if (!format_has_alpha(format)) init_opaque_target(s.gpu);
     return {Status::ok, SurfaceId{surfaces_.add(std::move(s))}};
 }
 

@@ -79,6 +79,8 @@ void LayerImpl::set_render_target(uint32_t index, SurfaceId id) {
     if (index >= 4) return;
     if (id.value && !surfaces_.get(id.value)) { bad_handle("set_render_target"); return; }
     state_.render_targets[index] = id.value;
+    // Direct3D 9: setting render target 0 resets the viewport to the whole target (the game relies on it when it draws into smaller targets)
+    if (index == 0 && id.value) if (const SurfaceObject* s = surfaces_.get(id.value)) state_.viewport = Viewport{0, 0, s->width, s->height, 0.0f, 1.0f};
 }
 
 void LayerImpl::set_depth_stencil(SurfaceId id) {
@@ -223,7 +225,12 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
         }
         a.color[i] = tex;
         if (s->kind == SurfaceObject::Kind::texture_level) { a.layer[i] = uint8_t(s->face); a.mip[i] = uint8_t(s->level); }
-        if (i == 0) { a.width = s->width; a.height = s->height; }
+        if (i == 0) {
+            a.width = s->width; a.height = s->height;
+            uint32_t format = s->format;
+            if (s->kind == SurfaceObject::Kind::texture_level) if (auto* t = textures_.get(s->texture)) format = t->format;
+            a.alpha = format_has_alpha(format);
+        }
     }
     a.valid = bool(a.color[0]);
     if (SurfaceObject* d = surfaces_.get(state_.depth_stencil)) if (d->kind == SurfaceObject::Kind::depth) a.depth = d->gpu;
@@ -233,6 +240,15 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
 bool LayerImpl::same_attachments(const gpu::PassDesc& p, const Attachment& a) const {
     for (int i = 0; i < 4; ++i) if (!(p.colors[i] == a.color[i]) || p.color_layer[i] != a.layer[i] || p.color_mip[i] != a.mip[i]) return false;
     return p.depth_stencil == a.depth;
+}
+
+void LayerImpl::init_opaque_target(gpu::Texture target) {
+    end_pass();
+    gpu::PassDesc p;
+    p.colors[0] = target;
+    p.clear_color = true; p.clear_argb = 0xFF000000u;
+    gpu_.begin_pass(p);
+    gpu_.end_pass();
 }
 
 void LayerImpl::end_pass() {
@@ -293,7 +309,7 @@ void LayerImpl::clear(std::span<const int32_t> rects, uint32_t flags, uint32_t a
         if (r[2] <= r[0] || r[3] <= r[1]) continue;
         const bool whole = r[0] <= 0 && r[1] <= 0 && r[2] >= full[2] && r[3] >= full[3];
         auto apply_clear = [&](gpu::PassDesc& p) {
-            if (flags & clear_target) { p.clear_color = true; p.clear_argb = argb; }
+            if (flags & clear_target) { p.clear_color = true; p.clear_argb = a.alpha ? argb : (argb | 0xFF000000u); }
             if (flags & clear_zbuffer) { p.clear_depth = true; p.clear_z = z; }
             if (flags & clear_stencil) { p.clear_stencil = true; p.clear_stencil_value = uint8_t(stencil); }
         };

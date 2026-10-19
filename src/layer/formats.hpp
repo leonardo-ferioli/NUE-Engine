@@ -6,6 +6,9 @@
 
 namespace nue::d3d9 {
 
+// Direct3D 9 formats without an alpha channel (X8R8G8B8, R5G6B5, X1R5G5B5, R8G8B8, X4R4G4B4): alpha reads as 1 and writes to it are discarded.
+inline bool format_has_alpha(uint32_t format) { return !(format == 22 || format == 23 || format == 24 || format == 20 || format == 30); }
+
 enum class Convert : uint8_t {
     none,            // the GPU format has the same memory layout
     x8_opaque,       // X8R8G8B8 / X8B8G8R8: force alpha to 255 (bgra8 / rgba8)

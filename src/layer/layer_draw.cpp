@@ -265,7 +265,7 @@ void LayerImpl::fill_states(gpu::DrawDesc& d) const {
     } else {
         d.blend.src_alpha = d.blend.src; d.blend.dst_alpha = d.blend.dst; d.blend.op_alpha = d.blend.op;
     }
-    d.blend.write_mask = uint8_t(rs[rs_colorwriteenable] & 0xF);
+    d.blend.write_mask = uint8_t(rs[rs_colorwriteenable] & (pass_attachments_.alpha ? 0xF : 0x7));   // no alpha channel: alpha stays 1
     d.blend.constant_argb = rs[rs_blendfactor];
     const bool has_depth = bool(pass_.depth_stencil);
     d.depth_stencil.depth_test = rs[rs_zenable] != 0 && has_depth;
@@ -311,6 +311,13 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
                         const uint8_t* up_vertices, uint32_t up_bytes, uint32_t up_stride) {
     ++stats_.draws;
     if ((stats_.draws - 1 < options_.debug_draw_first || stats_.draws - 1 > options_.debug_draw_last) && stats_.draws - 1 != options_.debug_draw_also) return;
+    static const char* skip = std::getenv("NUE_SKIP_DRAWS");
+    if (skip) {   // debugging aid: "a-b" skips draws a..b
+        static unsigned long long lo = 1, hi = 0;
+        static bool parsed = false;
+        if (!parsed) { std::sscanf(skip, "%llu-%llu", &lo, &hi); parsed = true; }
+        if (stats_.draws - 1 >= lo && stats_.draws - 1 <= hi) return;
+    }
     if (primitive < 8) ++stats_.draw_by_primitive[primitive];
     if (options_.debug_draw_first == options_.debug_draw_last && options_.log) {
         char text[512];
@@ -328,8 +335,15 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
             log(text);
         }
         for (uint32_t i = 0; i < 4; ++i) if (const TextureObject* t = textures_.get(state_.textures[i])) {
-            std::snprintf(text, sizeof text, "  tex%u: id %u %ux%u levels %u usage %u fmt %u cube %d | filter min %u mag %u mip %u addr %u/%u | tss flags %x tci %x", i, state_.textures[i], t->width, t->height, t->levels, t->usage, t->format, t->cube ? 1 : 0,
+            std::snprintf(text, sizeof text, "  tex%u: id %u (gpu %u, pass colour0 gpu %u) %ux%u levels %u usage %u fmt %u cube %d | filter min %u mag %u mip %u addr %u/%u | tss flags %x tci %x", i, state_.textures[i], t->gpu.value, pass_.colors[0].value, t->width, t->height, t->levels, t->usage, t->format, t->cube ? 1 : 0,
                           state_.ss[i][ss_minfilter], state_.ss[i][ss_magfilter], state_.ss[i][ss_mipfilter], state_.ss[i][ss_addressu], state_.ss[i][ss_addressv], state_.tss[i][tss_texturetransformflags], state_.tss[i][tss_texcoordindex]);
+            log(text);
+        }
+        std::snprintf(text, sizeof text, "  blend factor %08x srcalpha %u dstalpha %u sepalpha %u op %u", state_.rs[rs_blendfactor], state_.rs[rs_srcblendalpha], state_.rs[rs_destblendalpha], state_.rs[rs_separatealphablendenable], state_.rs[rs_blendop]);
+        log(text);
+        for (uint32_t i = 0; i < 4; ++i) {
+            const Float4& c = state_.ps_constants[i];
+            std::snprintf(text, sizeof text, "  ps c%u = %g %g %g %g", i, c.x, c.y, c.z, c.w);
             log(text);
         }
         if (auto* v = shaders_.get(state_.vertex_shader)) log(std::string("VS:") + char(10) + shader::disassemble(v->program));
@@ -337,12 +351,15 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
     }
     if (options_.debug_record_draws) {
         char text[400];
-        std::snprintf(text, sizeof text, "draw %llu prim %u count %u vs %u ps %u fvf %x ib %u blend %u/%u/%u z %u/%u/%u rt %u tex0 %u tex1 %u tex2 %u tex3 %u vp %ux%u",
+        std::snprintf(text, sizeof text, "draw %llu prim %u count %u vs %u ps %u fvf %x ib %u blend %u/%u/%u z %u/%u/%u rt %u tex0 %u tex1 %u tex2 %u tex3 %u vp %ux%u | gpu rt %u tex0 %u tex1 %u tex2 %u tex3 %u",
                       (unsigned long long)(stats_.draws - 1), primitive, primitive_count, state_.vertex_shader, state_.pixel_shader, state_.fvf, state_.index_buffer, state_.rs[rs_alphablendenable], state_.rs[rs_srcblend],
                       state_.rs[rs_destblend], state_.rs[rs_zenable], state_.rs[rs_zwriteenable], state_.rs[rs_zfunc], state_.render_targets[0], state_.textures[0], state_.textures[1], state_.textures[2], state_.textures[3],
-                      state_.viewport.width, state_.viewport.height);
+                      state_.viewport.width, state_.viewport.height, resolve_attachments().color[0].value,
+                      textures_.get(state_.textures[0]) ? textures_.get(state_.textures[0])->gpu.value : 0u, textures_.get(state_.textures[1]) ? textures_.get(state_.textures[1])->gpu.value : 0u,
+                      textures_.get(state_.textures[2]) ? textures_.get(state_.textures[2])->gpu.value : 0u, textures_.get(state_.textures[3]) ? textures_.get(state_.textures[3])->gpu.value : 0u);
         recent_.push_back(text);
-        if (recent_.size() > 14) recent_.pop_front();
+        static const size_t keep = std::getenv("NUE_RECENT_COUNT") ? size_t(std::atoi(std::getenv("NUE_RECENT_COUNT"))) : 14;
+        if (recent_.size() > keep) recent_.pop_front();
     }
     const bool up = up_vertices != nullptr;
     if (!primitive_count || primitive < 1 || primitive > 6) return;
@@ -535,6 +552,21 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
     // reproduced bit for bit, so the test becomes "less or equal" and the redraw is pulled a hair towards the camera.
     if (robust_equal) d.depth_stencil.depth_func = gpu::Compare::less_equal;
     gpu_.draw(d);
+    static const char* dump = std::getenv("NUE_MEAN_TEX");
+    if (dump) {   // debugging aid: "gpu:first-last" prints the mean colour of a gpu texture after each draw in the range
+        static unsigned gpu_id = 0; static unsigned long long first = 1, last = 0; static bool parsed = false;
+        if (!parsed) { std::sscanf(dump, "%u:%llu-%llu", &gpu_id, &first, &last); parsed = true; }
+        if (stats_.draws - 1 >= first && stats_.draws - 1 <= last) {
+            end_pass();
+            uint32_t w = 0, h = 0; std::vector<std::byte> bgra;
+            if (gpu_.read_back(gpu::Texture{gpu_id}, w, h, bgra) == Status::ok && w && h) {
+                double sum[3] = {0, 0, 0};
+                for (size_t i = 0; i + 3 < bgra.size(); i += 4) { sum[0] += uint8_t(bgra[i + 2]); sum[1] += uint8_t(bgra[i + 1]); sum[2] += uint8_t(bgra[i]); }
+                const double n = double(w) * double(h);
+                std::fprintf(stderr, "draw %llu: gpu texture %u mean rgb %.2f %.2f %.2f%c", (unsigned long long)(stats_.draws - 1), gpu_id, sum[0] / n, sum[1] / n, sum[2] / n, 10);
+            }
+        }
+    }
     if (options_.profile) { const uint64_t n = clock_ns(); prof_[5] += n - t_phase; prof_[0] += n - t_begin; ++prof_[7]; }
 }
 

@@ -219,7 +219,8 @@ private:
     void init_state(DeviceState&);
 
     // surfaces and passes
-    struct Attachment { gpu::Texture color[4]; uint8_t layer[4] = {}, mip[4] = {}; gpu::Texture depth; uint32_t width = 0, height = 0; bool valid = false; };
+    struct Attachment { gpu::Texture color[4]; uint8_t layer[4] = {}, mip[4] = {}; gpu::Texture depth; uint32_t width = 0, height = 0; bool valid = false; bool alpha = true; /* colour 0 has an alpha channel (Direct3D 9: X8R8G8B8 / R5G6B5 do not: it reads as 1) */ };
+    void init_opaque_target(gpu::Texture target);   // clears a target without an alpha channel to alpha 1 (it is never written afterwards)
     Attachment resolve_attachments();
     bool same_attachments(const gpu::PassDesc&, const Attachment&) const;
     void end_pass();
