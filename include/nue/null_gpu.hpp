@@ -11,7 +11,7 @@ namespace nue {
 // A Gpu that draws nothing and keeps a running hash of everything it is asked to do (every call with all its arguments and data, in order):
 // two runs that issue the same Level B call sequence end with the same `call_hash`. The hash is how replay determinism is checked, and the
 // counters are the cost measurements of a trace (draws, bytes uploaded, transient bytes...).
-class NullGpu final : public gpu::Gpu {
+class NullGpu : public gpu::Gpu {
 public:
     NullGpu();
     const gpu::GpuCaps& caps() override { return capabilities; }
@@ -89,6 +89,10 @@ public:
     void set_pixel_shader(d3d9::ShaderId) override { count(d3d9::Method::set_pixel_shader); }
     void set_vertex_shader_constants_f(uint32_t, std::span<const d3d9::Float4>) override { count(d3d9::Method::set_vertex_shader_constants_f); }
     void set_pixel_shader_constants_f(uint32_t, std::span<const d3d9::Float4>) override { count(d3d9::Method::set_pixel_shader_constants_f); }
+    void set_vertex_shader_constants_i(uint32_t, std::span<const d3d9::Int4>) override { count(d3d9::Method::set_vertex_shader_constants_i); }
+    void set_pixel_shader_constants_i(uint32_t, std::span<const d3d9::Int4>) override { count(d3d9::Method::set_pixel_shader_constants_i); }
+    void set_vertex_shader_constants_b(uint32_t, std::span<const uint32_t>) override { count(d3d9::Method::set_vertex_shader_constants_b); }
+    void set_pixel_shader_constants_b(uint32_t, std::span<const uint32_t>) override { count(d3d9::Method::set_pixel_shader_constants_b); }
     void set_stream_source(uint32_t, d3d9::BufferId, uint32_t, uint32_t) override { count(d3d9::Method::set_stream_source); }
     void set_indices(d3d9::BufferId) override { count(d3d9::Method::set_indices); }
     d3d9::StateBlockId begin_state_block() override { count(d3d9::Method::begin_state_block); return make<d3d9::StateBlockId>(state_blocks).value; }

@@ -4,6 +4,7 @@
 #include "nue/shader/d3d9_shader.hpp"
 #include <algorithm>
 #include <bgfx/bgfx.h>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -127,8 +128,8 @@ uint32_t sampler_flags(const SamplerDesc& s) {
     f |= addr(s.address_u, BGFX_SAMPLER_U_MIRROR, BGFX_SAMPLER_U_CLAMP, BGFX_SAMPLER_U_BORDER);
     f |= addr(s.address_v, BGFX_SAMPLER_V_MIRROR, BGFX_SAMPLER_V_CLAMP, BGFX_SAMPLER_V_BORDER);
     f |= addr(s.address_w, BGFX_SAMPLER_W_MIRROR, BGFX_SAMPLER_W_CLAMP, BGFX_SAMPLER_W_BORDER);
-    if (s.min == 0) f |= BGFX_SAMPLER_MIN_POINT; else if (s.min == 2) f |= BGFX_SAMPLER_MIN_ANISOTROPIC;
-    if (s.mag == 0) f |= BGFX_SAMPLER_MAG_POINT;
+    if (s.min == 0) f |= BGFX_SAMPLER_MIN_POINT; else if (s.min == 2) f |= BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;   // anisotropic filtering needs both
+    if (s.mag == 0 && s.min != 2) f |= BGFX_SAMPLER_MAG_POINT;
     if (s.mip == 0) f |= BGFX_SAMPLER_MIP_POINT;
     return f;
 }
@@ -160,6 +161,8 @@ bool attribute_format(uint8_t d3d_type, AttributeFormat& f) {
 
 constexpr uint32_t kMaxTransient = 0x7fffffff;
 
+inline uint64_t now_ns() { return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()); }
+
 class BgfxGpuImpl final : public BgfxGpu {
 public:
     ~BgfxGpuImpl() override;
@@ -183,6 +186,8 @@ public:
     void destroy(Texture) override;
     void destroy(Program) override;
     void set_window_size(uint32_t width, uint32_t height) override;
+    std::string profile_report() const override;
+    void reset_profile() override { prof_draw_ns_ = prof_draws_ = prof_layout_ns_ = prof_uniform_ns_ = prof_texture_ns_ = prof_submit_ns_ = prof_frame_ns_ = prof_frames_ = 0; prof_gpu_ms_ = prof_render_cpu_ms_ = prof_wait_render_ms_ = prof_wait_submit_ms_ = 0; }
 
 private:
     bgfx::VertexLayoutHandle layout_handle(const DrawDesc& d, uint32_t stream);
@@ -210,6 +215,8 @@ private:
     bool pass_open_ = false;
     uint32_t pass_rect_[4] = {};
     uint32_t frame_ = 0;
+    uint64_t prof_draw_ns_ = 0, prof_draws_ = 0, prof_layout_ns_ = 0, prof_uniform_ns_ = 0, prof_texture_ns_ = 0, prof_submit_ns_ = 0, prof_frame_ns_ = 0, prof_frames_ = 0;
+    double prof_gpu_ms_ = 0, prof_render_cpu_ms_ = 0, prof_wait_render_ms_ = 0, prof_wait_submit_ms_ = 0;
     bool initialised_ = false;
     bgfx::ProgramHandle blit_program_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
@@ -217,6 +224,15 @@ private:
     std::vector<std::byte> const_scratch_;
     shader::TranslateResult blit_vs_, blit_ps_;
 };
+
+std::string BgfxGpuImpl::profile_report() const {
+    char text[512];
+    const double n = double(std::max<uint64_t>(prof_draws_, 1)), f = double(std::max<uint64_t>(prof_frames_, 1));
+    std::snprintf(text, sizeof text, "adapter per draw (ns): %.0f of which bgfx::submit %.0f; bgfx::frame() blocks %.2f ms per frame (%llu draws, %llu frames)\n", double(prof_draw_ns_) / n, double(prof_submit_ns_) / n, double(prof_frame_ns_) / f / 1e6, (unsigned long long)prof_draws_, (unsigned long long)prof_frames_);
+    char more[256];
+    std::snprintf(more, sizeof more, "bgfx per frame: GPU %.2f ms, render-thread CPU %.2f ms, API thread waits for the render thread %.2f ms, render thread waits for the API thread %.2f ms\n", prof_gpu_ms_ / f, prof_render_cpu_ms_ / f, prof_wait_render_ms_ / f, prof_wait_submit_ms_ / f);
+    return std::string(text) + more;
+}
 
 BgfxGpuImpl::~BgfxGpuImpl() {
     if (!initialised_) return;
@@ -240,7 +256,7 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     init.swapChain.nwh = options.window;
     init.swapChain.width = options.window_width;
     init.swapChain.height = options.window_height;
-    init.reset = options.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+    init.reset = (options.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_MAXANISOTROPY;
     init.limits.maxTransientVbSize = options.transient_vertex_mb << 20;
     init.limits.maxTransientIbSize = options.transient_index_mb << 20;
     init.limits.numDrawCalls = 1 << 15;
@@ -381,8 +397,8 @@ Result<Program> BgfxGpuImpl::create_program(const ProgramDesc& desc) {
     if (!desc.vertex || !desc.pixel) return {Status::invalid_argument, {}};
     ContainerResult vs, ps;
     const ShaderTarget target = shader_target();
-    if (!build_container(*desc.vertex, target, vs)) { std::fprintf(stderr, "[bgfx] vertex shader failed: %s\n", vs.error.c_str()); return {Status::unsupported, {}}; }
-    if (!build_container(*desc.pixel, target, ps)) { std::fprintf(stderr, "[bgfx] pixel shader failed: %s\n", ps.error.c_str()); return {Status::unsupported, {}}; }
+    if (!build_container(*desc.vertex, target, vs, options_.shader_cache_dir)) { std::fprintf(stderr, "[bgfx] vertex shader failed: %s\n", vs.error.c_str()); return {Status::unsupported, {}}; }
+    if (!build_container(*desc.pixel, target, ps, options_.shader_cache_dir)) { std::fprintf(stderr, "[bgfx] pixel shader failed: %s\n", ps.error.c_str()); return {Status::unsupported, {}}; }
     stats_.cross_ms += vs.cross_ms + ps.cross_ms; stats_.compile_ms += vs.compile_ms + ps.compile_ms;
     stats_.shader_builds += 2;
     const bgfx::ShaderHandle vsh = bgfx::createShader(bgfx::copy(vs.bytes.data(), uint32_t(vs.bytes.size())));
@@ -480,6 +496,7 @@ bgfx::VertexLayoutHandle BgfxGpuImpl::layout_handle(const DrawDesc& d, uint32_t 
 
 void BgfxGpuImpl::draw(const DrawDesc& d) {
     if (!pass_open_) return;
+    const uint64_t t0 = now_ns();
     ProgramEntry* program = programs_.get(d.program.value);
     if (!program) return;
     uint32_t blend_factor = 0;
@@ -514,7 +531,10 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
         if (!t) continue;
         bgfx::setTexture(uint8_t(i), u_tex_[i], t->handle, sampler_flags(d.samplers[i]));
     }
+    const uint64_t t3 = now_ns();
     bgfx::submit(uint16_t(current_view_), program->handle);
+    const uint64_t t4 = now_ns();
+    prof_submit_ns_ += t4 - t3; prof_draw_ns_ += t4 - t0; ++prof_draws_;
     ++pass_draws_;
     ++stats_.draws;
 }
@@ -600,7 +620,13 @@ Status BgfxGpuImpl::present(uint32_t) {
         const float uv[4] = {0, 0, 1, 1};
         draw_quad(view, backbuffer_.handle, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | (window_width_ == backbuffer_.width && window_height_ == backbuffer_.height ? BGFX_SAMPLER_POINT : 0), uv);
     }
+    const uint64_t t_frame = now_ns();
     bgfx::frame();
+    prof_frame_ns_ += now_ns() - t_frame; ++prof_frames_;
+    if (const bgfx::Stats* st = bgfx::getStats()) {   // timings of the frame the backend finished last
+        if (st->gpuTimerFreq) prof_gpu_ms_ += 1000.0 * double(st->gpuTimeEnd - st->gpuTimeBegin) / double(st->gpuTimerFreq);
+        if (st->cpuTimerFreq) { prof_render_cpu_ms_ += 1000.0 * double(st->cpuTimeEnd - st->cpuTimeBegin) / double(st->cpuTimerFreq); prof_wait_render_ms_ += 1000.0 * double(st->waitRender) / double(st->cpuTimerFreq); prof_wait_submit_ms_ += 1000.0 * double(st->waitSubmit) / double(st->cpuTimerFreq); }
+    }
     ++frame_;
     next_view_ = 0;
     // transient buffer entries die with the frame

@@ -18,17 +18,18 @@ enum Op : uint16_t {
     Function = 54, FunctionEnd = 56, Variable = 59, Load = 61, Store = 62, AccessChain = 65,
     Decorate = 71, MemberDecorate = 72,
     VectorShuffle = 79, CompositeConstruct = 80, CompositeExtract = 81,
-    SampledImage = 86, ImageSampleImplicitLod = 87, ImageSampleProjImplicitLod = 91,
+    SampledImage = 86, ImageSampleImplicitLod = 87, ImageSampleExplicitLod = 88, ImageSampleProjImplicitLod = 91, ImageSampleProjExplicitLod = 92, ImageQuerySizeLod = 103,
     ConvertFToS = 110, ConvertSToF = 111, ConvertUToF = 112,
-    IAdd = 128, FNegate = 127, FAdd = 129, FSub = 131, FMul = 133, FDiv = 136, Dot = 148,
-    LogicalOr = 166, LogicalAnd = 167, LogicalNot = 168, Select = 169, FOrdEqual = 180, FOrdNotEqual = 182, FOrdLessThan = 184, FOrdGreaterThan = 186, FOrdLessThanEqual = 188, FOrdGreaterThanEqual = 190, Any = 154,
-    SelectionMerge = 247, Label = 248, Branch = 249, BranchConditional = 250, Kill = 252, Return = 253
+    IAdd = 128, ISub = 130, IMul = 132, FNegate = 127, FAdd = 129, FSub = 131, FMul = 133, FDiv = 136, Dot = 148,
+    LogicalOr = 166, LogicalAnd = 167, LogicalNot = 168, Select = 169, IEqual = 170, INotEqual = 171, SGreaterThan = 173, SGreaterThanEqual = 175, SLessThan = 177, SLessThanEqual = 179, All = 155, DPdx = 207, DPdy = 208, FOrdEqual = 180, FOrdNotEqual = 182, FOrdLessThan = 184, FOrdGreaterThan = 186, FOrdLessThanEqual = 188, FOrdGreaterThanEqual = 190, Any = 154,
+    LoopMerge = 246, SelectionMerge = 247, Label = 248, Branch = 249, BranchConditional = 250, Kill = 252, Return = 253
 };
 enum StorageClass : uint32_t { UniformConstant = 0, Input = 1, Uniform = 2, Output = 3, Function_ = 7 };
+enum ImageOperand : uint32_t { Bias = 1, Lod = 2, Grad = 4 };
 enum Decoration : uint32_t { Block = 2, ArrayStride = 6, BuiltIn = 11, Location = 30, Binding = 33, DescriptorSet = 34, Offset = 35 };
-enum BuiltIn : uint32_t { Position = 0, PointSize = 1 };
+enum BuiltIn : uint32_t { Position = 0, PointSize = 1, FragCoord = 15, FrontFacing = 17, FragDepth = 22 };
 enum ExecutionModel : uint32_t { Vertex = 0, Fragment = 4 };
-enum GlslStd450 : uint32_t { FAbs = 4, Floor = 8, Fract = 10, Pow = 26, Exp2 = 29, Log2 = 30, Sqrt = 31, InverseSqrt = 32, FMin = 37, FMax = 40, FClamp = 43, SClamp = 45, FMix = 46, Cross = 68, Normalize = 69 };
+enum GlslStd450 : uint32_t { FAbs = 4, FSign = 6, Floor = 8, Sin = 13, Cos = 14, Fract = 10, Pow = 26, Exp2 = 29, Log2 = 30, Sqrt = 31, InverseSqrt = 32, FMin = 37, FMax = 40, FClamp = 43, SClamp = 45, FMix = 46, Cross = 68, Normalize = 69 };
 }  // namespace spv
 
 class SpirvBuilder {
@@ -101,6 +102,18 @@ public:
     }
 
     // ---- function body (a single function, blocks written in order)
+    size_t body_position() const { return body_.size(); }
+    void insert_at(size_t position, spv::Op op, const std::vector<uint32_t>& words) {   // inserts one instruction into the body (used to write a block header once its shape is known)
+        std::vector<uint32_t> w{(uint32_t(words.size() + 1) << 16) | op};
+        w.insert(w.end(), words.begin(), words.end());
+        body_.insert(body_.begin() + position, w.begin(), w.end());
+    }
+    void insert_selection_header(size_t position, uint32_t merge_label, uint32_t condition, uint32_t true_label, uint32_t false_label) {
+        std::vector<uint32_t> a{(3u << 16) | spv::SelectionMerge, merge_label, 0u};
+        std::vector<uint32_t> b{(4u << 16) | spv::BranchConditional, condition, true_label, false_label};
+        a.insert(a.end(), b.begin(), b.end());
+        body_.insert(body_.begin() + position, a.begin(), a.end());
+    }
     uint32_t begin_block() { const uint32_t id = new_id(); label(id); return id; }
     void label(uint32_t id) { inst(body_, spv::Label, {id}); }
     // Variables of Function storage must come first in the entry block: they are collected separately.
@@ -130,6 +143,7 @@ public:
     void store(uint32_t pointer, uint32_t value) { emit_void(spv::Store, {pointer, value}); }
 
     // ---- module assembly
+    void add_execution_mode(uint32_t mode) { depth_replacing_ = depth_replacing_ || mode == 12; }
     std::vector<uint32_t> finish(uint32_t execution_model, const std::string& entry_name, const std::vector<uint32_t>& interface_ids, bool origin_upper_left) {
         const uint32_t void_type = type_void();
         const uint32_t function_type = type_function(void_type);
@@ -140,6 +154,7 @@ public:
         inst(out, spv::MemoryModel, {0, 1});   // Logical, GLSL450
         { std::vector<uint32_t> w{execution_model, function_id}; pack_string(w, entry_name); w.insert(w.end(), interface_ids.begin(), interface_ids.end()); inst(out, spv::EntryPoint, w); }
         if (origin_upper_left) inst(out, spv::ExecutionMode, {function_id, 7});
+        if (depth_replacing_) inst(out, spv::ExecutionMode, {function_id, 12});
         out.insert(out.end(), names_.begin(), names_.end());
         out.insert(out.end(), annotations_.begin(), annotations_.end());
         out.insert(out.end(), types_.begin(), types_.end());
@@ -175,6 +190,7 @@ private:
     }
 
     uint32_t next_id_ = 1, glsl_ = 0;
+    bool depth_replacing_ = false;
     std::map<std::string, uint32_t> cache_;
     std::vector<uint32_t> imports_, names_, annotations_, types_, globals_, locals_, body_;
 };

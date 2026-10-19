@@ -5,6 +5,7 @@
 #include "nue/bgfx_gpu.hpp"
 #include "nue/d3d9_layer.hpp"
 #include "nue/d3d9_trace.hpp"
+#include "nue/null_gpu.hpp"
 #ifdef _WIN32
 #include "native_d3d9.hpp"
 #endif
@@ -24,6 +25,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <psapi.h>
 #endif
 
 using namespace nue;
@@ -111,15 +113,10 @@ Metrics compare(const Image& ref, const uint8_t* ours, std::vector<uint8_t>* dif
 
 #ifdef _WIN32
 LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) { if (m == WM_CLOSE) { std::exit(0); } return DefWindowProcA(h, m, w, l); }
-HWND make_window(uint32_t w, uint32_t h, bool show) {
+HWND make_window(uint32_t w, uint32_t h, bool) {   // never shown: no window may appear on the user's desktop (the swap chain works on a hidden window)
     WNDCLASSA wc{}; wc.lpfnWndProc = wnd_proc; wc.hInstance = GetModuleHandleA(nullptr); wc.lpszClassName = "nue_replay"; wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
     RegisterClassA(&wc);
-    RECT r{0, 0, LONG(w), LONG(h)};
-    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND hwnd = CreateWindowA("nue_replay", "nue_replay", WS_OVERLAPPEDWINDOW, 100, 100, r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
-    ShowWindow(hwnd, show ? SW_SHOW : SW_SHOWNOACTIVATE);
-    if (!show) ShowWindow(hwnd, SW_HIDE);
-    return hwnd;
+    return CreateWindowExA(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, "nue_replay", "nue_replay", WS_POPUP, -32000, -32000, int(w), int(h), nullptr, nullptr, wc.hInstance, nullptr);
 }
 void pump() { MSG msg; while (PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageA(&msg); } }
 #else
@@ -133,13 +130,13 @@ void log_line(const char* m) { std::fprintf(stderr, "[layer] %s\n", m); }
 
 #ifdef _WIN32
 // Replays the trace on the real Direct3D 9 runtime and compares the captures with the recorded reference images (fidelity of the trace itself).
-static int run_native(const std::string& folder, const std::string& out_dir, uint64_t frames, bool show, unsigned long long draw_first, unsigned long long draw_last) {
+static int run_native(const std::string& folder, const std::string& out_dir, uint64_t frames, bool show, unsigned long long draw_first, unsigned long long draw_last, unsigned long long draw_also) {
     std::filesystem::create_directories(out_dir);
     HWND hwnd = make_window(1280, 720, show);
     std::string error;
     auto native = d3d9::create_native_d3d9(hwnd, error);
     if (!native) { std::fprintf(stderr, "native Direct3D 9 failed: %s\n", error.c_str()); return 1; }
-    native->set_draw_range(draw_first, draw_last);
+    native->set_draw_range(draw_first, draw_last, draw_also);
     d3d9::TraceReader reader;
     if (!reader.open(folder, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     d3d9::ReplayHooks hooks;
@@ -166,21 +163,185 @@ static int run_native(const std::string& folder, const std::string& out_dir, uin
 }
 #endif
 
+
+#ifdef _WIN32
+#include <dbghelp.h>
+#include <atomic>
+#include <thread>
+// A sampling profiler: another thread suspends the replaying thread every millisecond and records where it was; symbols come from the PDB.
+struct Sampler {
+    std::atomic<bool> stop{false};
+    std::thread worker;
+    std::vector<uint64_t> samples;   // preallocated: the sampler must not allocate while the sampled thread is suspended (it could hold the heap lock)
+    uint32_t total = 0;
+    void start() {
+        samples.reserve(1u << 20);
+        HANDLE target = nullptr;
+        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &target, 0, FALSE, DUPLICATE_SAME_ACCESS);
+        worker = std::thread([this, target] {
+            while (!stop) {
+                Sleep(1);
+                if (SuspendThread(target) == DWORD(-1)) continue;
+                CONTEXT ctx{}; ctx.ContextFlags = CONTEXT_CONTROL;
+                if (GetThreadContext(target, &ctx) && samples.size() < samples.capacity()) { samples.push_back(ctx.Rip); ++total; }
+                ResumeThread(target);
+            }
+            CloseHandle(target);
+        });
+    }
+    void report(unsigned top) {
+        stop = true; worker.join();
+        HANDLE process = GetCurrentProcess();
+        SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+        char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        std::string dir = exe; dir = dir.substr(0, dir.find_last_of(char(92)));
+        SymInitialize(process, dir.c_str(), FALSE);   // only this program's PDB: no symbol server, no system modules
+        SymLoadModuleEx(process, nullptr, exe, nullptr, DWORD64(GetModuleHandleA(nullptr)), 0, nullptr, 0);
+        std::map<std::string, uint32_t> by_function;
+        std::map<uint64_t, uint32_t> counts;
+        for (uint64_t rip : samples) ++counts[rip];
+        for (auto& [rip, n] : counts) {
+            alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 256];
+            auto* sym = reinterpret_cast<SYMBOL_INFO*>(buffer);
+            sym->SizeOfStruct = sizeof(SYMBOL_INFO); sym->MaxNameLen = 255;
+            DWORD64 disp = 0;
+            by_function[SymFromAddr(process, rip, &disp, sym) ? std::string(sym->Name) : "(unknown)"] += n;
+        }
+        std::vector<std::pair<uint32_t, std::string>> ordered;
+        for (auto& [name, n] : by_function) ordered.push_back({n, name});
+        std::sort(ordered.rbegin(), ordered.rend());
+        std::printf("samples: %u\n", total);
+        for (unsigned i = 0; i < ordered.size() && i < top; ++i) std::printf("  %5.1f%%  %s\n", 100.0 * ordered[i].first / std::max(total, 1u), ordered[i].second.c_str());
+    }
+};
+#endif
+
+// ---- benchmark: replays one recording window many times from memory and reports the time per frame --------------------------------------
+// nue_replay <trace> --bench [--bgfx d3d11|vulkan|null] [--window N] [--loops L] [--mt]
+// The records of window N are read once (blobs cached in memory); the window is replayed L + 1 times (the first loop is untimed warm-up: shader
+// translation, buffers, textures). Frame time = from one Present to the next, trace decoding included (it is small: the records are in memory).
+static int run_bench(int argc, char** argv) {
+    std::string folder = argv[1], mode = "d3d11";
+    unsigned window_index = 0, loops = 4;
+    bool multithreaded = false;
+    std::string cache_dir;
+    for (int i = 2; i < argc; ++i) {
+        if (!std::strcmp(argv[i], "--bgfx") && i + 1 < argc) mode = argv[++i];
+        else if (!std::strcmp(argv[i], "--window") && i + 1 < argc) window_index = unsigned(std::atoi(argv[++i]));
+        else if (!std::strcmp(argv[i], "--loops") && i + 1 < argc) loops = unsigned(std::atoi(argv[++i]));
+        else if (!std::strcmp(argv[i], "--mt")) multithreaded = true;
+        else if (!std::strcmp(argv[i], "--shader-cache") && i + 1 < argc) cache_dir = argv[++i];
+    }
+    std::string error;
+    std::unique_ptr<gpu::Gpu> gpu_owner;
+    gpu::BgfxGpu* bgfx_gpu = nullptr;
+    NullGpu* null_gpu = nullptr;
+    if (mode == "null" || mode == "devnull") { auto g = std::make_unique<NullGpu>(); null_gpu = g.get(); gpu_owner = std::move(g); }
+    else {
+        gpu::BgfxOptions options;
+        options.renderer = mode == "vulkan" ? gpu::Renderer::vulkan : mode == "opengl" ? gpu::Renderer::opengl : mode == "noop" ? gpu::Renderer::noop : gpu::Renderer::d3d11;
+        options.window_width = 1280; options.window_height = 720;
+        options.single_threaded = !multithreaded;
+        options.shader_cache_dir = cache_dir;
+        options.window = make_window(1280, 720, false);
+        auto g = gpu::create_bgfx_gpu(options, error);
+        if (!g) { std::fprintf(stderr, "bgfx adapter failed: %s\n", error.c_str()); return 1; }
+        bgfx_gpu = g.get();
+        gpu_owner = std::move(g);
+        std::printf("renderer: %s (%s)\n", bgfx_gpu->stats().renderer_name, multithreaded ? "render thread" : "single thread");
+    }
+    d3d9::LayerOptions lo;
+    lo.log = log_line;
+    lo.profile = true;
+    std::unique_ptr<d3d9::Layer> layer_owner = d3d9::create_layer(*gpu_owner, lo);
+    NullDevice bare_device;   // --bgfx devnull: only the replay harness, no layer
+    const bool bare = mode == "devnull";
+    d3d9::Layer* layer = layer_owner.get();
+    d3d9::Device& device = bare ? static_cast<d3d9::Device&>(bare_device) : static_cast<d3d9::Device&>(*layer);
+    d3d9::TraceReader reader;
+    if (!reader.open(folder, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+    d3d9::ReplayStats stats;
+    d3d9::ReplaySession session(reader, device, stats);
+    std::vector<d3d9::Record> window;
+    d3d9::Record record;
+    bool collecting = false;
+    const auto load_start = std::chrono::steady_clock::now();
+    while (reader.next(record)) {
+        if (!collecting && record.op == d3d9::op_window_begin && record.words.size() >= 1 && record.words[0] == window_index) { collecting = true; reader.cache_blobs(true); }
+        if (collecting) {
+            window.push_back(record);
+            if (record.op == d3d9::op_window_end) break;
+            continue;
+        }
+        if (!session.step(record)) { std::fprintf(stderr, "malformed record\n"); return 1; }
+    }
+    std::printf("trace up to window %u replayed in %.1f s; window has %zu records\n", window_index, std::chrono::duration<double>(std::chrono::steady_clock::now() - load_start).count(), window.size());
+    std::vector<double> frame_ms;
+    auto last = std::chrono::steady_clock::now();
+    d3d9::ReplayHooks hooks;
+    bool timing = false;
+    hooks.presented = [&](uint64_t) {
+        const auto now = std::chrono::steady_clock::now();
+        if (timing) frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last).count());
+        last = now;
+        pump();
+    };
+    session.set_hooks(&hooks);
+#ifdef _WIN32
+    Sampler sampler;
+    const bool sample = [&] { for (int i = 2; i < argc; ++i) if (!std::strcmp(argv[i], "--sample")) return true; return false; }();
+#endif
+    for (unsigned loop = 0; loop <= loops; ++loop) {
+        timing = loop > 0;
+        if (loop == 1) { layer->reset_profile(); if (bgfx_gpu) bgfx_gpu->reset_profile(); }
+#ifdef _WIN32
+        if (loop == 1 && sample) sampler.start();
+#endif
+        last = std::chrono::steady_clock::now();
+        for (const d3d9::Record& r : window) if (!session.step(r)) { std::fprintf(stderr, "malformed record in the window\n"); return 1; }
+    }
+    if (frame_ms.empty()) { std::printf("no frames measured\n"); return 1; }
+    if (std::getenv("NUE_BENCH_FRAMES")) for (size_t i = 0; i < frame_ms.size(); ++i) std::printf("frame %zu: %.2f ms\n", i % 120, frame_ms[i]);
+    std::vector<double> v = frame_ms;
+    std::sort(v.begin(), v.end());
+    double sum = 0; for (double x : v) sum += x;
+    std::printf("%zu frames timed: mean %.2f ms, median %.2f ms, p95 %.2f ms, p99 %.2f ms, max %.2f ms  =>  %.0f fps mean, %.0f fps at p99\n", v.size(), sum / double(v.size()), v[v.size() / 2],
+                v[size_t(double(v.size()) * 0.95)], v[size_t(double(v.size()) * 0.99)], v.back(), 1000.0 * double(v.size()) / sum, 1000.0 / v[size_t(double(v.size()) * 0.99)]);
+    if (bare) return 0;
+    const auto& s = layer->stats();
+    std::printf("layer per frame (all loops): draws %.0f, transient copies %.0f, static uploads %.2f, constants %.1f KB\n", double(s.draws) / double(stats.frames), double(s.transient_copies) / double(stats.frames),
+                double(s.static_buffer_uploads) / double(stats.frames), double(s.constants_bytes) / double(stats.frames) / 1024.0);
+    std::printf("%s", layer->profile_report().c_str());
+#ifdef _WIN32
+    { PROCESS_MEMORY_COUNTERS pmc{}; if (K32GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc)) std::printf("process memory: peak working set %.0f MB, now %.0f MB (includes the cached window of the trace)\n", double(pmc.PeakWorkingSetSize) / 1048576.0, double(pmc.WorkingSetSize) / 1048576.0); }
+#endif
+    if (bgfx_gpu) {
+        std::printf("%s", bgfx_gpu->profile_report().c_str());
+        const auto& bs = bgfx_gpu->stats();
+        std::printf("programs %llu, shader builds %llu, SPIR-V cross-compile %.0f ms, shader compiler %.0f ms (whole run: the cold cost of the first frames; %s)\n", (unsigned long long)bs.programs, (unsigned long long)bs.shader_builds, bs.cross_ms, bs.compile_ms, cache_dir.empty() ? "no disk cache" : "disk cache on");
+    }
+    layer_owner.reset();
+    gpu_owner.reset();
+    return 0;
+}
+
 int run_bgfx(int argc, char** argv) {
+    for (int i = 2; i < argc; ++i) if (!std::strcmp(argv[i], "--bench")) return run_bench(argc, argv);
     std::string folder = argv[1], out_dir = "nue_out", renderer_name = "d3d11";
     uint64_t frames = 0;
     bool show = false, native_mode = false;
-    unsigned long long draw_first = 0, draw_last = ~0ull;
+    unsigned long long draw_first = 0, draw_last = ~0ull, draw_also = ~0ull;
     for (int i = 2; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--bgfx") && i + 1 < argc) renderer_name = argv[++i];
         else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::strtoull(argv[++i], nullptr, 10);
         else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) out_dir = argv[++i];
         else if (!std::strcmp(argv[i], "--window")) show = true;
         else if (!std::strcmp(argv[i], "--native")) native_mode = true;
+        else if (!std::strcmp(argv[i], "--also") && i + 1 < argc) draw_also = std::strtoull(argv[++i], nullptr, 10);
         else if (!std::strcmp(argv[i], "--draws") && i + 1 < argc) { std::sscanf(argv[++i], "%llu-%llu", &draw_first, &draw_last); }
     }
 #ifdef _WIN32
-    if (native_mode) return run_native(folder, out_dir, frames, show, draw_first, draw_last);
+    if (native_mode) return run_native(folder, out_dir, frames, show, draw_first, draw_last, draw_also);
 #endif
     std::filesystem::create_directories(out_dir);
     gpu::BgfxOptions options;
@@ -193,7 +354,9 @@ int run_bgfx(int argc, char** argv) {
     std::printf("renderer: %s\n", gpu->stats().renderer_name);
     d3d9::LayerOptions lo;
     lo.log = log_line;
-    lo.debug_draw_first = draw_first; lo.debug_draw_last = draw_last;
+    lo.debug_record_draws = std::getenv("NUE_RECENT_DRAWS") != nullptr;
+    lo.debug_log_passes = std::getenv("NUE_LOG_PASSES") != nullptr;
+    lo.debug_draw_first = draw_first; lo.debug_draw_last = draw_last; lo.debug_draw_also = draw_also;
     auto layer = d3d9::create_layer(*gpu, lo);
 
     d3d9::TraceReader reader;
@@ -207,6 +370,7 @@ int run_bgfx(int argc, char** argv) {
         Image ref;
         if (!read_bmp(std::filesystem::path(folder) / name, ref)) { std::printf("frame %u: reference image %s not readable\n", frame, name); return; }
         layer->flush();
+        if (std::getenv("NUE_RECENT_DRAWS") && std::atoi(std::getenv("NUE_RECENT_DRAWS")) == int(frame)) std::printf("recent draws before the capture of frame %u:\n%s", frame, layer->recent_draws().c_str());
         uint32_t rw = 0, rh = 0; std::vector<std::byte> bgra;
         if (gpu->read_back(gpu::backbuffer, rw, rh, bgra) != Status::ok || rw != ref.width || rh != ref.height) { std::printf("frame %u: read back failed (%ux%u vs %ux%u)\n", frame, rw, rh, ref.width, ref.height); return; }
         for (size_t i = 3; i < bgra.size(); i += 4) bgra[i] = std::byte{255};
@@ -219,7 +383,9 @@ int run_bgfx(int argc, char** argv) {
         sum_mae += m.mae; worst_p999 = std::max(worst_p999, m.p999);
         std::printf("frame %u: MAE %.3f/255, p99.9 outside edges %.0f/255 (max %.0f, %.1f%% of pixels masked as edges)\n", frame, m.mae, m.p999, m.max_diff, 100.0 * m.masked_fraction);
     };
-    hooks.presented = [&](uint64_t) { pump(); };
+    std::vector<double> frame_ms;
+    auto last_present = std::chrono::steady_clock::now();
+    hooks.presented = [&](uint64_t) { const auto now = std::chrono::steady_clock::now(); frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last_present).count()); pump(); last_present = std::chrono::steady_clock::now(); };
     d3d9::ReplayStats stats;
     const auto t0 = std::chrono::steady_clock::now();
     const bool ok = d3d9::replay(reader, *layer, stats, error, frames, &hooks);
@@ -229,6 +395,12 @@ int run_bgfx(int argc, char** argv) {
     const auto& g = gpu->stats();
     std::printf("replayed %llu frames, %llu draws in %.1f s; programs %llu (translations %llu, failures %llu); shader cross-compile %.1f ms, compile %.1f ms in total\n",
                 (unsigned long long)stats.frames, (unsigned long long)s.draws, seconds, (unsigned long long)g.programs, (unsigned long long)s.shader_translations, (unsigned long long)s.shader_failures, g.cross_ms, g.compile_ms);
+    if (frame_ms.size() > 30) {   // steady state: skip the first frames of the run (resource creation) and the first frame of every window
+        std::vector<double> v(frame_ms.begin() + 20, frame_ms.end());
+        std::sort(v.begin(), v.end());
+        double sum = 0; for (double x : v) sum += x;
+        std::printf("frame time (replay + layer + bgfx, trace reading included): mean %.1f ms, median %.1f ms, p95 %.1f ms, p99 %.1f ms\n", sum / double(v.size()), v[v.size() / 2], v[size_t(double(v.size()) * 0.95)], v[size_t(double(v.size()) * 0.99)]);
+    }
     if (!results.empty()) std::printf("images compared: %zu, mean of MAE %.3f, worst p99.9 %.0f\n", results.size(), sum_mae / double(results.size()), worst_p999);
     std::printf("unsupported:\n%s", layer->report().c_str());
     layer.reset();

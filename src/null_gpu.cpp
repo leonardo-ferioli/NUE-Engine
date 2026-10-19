@@ -13,7 +13,8 @@ const char* method_name(Method m) {
         "set_render_state", "set_sampler_state", "set_texture_stage_state", "set_transform", "set_viewport", "set_texture", "set_render_target", "set_depth_stencil",
         "set_vertex_declaration", "set_fvf", "set_vertex_shader", "set_pixel_shader", "set_vertex_shader_constants_f", "set_pixel_shader_constants_f",
         "set_stream_source", "set_indices", "begin_state_block", "end_state_block", "apply_state_block",
-        "begin_scene", "end_scene", "clear", "draw_indexed", "draw_up", "light_enable"};
+        "begin_scene", "end_scene", "clear", "draw_indexed", "draw_up", "light_enable",
+        "set_vertex_shader_constants_i", "set_pixel_shader_constants_i", "set_vertex_shader_constants_b", "set_pixel_shader_constants_b"};
     static_assert(sizeof(names) / sizeof(names[0]) == static_cast<size_t>(Method::count), "method_name table out of step with Method");
     return static_cast<size_t>(m) < static_cast<size_t>(Method::count) ? names[static_cast<size_t>(m)] : "?";
 }
@@ -185,7 +186,7 @@ Result<d3d9::LockedRegion> NullDevice::lock_buffer(d3d9::BufferId id, uint32_t o
 Result<d3d9::LockedRegion> NullDevice::lock_texture(d3d9::TextureId id, uint32_t, uint32_t, const int32_t*, uint32_t) {
     count(d3d9::Method::lock_texture);
     if (!textures.count(id.value)) return {Status::invalid_argument, {}};
-    staging.assign(64 * 64 * 4, std::byte{0});
+    if (staging.size() < (16u << 20)) staging.assign(16u << 20, std::byte{0});
     return {Status::ok, d3d9::LockedRegion{staging.data(), 64 * 4, 0}};
 }
 

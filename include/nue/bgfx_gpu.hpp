@@ -16,6 +16,7 @@ struct BgfxOptions {
     bool vsync = false;
     bool single_threaded = true;             // call bgfx::renderFrame() before init: no render thread (deterministic, easy to debug)
     uint32_t transient_vertex_mb = 64, transient_index_mb = 16;
+    std::string shader_cache_dir;            // compiled shaders are kept here between runs (empty: no disk cache); avoids a ~20 ms stall per new program
 };
 
 struct BgfxStats {
@@ -28,6 +29,8 @@ class BgfxGpu : public Gpu {
 public:
     virtual const BgfxStats& stats() const = 0;
     virtual void set_window_size(uint32_t width, uint32_t height) = 0;
+    virtual void reset_profile() = 0;
+    virtual std::string profile_report() const = 0;   // time inside the adapter's draw and present
 };
 
 std::unique_ptr<BgfxGpu> create_bgfx_gpu(const BgfxOptions& options, std::string& error);

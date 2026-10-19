@@ -27,8 +27,16 @@ void LayerImpl::note_unsupported(const char* what) {
     if (unsupported_[what]++ == 0 && options_.log_unsupported) log(std::string("unsupported: ") + what);
 }
 
+void LayerImpl::note_unsupported_literal(const char* what) {
+    ++stats_.unsupported_calls;
+    for (auto& e : unsupported_literals_) if (e.first == what) { ++e.second; return; }
+    unsupported_literals_.emplace_back(what, 1);
+    if (options_.log_unsupported) log(std::string("unsupported: ") + what);
+}
+
 std::string LayerImpl::report() const {
     std::string text;
+    for (const auto& e : unsupported_literals_) text += "  " + std::string(e.first) + ": " + std::to_string(e.second) + "\n";
     for (const auto& [what, count] : unsupported_) text += "  " + what + ": " + std::to_string(count) + "\n";
     return text.empty() ? "  nothing unsupported was met\n" : text;
 }
@@ -100,7 +108,6 @@ Status LayerImpl::present() {
     gpu_.present(params_.present_interval);
     ++stats_.frames;
     ++frame_;
-    transient_cache_.clear();
     for (auto& b : retired_buffers_) gpu_.destroy(b);
     retired_buffers_.clear();
     for (auto& t : pending_destroy_textures_) gpu_.destroy(t);
@@ -203,7 +210,8 @@ Result<SurfaceId> LayerImpl::back_buffer(uint32_t, uint32_t) {
 void LayerImpl::destroy(TextureId id) {
     TextureObject* t = textures_.get(id.value);
     if (!t) return;
-    for (auto& r : state_.textures) if (r == id.value) r = 0;
+    for (uint32_t s = 0; s < state_.textures.size(); ++s) if (state_.textures[s] == id.value) { state_.textures[s] = 0; if (s < 16) cube_mask_ &= ~(1u << s); }
+    ++program_epoch_;
     if (t->gpu) pending_destroy_textures_.push_back(t->gpu);
     textures_.release(id.value);
 }
@@ -227,10 +235,12 @@ void LayerImpl::destroy(SurfaceId id) {
 }
 
 void LayerImpl::destroy(DeclarationId id) {
+    ++program_epoch_;
     if (state_.declaration == id.value) state_.declaration = 0;
     declarations_.release(id.value);
 }
 void LayerImpl::destroy(ShaderId id) {
+    ++program_epoch_;
     if (state_.vertex_shader == id.value) state_.vertex_shader = 0;
     if (state_.pixel_shader == id.value) state_.pixel_shader = 0;
     shaders_.release(id.value);
@@ -333,6 +343,18 @@ Status LayerImpl::unlock_texture(TextureId id, uint32_t level, uint32_t face) {
 
 // ---- declarations and shaders ---------------------------------------------------------------------------------------------------------------
 
+void finalize_declaration(Declaration& d) {
+    d.stream_count = 0;
+    for (uint32_t s = 0; s < 16; ++s) if ((d.stream_mask & (1u << s)) && d.stream_count < 4) d.stream_order[d.stream_count++] = uint8_t(s);
+    d.remapped.clear(); d.flat0.clear();
+    for (const gpu::VertexAttribute& a : d.attributes) {
+        gpu::VertexAttribute flat = a;
+        flat.stream = 0;
+        d.flat0.push_back(flat);
+        for (uint32_t i = 0; i < d.stream_count; ++i) if (d.stream_order[i] == a.stream) { gpu::VertexAttribute r = a; r.stream = uint8_t(i); d.remapped.push_back(r); }
+    }
+}
+
 Result<DeclarationId> LayerImpl::create_vertex_declaration(std::span<const uint8_t> bytes) {
     Declaration d;
     for (size_t pos = 0; pos + 8 <= bytes.size(); pos += 8) {
@@ -348,6 +370,8 @@ Result<DeclarationId> LayerImpl::create_vertex_declaration(std::span<const uint8
         if (el.type == dt_ubyte4) d.uint_attributes |= 1u << shader::bgfx_attribute_for(el.usage, el.usage_index);
         if (el.type == dt_short2 || el.type == dt_short4) d.sint_attributes |= 1u << shader::bgfx_attribute_for(el.usage, el.usage_index);
     }
+    finalize_declaration(d);
+    ++program_epoch_;   // the table may have moved: cached pointers are dropped
     return {Status::ok, DeclarationId{declarations_.add(std::move(d))}};
 }
 
@@ -362,6 +386,7 @@ Result<ShaderId> LayerImpl::create_vertex_shader(std::span<const uint32_t> bytec
     s.vertex = true; s.bytecode.assign(bytecode.begin(), bytecode.end()); s.hash = hash_words(bytecode);
     s.valid = shader::decode(bytecode, s.program, s.error) && s.program.stage == shader::Stage::vertex;
     if (!s.valid) { ++stats_.shader_failures; log("vertex shader rejected: " + s.error); }
+    ++program_epoch_;
     return {Status::ok, ShaderId{shaders_.add(std::move(s))}};
 }
 
@@ -370,6 +395,7 @@ Result<ShaderId> LayerImpl::create_pixel_shader(std::span<const uint32_t> byteco
     s.vertex = false; s.bytecode.assign(bytecode.begin(), bytecode.end()); s.hash = hash_words(bytecode);
     s.valid = shader::decode(bytecode, s.program, s.error) && s.program.stage == shader::Stage::pixel;
     if (!s.valid) { ++stats_.shader_failures; log("pixel shader rejected: " + s.error); }
+    ++program_epoch_;
     return {Status::ok, ShaderId{shaders_.add(std::move(s))}};
 }
 
@@ -399,6 +425,7 @@ Status LayerImpl::stretch_rect(SurfaceId from, const int32_t* fr, SurfaceId to, 
     int32_t sr[4], dr[4];
     if (fr) rect(fr, sr);
     if (tr) rect(tr, dr);
+    if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "copy: surface %u (gpu %u) -> surface %u (gpu %u)", from.value, src.value, to.value, dst.value); log(t); }
     gpu_.copy_texture(dst, tr ? dr : nullptr, src, fr ? sr : nullptr, filter == texf_linear);
     return Status::ok;
 }

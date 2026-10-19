@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -66,11 +67,14 @@ public:
     bool open(const std::filesystem::path& directory, std::string& error);
     bool next(Record& out);                                   // false at the end
     std::vector<uint8_t> read_blob(uint64_t offset, uint32_t size) const;
+    void cache_blobs(bool on) { caching_ = on; }   // keep every blob read in memory (benchmarks replay a window many times without touching the disk)
     ~TraceReader() { close(); }
     void close();
 private:
     std::FILE* trace_ = nullptr;
     std::FILE* blobs_ = nullptr;
+    bool caching_ = false;
+    mutable std::unordered_map<uint64_t, std::vector<uint8_t>> cache_;
 };
 
 struct ReplayStats {
@@ -90,5 +94,17 @@ struct ReplayHooks {
 // Feeds a trace to a Level A device. Objects are re-created through the device and mapped from their recorded ids; lock/unlock pairs
 // are replayed with the recorded data written into the staging memory. Stops after `max_frames` presents (0 = whole trace).
 bool replay(TraceReader& reader, Device& device, ReplayStats& stats, std::string& error, uint64_t max_frames = 0, const ReplayHooks* hooks = nullptr);
+
+// Record-by-record replay (the replay tools drive it to time windows of a trace).
+class ReplaySession {
+public:
+    ReplaySession(TraceReader&, Device&, ReplayStats&, const ReplayHooks* = nullptr);
+    ~ReplaySession();
+    bool step(const Record&);
+    void set_hooks(const ReplayHooks*);
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 }  // namespace nue::d3d9

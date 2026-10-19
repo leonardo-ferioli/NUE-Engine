@@ -11,7 +11,7 @@ class NativeCapture {
 public:
     virtual ~NativeCapture() = default;
     virtual Device& device() = 0;
-    virtual void set_draw_range(uint64_t first, uint64_t last) = 0;                    // only draws first..last are executed
+    virtual void set_draw_range(uint64_t first, uint64_t last, uint64_t also = ~0ull) = 0;                    // only draws first..last are executed
     virtual bool capture(std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height) = 0;   // the back buffer, BGRA, alpha 255
 };
 

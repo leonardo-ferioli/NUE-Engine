@@ -32,7 +32,7 @@ ShaderObject* LayerImpl::fixed_function_vertex(const Declaration& decl) {
     key.stages = 8;
     for (uint32_t s = 0; s < 8; ++s) {
         key.coord_index[s] = uint8_t(state_.tss[s][tss_texcoordindex] & 0xFFFF);
-        if (state_.tss[s][tss_texcoordindex] >> 16) note_unsupported("texture coordinate generation");
+        if (state_.tss[s][tss_texcoordindex] >> 16) note_unsupported_literal("texture coordinate generation");
         const uint32_t flags = state_.tss[s][tss_texturetransformflags] & 0xFF;
         key.transform_count[s] = uint8_t(flags >= 2 && flags <= 4 ? flags : 0);
     }
@@ -66,7 +66,7 @@ ShaderObject* LayerImpl::fixed_function_pixel() {
             return ((a1 & 7) == 2) || ((a2 & 7) == 2) || (three && (a0 & 7) == 2) || op == 13 || op == 15;
         };
         st.texture = uses_texture(st.color_op, st.color_arg0, st.color_arg1, st.color_arg2) || (st.alpha_op != 1 && uses_texture(st.alpha_op, st.alpha_arg0, st.alpha_arg1, st.alpha_arg2));
-        if (t[tss_colorop] >= 22 && t[tss_colorop] <= 23) note_unsupported("bump-mapping texture operations");
+        if (t[tss_colorop] >= 22 && t[tss_colorop] <= 23) note_unsupported_literal("bump-mapping texture operations");
         key.stage_count = uint8_t(s + 1);
     }
     const uint64_t h = key.hash() ^ 0xFF00FF00FF00FF00ull;

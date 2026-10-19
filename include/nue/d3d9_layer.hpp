@@ -17,7 +17,10 @@ struct LayerOptions {
     // Dump the first N translated shader pairs' failures to the log callback.
     void (*log)(const char* message) = nullptr;
     // Debugging: only draws numbered first..last (counted over the whole replay) are executed.
-    uint64_t debug_draw_first = 0, debug_draw_last = ~0ull;
+    uint64_t debug_draw_first = 0, debug_draw_last = ~0ull, debug_draw_also = ~0ull;   // also execute this one draw
+    bool debug_record_draws = false;
+    bool profile = false;              // time the phases of every draw (Layer::profile_report)
+    bool debug_log_passes = false;     // log every pass and copy as it is opened   // keep a description of the last draws (Layer::recent_draws)
 };
 
 // What the layer did, for tests, the replay tool and the performance work.
@@ -34,7 +37,10 @@ class Layer : public Device {
 public:
     virtual const LayerStats& stats() const = 0;
     virtual void flush() = 0;                 // closes the open pass so that everything drawn so far is submitted to the Gpu
-    virtual std::string report() const = 0;   // human-readable summary of unsupported features met so far
+    virtual std::string report() const = 0;
+    virtual void reset_profile() = 0;
+    virtual std::string profile_report() const = 0;   // where the time of the draws went (needs LayerOptions::profile)
+    virtual std::string recent_draws() const = 0;   // the last draws described (needs LayerOptions::debug_record_draws)   // human-readable summary of unsupported features met so far
 };
 
 std::unique_ptr<Layer> create_layer(gpu::Gpu& gpu, const LayerOptions& options = {});

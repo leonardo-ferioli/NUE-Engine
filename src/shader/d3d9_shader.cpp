@@ -138,11 +138,25 @@ bool decode(std::span<const uint32_t> tokens, Program& out, std::string& error) 
             in.dst = decode_dst(tokens[at++]);
             in.immediate[0] = float(tokens[at++] & 1);
         } else {
-            if (dst_count) { in.has_dst = true; in.dst = decode_dst(tokens[at++]); }
-            // (a predicate source, if any, is the last token of the instruction; it is skipped, not kept in src[])
-            const int sources = std::min(src_count, 4);
-            for (int k = 0; k < sources; ++k) in.src[k] = decode_src(tokens[at++]);
-            in.src_count = uint8_t(sources);
+            size_t tail = pos + advance;
+            if (in.predicated && tail > at) { in.predicate = decode_src(tokens[tail - 1]); --tail; }   // the predicate is the last token of the instruction
+            if (dst_count) {
+                in.has_dst = true; in.dst = decode_dst(tokens[at++]);
+                if (in.dst.relative && has_length && at < tail) ++at;   // the address register of a relative destination (not interpreted)
+            }
+            // Sources are read until the tokens run out: in models 2 and 3 a relative source is followed by the token of its address register.
+            int k = 0;
+            while (at < tail && k < 4) {
+                SrcParam s = decode_src(tokens[at++]);
+                if (s.relative && has_length && at < tail + (in.predicated ? 0 : 0) && at < pos + advance) {
+                    const uint32_t rel = tokens[at++];
+                    s.relative_loop = type_of(rel) == RegType::loop;
+                    s.relative_component = uint8_t((rel >> 16) & 3);
+                }
+                in.src[k++] = s;
+            }
+            in.src_count = uint8_t(k);
+            (void)src_count;
         }
         for (int k = 0; k < in.src_count; ++k) {
             const SrcParam& s = in.src[k];

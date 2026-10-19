@@ -39,6 +39,7 @@ struct TranslateResult {
     std::vector<uint32_t> spirv;
     Stage stage = Stage::vertex;
     uint32_t constant_registers = 0;       // float constants the uniform block holds (the "c" array length)
+    uint32_t int_bool_registers = 0;       // 32 when the uniform block also carries the integer (16) and boolean (16) constant registers, else 0
     uint32_t sampler_mask = 0;             // stages sampled
     uint8_t sampler_dim[16] = {};          // 1 = 2D, 2 = 3D, 3 = cube, per sampled stage
     std::vector<VertexInput> inputs;       // vertex shaders

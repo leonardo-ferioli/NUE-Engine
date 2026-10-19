@@ -15,10 +15,13 @@ struct ContainerResult {
     std::vector<uint8_t> bytes;
     std::string error;
     double cross_ms = 0, compile_ms = 0;   // SPIRV-Cross and driver/compiler time, for the measurements
+    bool from_cache = false;               // the container came from the disk cache (no cross-compile, no compiler)
 };
 
 // `vs` selects the vertex magic. `uniform_vec4s` is the length of the stage's uniform block (fixup registers + constants).
-bool build_container(const shader::TranslateResult& translated, ShaderTarget target, ContainerResult& out);
+// `cache_dir` (may be empty) is a folder where compiled containers are kept between runs, keyed by a hash of everything the container depends on: the
+// Direct3D 11 compiler costs about 20 ms per shader, which would otherwise be a visible stall the first time every program is used.
+bool build_container(const shader::TranslateResult& translated, ShaderTarget target, ContainerResult& out, const std::string& cache_dir = {});
 
 // bgfx attribute enum (our shader path's attribute numbers) -> the id bgfx writes in containers.
 uint16_t bgfx_attribute_id(uint32_t attribute);

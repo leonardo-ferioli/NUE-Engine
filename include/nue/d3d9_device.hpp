@@ -16,6 +16,7 @@ using ShaderId = Id<struct ShaderTag>;
 using StateBlockId = Id<struct StateBlockTag>;
 
 struct Float4 { float x, y, z, w; };
+struct Int4 { int32_t x, y, z, w; };
 
 // Memory the guest writes into between lock and unlock. It lies in the guest arena (the shim converts it to a guest address); the layer
 // owns it and reads the written range at unlock. Never GPU memory: a lock cannot wait for the GPU.
@@ -81,6 +82,10 @@ public:
     virtual void set_pixel_shader(ShaderId) = 0;
     virtual void set_vertex_shader_constants_f(uint32_t start, std::span<const Float4>) = 0;
     virtual void set_pixel_shader_constants_f(uint32_t start, std::span<const Float4>) = 0;
+    virtual void set_vertex_shader_constants_i(uint32_t start, std::span<const Int4>) = 0;
+    virtual void set_pixel_shader_constants_i(uint32_t start, std::span<const Int4>) = 0;
+    virtual void set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t>) = 0;   // one value per register (0 or 1)
+    virtual void set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t>) = 0;
     virtual void set_stream_source(uint32_t stream, BufferId, uint32_t offset, uint32_t stride) = 0;
     virtual void set_indices(BufferId) = 0;
     virtual StateBlockId begin_state_block() = 0;
@@ -106,6 +111,7 @@ enum class Method : uint8_t {
     set_vertex_declaration, set_fvf, set_vertex_shader, set_pixel_shader, set_vertex_shader_constants_f, set_pixel_shader_constants_f,
     set_stream_source, set_indices, begin_state_block, end_state_block, apply_state_block,
     begin_scene, end_scene, clear, draw_indexed, draw_up, light_enable,
+    set_vertex_shader_constants_i, set_pixel_shader_constants_i, set_vertex_shader_constants_b, set_pixel_shader_constants_b,
     count
 };
 const char* method_name(Method);

@@ -118,8 +118,11 @@ bool TraceReader::next(Record& out) {
 std::vector<uint8_t> TraceReader::read_blob(uint64_t offset, uint32_t size) const {
     std::vector<uint8_t> data(size);
     if (!blobs_ || !size) return {};
+    const uint64_t key = offset * 1000003ull + size;
+    if (caching_) { auto hit = cache_.find(key); if (hit != cache_.end()) return hit->second; }
     _fseeki64(blobs_, static_cast<long long>(offset), SEEK_SET);
     if (std::fread(data.data(), 1, size, blobs_) != size) return {};
+    if (caching_) cache_[key] = data;
     return data;
 }
 
@@ -250,6 +253,17 @@ struct Replayer {
             else device.set_pixel_shader_constants_f(w[0], {floats, w[1]});
             break;
         }
+        case uint8_t(Method::set_vertex_shader_constants_i): case uint8_t(Method::set_pixel_shader_constants_i): {
+            if (!need(2) || w.size() < 2 + size_t(w[1]) * 4) return false;
+            const auto* ints = reinterpret_cast<const Int4*>(w.data() + 2);
+            if (rec.op == uint8_t(Method::set_vertex_shader_constants_i)) device.set_vertex_shader_constants_i(w[0], {ints, w[1]}); else device.set_pixel_shader_constants_i(w[0], {ints, w[1]});
+            break;
+        }
+        case uint8_t(Method::set_vertex_shader_constants_b): case uint8_t(Method::set_pixel_shader_constants_b): {
+            if (!need(2) || w.size() < 2 + size_t(w[1])) return false;
+            if (rec.op == uint8_t(Method::set_vertex_shader_constants_b)) device.set_vertex_shader_constants_b(w[0], {w.data() + 2, w[1]}); else device.set_pixel_shader_constants_b(w[0], {w.data() + 2, w[1]});
+            break;
+        }
         case uint8_t(Method::set_stream_source): if (!need(4)) return false; device.set_stream_source(w[0], find<BufferId>(w[1], Kind::buffer), w[2], w[3]); break;
         case uint8_t(Method::set_indices): if (!need(1)) return false; device.set_indices(find<BufferId>(w[0], Kind::buffer)); break;
         case uint8_t(Method::begin_state_block): if (!recording_active) { recording_block = device.begin_state_block(); recording_active = true; } break;
@@ -287,6 +301,12 @@ struct Replayer {
     std::unordered_map<uint64_t, LockedRegion> pending_texture_locks;
 };
 }  // namespace
+
+struct ReplaySession::Impl { Replayer r; };
+ReplaySession::ReplaySession(TraceReader& reader, Device& device, ReplayStats& stats, const ReplayHooks* hooks) : impl_(new Impl{Replayer{reader, device, stats, hooks}}) {}
+ReplaySession::~ReplaySession() = default;
+bool ReplaySession::step(const Record& record) { return impl_->r.step(record); }
+void ReplaySession::set_hooks(const ReplayHooks* hooks) { impl_->r.hooks = hooks; }
 
 bool replay(TraceReader& reader, Device& device, ReplayStats& stats, std::string& error, uint64_t max_frames, const ReplayHooks* hooks) {
     Replayer replayer{reader, device, stats, hooks};

@@ -10,6 +10,12 @@ using namespace k;
 void LayerImpl::set_render_state(uint32_t state, uint32_t value) {
     if (state >= 256) return;
     if (recording_) { recording_->values.rs[state] = value; recording_->rs.set(state); return; }
+    if (state_.rs[state] != value) {
+        switch (state) {   // render states that select the program
+        case rs_alphatestenable: case rs_alphafunc: case rs_fogenable: case rs_fogtablemode: case rs_fogvertexmode: case rs_specularenable: case rs_lighting: ++program_epoch_; break;
+        default: break;
+        }
+    }
     state_.rs[state] = value;
 }
 
@@ -29,6 +35,7 @@ void LayerImpl::set_sampler_state(uint32_t sampler, uint32_t type, uint32_t valu
 void LayerImpl::set_texture_stage_state(uint32_t stage, uint32_t type, uint32_t value) {
     if (stage >= 8 || type >= tss_count) return;
     if (recording_) { recording_->values.tss[stage][type] = value; recording_->tss.set(stage * tss_count + type); return; }
+    if (state_.tss[stage][type] != value && (type == tss_texturetransformflags || program_uses_ff_)) ++program_epoch_;
     state_.tss[stage][type] = value;
 }
 
@@ -39,7 +46,7 @@ void LayerImpl::set_transform(uint32_t type, const float* m) {
     else if (type == ts_projection) { target = st.projection; if (recording_) recording_->projection = true; }
     else if (type >= ts_texture0 && type < ts_texture0 + 8) { target = st.texture[type - ts_texture0]; if (recording_) recording_->texture_transforms.set(type - ts_texture0); }
     else if (type == ts_world) { target = st.world; if (recording_) recording_->world = true; }
-    else { note_unsupported("set_transform: world matrix beyond 0"); return; }
+    else { note_unsupported_literal("set_transform: world matrix beyond 0"); return; }
     std::memcpy(target, m, 64);
 }
 
@@ -60,6 +67,11 @@ void LayerImpl::set_texture(uint32_t sampler, TextureId id) {
     if (slot == ~0u) return;
     if (id.value && !textures_.get(id.value)) { bad_handle("set_texture"); return; }
     if (recording_) { recording_->values.textures[slot] = id.value; recording_->textures.set(slot); return; }
+    if (slot < 16) {
+        const TextureObject* t = textures_.get(id.value);
+        const uint32_t bit = t && t->cube ? 1u << slot : 0u;
+        if ((cube_mask_ & (1u << slot)) != bit) { cube_mask_ = (cube_mask_ & ~(1u << slot)) | bit; ++program_epoch_; }
+    }
     state_.textures[slot] = id.value;
 }
 
@@ -76,23 +88,27 @@ void LayerImpl::set_depth_stencil(SurfaceId id) {
 
 void LayerImpl::set_vertex_declaration(DeclarationId id) {
     if (recording_) { recording_->values.declaration = id.value; recording_->values.fvf = 0; recording_->declaration = true; return; }
+    if (state_.declaration != id.value || state_.fvf) ++program_epoch_;
     state_.declaration = id.value;
     state_.fvf = 0;
 }
 
 void LayerImpl::set_fvf(uint32_t fvf) {
     if (recording_) { recording_->values.fvf = fvf; recording_->values.declaration = 0; recording_->fvf = true; return; }
+    if (state_.fvf != fvf || state_.declaration) ++program_epoch_;
     state_.fvf = fvf;
     state_.declaration = 0;
 }
 
 void LayerImpl::set_vertex_shader(ShaderId id) {
     if (recording_) { recording_->values.vertex_shader = id.value; recording_->vertex_shader = true; return; }
+    if (state_.vertex_shader != id.value) ++program_epoch_;
     state_.vertex_shader = id.value;
 }
 
 void LayerImpl::set_pixel_shader(ShaderId id) {
     if (recording_) { recording_->values.pixel_shader = id.value; recording_->pixel_shader = true; return; }
+    if (state_.pixel_shader != id.value) ++program_epoch_;
     state_.pixel_shader = id.value;
 }
 
@@ -110,6 +126,23 @@ void LayerImpl::set_pixel_shader_constants_f(uint32_t start, std::span<const Flo
         st.ps_constants[start + i] = values[i];
         if (recording_) recording_->ps_constants.set(start + i);
     }
+}
+
+void LayerImpl::set_vertex_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_int[start + i] = v[i]; if (recording_) recording_->vs_int.set(start + i); }
+}
+void LayerImpl::set_pixel_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_int[start + i] = v[i]; if (recording_) recording_->ps_int.set(start + i); }
+}
+void LayerImpl::set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->vs_bool.set(start + i); }
+}
+void LayerImpl::set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->ps_bool.set(start + i); }
 }
 
 void LayerImpl::set_stream_source(uint32_t stream, BufferId id, uint32_t offset, uint32_t stride) {
@@ -144,6 +177,7 @@ void LayerImpl::end_state_block(StateBlockId) {
 void LayerImpl::apply(StateBlockId id) {
     auto* slot = blocks_.get(id.value);
     if (!slot) { bad_handle("apply"); return; }
+    ++program_epoch_;
     const StateBlock& b = **slot;
     for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) state_.rs[i] = b.values.rs[i];
     for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) state_.ss[s][t] = b.values.ss[s][t];
@@ -152,6 +186,12 @@ void LayerImpl::apply(StateBlockId id) {
     for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) state_.streams[s] = b.values.streams[s];
     for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) state_.vs_constants[i] = b.values.vs_constants[i];
     for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) state_.ps_constants[i] = b.values.ps_constants[i];
+    for (uint32_t i = 0; i < 16; ++i) {
+        if (b.vs_int.test(i)) state_.vs_int[i] = b.values.vs_int[i];
+        if (b.ps_int.test(i)) state_.ps_int[i] = b.values.ps_int[i];
+        if (b.vs_bool.test(i)) state_.vs_bool[i] = b.values.vs_bool[i];
+        if (b.ps_bool.test(i)) state_.ps_bool[i] = b.values.ps_bool[i];
+    }
     for (uint32_t i = 0; i < 8; ++i) if (b.texture_transforms.test(i)) std::memcpy(state_.texture[i], b.values.texture[i], 64);
     if (b.index_buffer) state_.index_buffer = b.values.index_buffer;
     if (b.declaration) { state_.declaration = b.values.declaration; state_.fvf = 0; }
@@ -163,6 +203,8 @@ void LayerImpl::apply(StateBlockId id) {
     if (b.projection) std::memcpy(state_.projection, b.values.projection, 64);
     if (b.world) std::memcpy(state_.world, b.values.world, 64);
     state_.lights_enabled = (state_.lights_enabled & ~b.lights_mask) | (b.lights_value & b.lights_mask);
+    cube_mask_ = 0;
+    for (uint32_t s = 0; s < 16; ++s) if (const TextureObject* t = textures_.get(state_.textures[s])) if (t->cube) cube_mask_ |= 1u << s;
 }
 
 // ---- render targets and passes --------------------------------------------------------------------------------------------------------------
@@ -218,7 +260,10 @@ void LayerImpl::ensure_pass() {
         if (!a.valid) return;
         open_pass(a);
     }
-    if (!pass_submitted_) { gpu_.begin_pass(pass_); pass_submitted_ = true; ++stats_.passes; }
+    if (!pass_submitted_) {
+        if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "pass: rt surface %u (gpu %u) depth %u size %ux%u clear c%d z%d", state_.render_targets[0], pass_.colors[0].value, state_.depth_stencil, pass_attachments_.width, pass_attachments_.height, pass_.clear_color, pass_.clear_depth); log(t); }
+        gpu_.begin_pass(pass_); pass_submitted_ = true; ++stats_.passes;
+    }
 }
 
 void LayerImpl::clear(std::span<const int32_t> rects, uint32_t flags, uint32_t argb, float z, uint32_t stencil) {

@@ -1,7 +1,9 @@
 #include "shader_container.hpp"
 #include "nue/shader/cross_compile.hpp"
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -10,6 +12,7 @@
 #endif
 
 namespace nue::gpu {
+bool build_container_uncached(const shader::TranslateResult&, ShaderTarget, ContainerResult&);
 namespace {
 
 void put8(std::vector<uint8_t>& v, uint8_t x) { v.push_back(x); }
@@ -72,9 +75,55 @@ uint16_t bgfx_attribute_id(uint32_t attribute) {
     return attribute < sizeof(ids) / sizeof(ids[0]) ? ids[attribute] : 0xFFFF;
 }
 
-bool build_container(const shader::TranslateResult& t, ShaderTarget target, ContainerResult& out) {
+namespace {
+constexpr uint32_t kCacheVersion = 1;   // bump when the container layout or the cross-compilation changes
+uint64_t cache_key(const shader::TranslateResult& t, ShaderTarget target) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&](uint64_t v) { for (int i = 0; i < 8; ++i) { h ^= (v >> (8 * i)) & 0xFF; h *= 0x100000001b3ull; } };
+    mix(kCacheVersion); mix(uint64_t(target)); mix(uint64_t(t.stage)); mix(t.constant_registers); mix(t.int_bool_registers); mix(t.sampler_mask);
+    for (uint32_t s = 0; s < 16; ++s) mix(t.sampler_dim[s]);
+    for (const auto& in : t.inputs) mix(in.attribute);
+    mix(t.spirv.size());
+    for (uint32_t w : t.spirv) { h ^= w; h *= 0x100000001b3ull; h ^= h >> 29; }
+    return h;
+}
+}  // namespace
+
+bool build_container(const shader::TranslateResult& t, ShaderTarget target, ContainerResult& out, const std::string& cache_dir) {
+    std::filesystem::path cache_file;
+    if (target == ShaderTarget::dxbc && !cache_dir.empty()) {
+        char name[40];
+        std::snprintf(name, sizeof name, "%016llx.nsc", (unsigned long long)cache_key(t, target));
+        cache_file = std::filesystem::path(cache_dir) / name;
+        if (FILE* f = std::fopen(cache_file.string().c_str(), "rb")) {
+            std::fseek(f, 0, SEEK_END);
+            const long size = std::ftell(f);
+            std::fseek(f, 0, SEEK_SET);
+            if (size > 0) {
+                out.bytes.resize(size_t(size));
+                if (std::fread(out.bytes.data(), 1, size_t(size), f) == size_t(size)) { std::fclose(f); out.from_cache = true; return true; }
+                out.bytes.clear();
+            }
+            std::fclose(f);
+        }
+    }
+    if (!build_container_uncached(t, target, out)) return false;
+    if (!cache_file.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(cache_dir, ec);
+        const std::filesystem::path tmp = cache_file.string() + ".tmp";
+        if (FILE* f = std::fopen(tmp.string().c_str(), "wb")) {
+            const bool ok = std::fwrite(out.bytes.data(), 1, out.bytes.size(), f) == out.bytes.size();
+            std::fclose(f);
+            if (ok) std::filesystem::rename(tmp, cache_file, ec); else std::filesystem::remove(tmp, ec);
+        }
+    }
+    return true;
+}
+
+bool build_container_uncached(const shader::TranslateResult& t, ShaderTarget target, ContainerResult& out) {
     const bool fragment = t.stage == shader::Stage::pixel;
-    const uint16_t count = uint16_t(shader::TranslateOptions::fixup_registers + t.constant_registers);
+    const uint16_t count = uint16_t(shader::TranslateOptions::fixup_registers + t.constant_registers + t.int_bool_registers);
     std::vector<Uniform> uniforms;
     uniforms.push_back({fragment ? "u_ps" : "u_vs", kVec4, uint8_t(std::min<uint32_t>(count, 255)), 0, count, 0});
     for (uint32_t s = 0; s < 16; ++s) {

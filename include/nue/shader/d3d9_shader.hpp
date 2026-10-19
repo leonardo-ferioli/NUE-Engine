@@ -49,6 +49,9 @@ struct SrcParam {
     uint8_t swizzle[4] = {0, 1, 2, 3};   // 0 = x ... 3 = w
     SrcModifier modifier = SrcModifier::none;
     bool relative = false;
+    // Relative addressing (c[a0.x + n], c[aL + n]) in models 2 and 3: the address register and its component. Model 1 always uses a0.x.
+    bool relative_loop = false;
+    uint8_t relative_component = 0;
 };
 
 struct Instruction {
@@ -56,6 +59,7 @@ struct Instruction {
     uint8_t control = 0;            // bits 16..23 of the opcode token (comparison for ifc/setp, texld variant)
     bool coissue = false;           // pixel shaders 1.x: "+" instruction paired with the previous one
     bool predicated = false;
+    SrcParam predicate;             // the predicate register (p0 with swizzle and optional negation) when predicated
     bool has_dst = false;
     DstParam dst;
     SrcParam src[4];

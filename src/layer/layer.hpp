@@ -7,6 +7,8 @@
 #include "nue/shader/d3d9_to_spirv.hpp"
 #include <array>
 #include <bitset>
+#include <deque>
+#include <string>
 #include <map>
 #include <memory>
 #include <unordered_map>
@@ -23,6 +25,10 @@ struct Declaration {
     uint32_t stream_mask = 0;
     uint32_t bgra_attributes = 0;                   // bgfx attribute bit per D3DCOLOR element
     uint32_t uint_attributes = 0, sint_attributes = 0;   // UBYTE4, SHORT2/SHORT4 elements: the GPU delivers integers
+    // Precomputed for draws: the attributes with their stream renumbered by rank among the used streams (draws bind the used streams to GPU slots 0..3 in
+    // that order) and with every stream 0 (user-pointer draws).
+    std::vector<gpu::VertexAttribute> remapped, flat0;
+    uint8_t stream_order[4] = {}, stream_count = 0;
 };
 
 struct ShaderObject {
@@ -82,6 +88,8 @@ struct DeviceState {
     uint32_t index_buffer = 0, declaration = 0, fvf = 0, vertex_shader = 0, pixel_shader = 0;
     std::array<Float4, 256> vs_constants{};
     std::array<Float4, 224> ps_constants{};
+    std::array<Int4, 16> vs_int{}, ps_int{};
+    std::array<uint32_t, 16> vs_bool{}, ps_bool{};
     std::array<uint32_t, 4> render_targets{};
     uint32_t depth_stencil = 0;
     uint32_t lights_enabled = 0;
@@ -96,10 +104,13 @@ struct StateBlock {
     std::bitset<16> streams;
     std::bitset<256> vs_constants;
     std::bitset<224> ps_constants;
+    std::bitset<16> vs_int, ps_int, vs_bool, ps_bool;
     std::bitset<8> texture_transforms;
     bool index_buffer = false, declaration = false, fvf = false, vertex_shader = false, pixel_shader = false, viewport = false, view = false, projection = false, world = false;
     uint32_t lights_mask = 0, lights_value = 0;
 };
+
+void finalize_declaration(Declaration&);
 
 class LayerImpl final : public Layer {
 public:
@@ -108,6 +119,9 @@ public:
     const LayerStats& stats() const override { return stats_; }
     std::string report() const override;
     void flush() override { end_pass(); }
+    std::string profile_report() const override;
+    void reset_profile() override { for (auto& p : prof_) p = 0; }
+    std::string recent_draws() const override { std::string s; for (const auto& d : recent_) s += d + char(10); return s; }
 
     // ---- Device
     Status reset(const DeviceParams&) override;
@@ -150,6 +164,10 @@ public:
     void set_pixel_shader(ShaderId) override;
     void set_vertex_shader_constants_f(uint32_t start, std::span<const Float4>) override;
     void set_pixel_shader_constants_f(uint32_t start, std::span<const Float4>) override;
+    void set_vertex_shader_constants_i(uint32_t start, std::span<const Int4>) override;
+    void set_pixel_shader_constants_i(uint32_t start, std::span<const Int4>) override;
+    void set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t>) override;
+    void set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t>) override;
     void set_stream_source(uint32_t stream, BufferId, uint32_t offset, uint32_t stride) override;
     void set_indices(BufferId) override;
     StateBlockId begin_state_block() override;
@@ -194,6 +212,8 @@ private:
     };
 
     void note_unsupported(const char* what);
+    void note_unsupported_literal(const char* what);   // for string literals: counted by address, no string built
+    std::vector<std::pair<const char*, uint64_t>> unsupported_literals_;
     void bad_handle(const char* site) { ++stats_.bad_handles; note_unsupported((std::string("invalid handle in ") + site).c_str()); }
     void log(const std::string& message);
     void init_state(DeviceState&);
@@ -224,7 +244,7 @@ private:
     const shader::TranslateResult* translate(ShaderObject&, uint32_t shader_id, const shader::TranslateOptions&, uint64_t options_key);
     void fill_vertex_fixup(float* fix, const Attachment&) const;
     void fill_pixel_fixup(float* fix) const;
-    void collect_constants(std::vector<std::byte>& out, const Float4* regs, uint32_t available, const shader::TranslateResult&, const float* fix);
+    void collect_constants(std::vector<std::byte>& out, const Float4* regs, uint32_t available, const shader::TranslateResult&, const float* fix, const Int4* ints = nullptr, const uint32_t* bools = nullptr);
 
     // drawing
     void do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_vertex, uint32_t vertex_count, uint32_t start_index, uint32_t primitive_count,
@@ -266,16 +286,24 @@ private:
     std::map<std::string, uint64_t> unsupported_;
 
     // per-frame transient dedupe: (buffer, version, offset, bytes) -> transient buffer
-    struct TransientKey { uint32_t buffer, version, offset, bytes; bool operator<(const TransientKey& o) const { return std::tie(buffer, version, offset, bytes) < std::tie(o.buffer, o.version, o.offset, o.bytes); } };
-    std::map<TransientKey, gpu::Buffer> transient_cache_;
+    // A fixed-size direct-mapped table (a lost entry only costs a second copy), valid for the frame whose number it carries.
+    struct TransientEntry { uint32_t buffer = 0, version = 0, offset = 0, bytes = 0; uint64_t frame = ~0ull; gpu::Buffer gpu; };
+    std::vector<TransientEntry> transient_cache_ = std::vector<TransientEntry>(8192);
     std::vector<gpu::Buffer> retired_buffers_;
     std::vector<std::byte> scratch_, vs_constants_scratch_, ps_constants_scratch_, index_scratch_;
     std::vector<gpu::Texture> pending_destroy_textures_;
     std::map<uint32_t, Declaration> fvf_declarations_;
+    std::deque<std::string> recent_;
+    uint64_t prof_[8] = {};   // ns: total, program, sources, textures, constants, states+gpu draw, (unused), draws profiled
+    uint64_t clock_ns() const;
     std::unordered_map<uint64_t, std::unique_ptr<ShaderObject>> ff_shaders_;
     std::array<Float4, 48> ff_constants_{};
-    std::map<uint32_t, uint32_t> remap_streams_;
-    std::vector<gpu::VertexAttribute> layout_scratch_;
+    // The program of the last draw, valid while nothing that selects it changed (program_epoch_ is bumped by the setters of such state).
+    struct ProgramCache { bool valid = false; uint64_t epoch = 0; const Declaration* decl = nullptr; ShaderObject* vs = nullptr; ShaderObject* ps = nullptr; bool ff_vertex = false, ff_pixel = false; DrawProgram program; };
+    ProgramCache program_cache_;
+    uint64_t program_epoch_ = 1;
+    uint32_t cube_mask_ = 0;      // bit per sampler slot: the bound texture is a cube map
+    bool program_uses_ff_ = false;
 };
 
 }  // namespace nue::d3d9

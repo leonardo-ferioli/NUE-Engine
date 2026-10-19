@@ -177,6 +177,10 @@ public:
     void set_pixel_shader(ShaderId id) override { device_->SetPixelShader(pss_.get(id.value & 0x7FFFFFFFu)); }
     void set_vertex_shader_constants_f(uint32_t start, std::span<const Float4> v) override { device_->SetVertexShaderConstantF(start, &v[0].x, UINT(v.size())); }
     void set_pixel_shader_constants_f(uint32_t start, std::span<const Float4> v) override { device_->SetPixelShaderConstantF(start, &v[0].x, UINT(v.size())); }
+    void set_vertex_shader_constants_i(uint32_t start, std::span<const Int4> v) override { device_->SetVertexShaderConstantI(start, &v[0].x, UINT(v.size())); }
+    void set_pixel_shader_constants_i(uint32_t start, std::span<const Int4> v) override { device_->SetPixelShaderConstantI(start, &v[0].x, UINT(v.size())); }
+    void set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t> v) override { std::vector<BOOL> b(v.begin(), v.end()); device_->SetVertexShaderConstantB(start, b.data(), UINT(b.size())); }
+    void set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t> v) override { std::vector<BOOL> b(v.begin(), v.end()); device_->SetPixelShaderConstantB(start, b.data(), UINT(b.size())); }
     void set_stream_source(uint32_t s, BufferId id, uint32_t off, uint32_t stride) override { device_->SetStreamSource(s, vbs_.get(id.value), off, stride); }
     void set_indices(BufferId id) override { device_->SetIndices(id.value ? ibs_.get(id.value & 0x7FFFFFFFu) : nullptr); }
     StateBlockId begin_state_block() override { device_->BeginStateBlock(); return StateBlockId{blocks_.add(nullptr)}; }
@@ -191,18 +195,18 @@ public:
         device_->Clear(DWORD(list.size()), list.empty() ? nullptr : list.data(), flags, argb, z, stencil);
     }
     void draw_indexed(uint32_t prim, int32_t base, uint32_t min_v, uint32_t count, uint32_t start, uint32_t prims) override {
-        if (draw_count_++ < first_ || draw_count_ - 1 > last_) return;
+        if ((draw_count_++ < first_ || draw_count_ - 1 > last_) && draw_count_ - 1 != also_) return;
         begin_scene();
         device_->DrawIndexedPrimitive(D3DPRIMITIVETYPE(prim), base, min_v, count, start, prims);
     }
     void draw_up(uint32_t prim, uint32_t prims, Bytes v, uint32_t stride) override {
-        if (draw_count_++ < first_ || draw_count_ - 1 > last_) return;
+        if ((draw_count_++ < first_ || draw_count_ - 1 > last_) && draw_count_ - 1 != also_) return;
         begin_scene();
         device_->DrawPrimitiveUP(D3DPRIMITIVETYPE(prim), prims, v.data(), stride);
     }
 
     // ---- NativeCapture
-    void set_draw_range(uint64_t first, uint64_t last) override { first_ = first; last_ = last; }
+    void set_draw_range(uint64_t first, uint64_t last, uint64_t also) override { first_ = first; last_ = last; also_ = also; }
     bool capture(std::vector<uint8_t>& bgra, uint32_t& w, uint32_t& h) override {
         IDirect3DSurface9 *back = nullptr, *sys = nullptr;
         if (FAILED(device_->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back))) return false;
@@ -231,7 +235,7 @@ private:
     HWND hwnd_ = nullptr;
     uint32_t width_ = 0, height_ = 0;
     bool in_scene_ = false;
-    uint64_t draw_count_ = 0, first_ = 0, last_ = ~0ull;
+    uint64_t draw_count_ = 0, first_ = 0, last_ = ~0ull, also_ = ~0ull;
     Pool<IDirect3DBaseTexture9> textures_;
     Pool<IDirect3DVertexBuffer9> vbs_;
     Pool<IDirect3DIndexBuffer9> ibs_;
