@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
+#include <set>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -135,7 +137,30 @@ bool build_container_uncached(const shader::TranslateResult& t, ShaderTarget tar
     if (!fragment) for (const auto& in : t.inputs) attributes.push_back(bgfx_attribute_id(in.attribute));
 
     if (target == ShaderTarget::spirv) {
-        out.bytes = assemble(fragment, uniforms, reinterpret_cast<const uint8_t*>(t.spirv.data()), t.spirv.size() * 4, attributes, uint16_t(count * 16));
+        std::vector<uint32_t> words = t.spirv;
+        if (!fragment) {
+            // bgfx's Vulkan backend binds vertex attributes by their position in the container's attribute list, not by the attribute number:
+            // vertex input locations are renumbered 0..n-1 in the order of `t.inputs` (the order of `attributes`).
+            std::map<uint32_t, uint32_t> compact;
+            for (uint32_t i = 0; i < t.inputs.size(); ++i) compact[t.inputs[i].attribute] = i;
+            std::set<uint32_t> input_variables;
+            for (size_t i = 5; i < words.size();) {   // first pass: Input variables
+                const uint32_t op = words[i] & 0xFFFF, len = words[i] >> 16;
+                if (!len) break;
+                if (op == 59 && len >= 4 && words[i + 3] == 1) input_variables.insert(words[i + 2]);   // OpVariable, StorageClass Input
+                i += len;
+            }
+            for (size_t i = 5; i < words.size();) {   // second pass: their Location decorations
+                const uint32_t op = words[i] & 0xFFFF, len = words[i] >> 16;
+                if (!len) break;
+                if (op == 71 && len >= 4 && words[i + 2] == 30 && input_variables.count(words[i + 1])) {   // OpDecorate <id> Location <n>
+                    const auto it = compact.find(words[i + 3]);
+                    if (it != compact.end()) words[i + 3] = it->second;
+                }
+                i += len;
+            }
+        }
+        out.bytes = assemble(fragment, uniforms, reinterpret_cast<const uint8_t*>(words.data()), words.size() * 4, attributes, uint16_t(count * 16));
         return true;
     }
     if (target == ShaderTarget::dxbc) {

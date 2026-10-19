@@ -278,6 +278,8 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     for (size_t i = 0; i < size_t(Format::count); ++i) {
         const auto f = texture_format(Format(i));
         caps_.texture_format[i] = (caps->formats[f] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0;
+        if (std::getenv("NUE_LOG_CAPS")) std::fprintf(stderr, "format %zu (bgfx %d): flags %x -> %d%c", i, int(f), unsigned(caps->formats[f]), int(caps_.texture_format[i]), 10);
+        if (std::getenv("NUE_NO_BC") && (Format(i) == Format::bc1 || Format(i) == Format::bc2 || Format(i) == Format::bc3)) caps_.texture_format[i] = false;   // debugging aid: force the decode to RGBA8
     }
     bgfx::VertexLayout dummy;
     dummy.begin().add(bgfx::Attrib::Position, 4, bgfx::AttribType::Uint8, true).end();
@@ -369,7 +371,13 @@ Result<Texture> BgfxGpuImpl::create_texture(uint32_t width, uint32_t height, uin
     const auto f = texture_format(format);
     t.handle = cube ? bgfx::createTextureCube(uint16_t(width), t.levels > 1, 1, f, flags)
                     : bgfx::createTexture2D(uint16_t(width), uint16_t(height), t.levels > 1, 1, f, flags);
-    if (!bgfx::isValid(t.handle)) return {Status::out_of_memory, {}};
+    if (!bgfx::isValid(t.handle) && t.depth && !cube) {   // some Vulkan drivers have no 24-bit depth: fall back to 32-bit float depth, then 16-bit (stencil is lost)
+        for (const bgfx::TextureFormat::Enum fallback : {bgfx::TextureFormat::D32F, bgfx::TextureFormat::D16}) {
+            t.handle = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1, fallback, flags);
+            if (bgfx::isValid(t.handle)) break;
+        }
+    }
+    if (!bgfx::isValid(t.handle)) { std::fprintf(stderr, "[bgfx] texture %ux%u levels %u format %d rt %d cube %d could not be created%c", width, height, t.levels, int(format), int(render_target), int(cube), 10); return {Status::out_of_memory, {}}; }
     return {Status::ok, Texture{textures_.add(t)}};
 }
 

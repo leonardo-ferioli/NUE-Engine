@@ -559,10 +559,20 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         if (stats_.draws - 1 >= first && stats_.draws - 1 <= last) {
             end_pass();
             uint32_t w = 0, h = 0; std::vector<std::byte> bgra;
-            if (gpu_.read_back(gpu::Texture{gpu_id}, w, h, bgra) == Status::ok && w && h) {
+            const Status rb = gpu_.read_back(gpu::Texture{gpu_id}, w, h, bgra);
+            if (rb != Status::ok) std::fprintf(stderr, "draw %llu: read_back of gpu texture %u failed (status %d)%c", (unsigned long long)(stats_.draws - 1), gpu_id, int(rb), 10);
+            else if (w && h) {
                 double sum[3] = {0, 0, 0};
                 for (size_t i = 0; i + 3 < bgra.size(); i += 4) { sum[0] += uint8_t(bgra[i + 2]); sum[1] += uint8_t(bgra[i + 1]); sum[2] += uint8_t(bgra[i]); }
                 const double n = double(w) * double(h);
+                if (const char* save = std::getenv("NUE_SAVE_TEX")) {   // debugging aid: writes the texture as a 32-bit BMP to <save>_<draw>.bmp
+                    char path[512]; std::snprintf(path, sizeof path, "%s_%llu.bmp", save, (unsigned long long)(stats_.draws - 1));
+                    if (FILE* f = std::fopen(path, "wb")) {
+                        uint8_t header[54] = {'B', 'M'}; const uint32_t size = 54 + w * h * 4; std::memcpy(header + 2, &size, 4); header[10] = 54; header[14] = 40;
+                        const int32_t bw = int32_t(w), bh = -int32_t(h); std::memcpy(header + 18, &bw, 4); std::memcpy(header + 22, &bh, 4); header[26] = 1; header[28] = 32;
+                        std::fwrite(header, 1, 54, f); std::fwrite(bgra.data(), 1, bgra.size(), f); std::fclose(f);
+                    }
+                }
                 std::fprintf(stderr, "draw %llu: gpu texture %u mean rgb %.2f %.2f %.2f%c", (unsigned long long)(stats_.draws - 1), gpu_id, sum[0] / n, sum[1] / n, sum[2] / n, 10);
             }
         }
