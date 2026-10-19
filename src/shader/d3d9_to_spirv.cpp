@@ -672,7 +672,11 @@ struct Lowering {
             return;
         }
         case op_texkill: {
-            const uint32_t coords = ps() && in.src_count == 0 ? b.load(vec4, texreg(in.dst.index)) : source(in.src[0]);
+            uint32_t coords;
+            if (ps() && in.src_count == 0) {
+                if (p.major < 2) coords = b.load(vec4, texreg(in.dst.index));   // texkill tN: the texture register
+                else { SrcParam r; r.type = in.dst.type; r.index = in.dst.index; coords = raw_source(r); }   // texkill r0: the register named as the destination
+            } else coords = source(in.src[0]);
             const uint32_t negative = b.emit(FOrdLessThan, bvec4, {coords, splat(0.0f)});
             const uint32_t any_xyz = b.emit(LogicalOr, boolean, {b.emit(LogicalOr, boolean, {b.emit(CompositeExtract, boolean, {negative, 0u}), b.emit(CompositeExtract, boolean, {negative, 1u})}), b.emit(CompositeExtract, boolean, {negative, 2u})});
             conditional_kill(any_xyz);
@@ -811,6 +815,8 @@ struct Lowering {
             if (!sm3()) {
                 for (uint16_t i = 0; i < 2; ++i) b.store(sink, b.load(vec4, interpolant(RegType::input, i)));
                 for (uint16_t i = 0; i < 8; ++i) b.store(sink, b.load(vec4, interpolant(RegType::addr_texture, i)));
+            } else {   // locations 0..11 (colours, texture coordinates): the vertex shader writes all of them, whichever the pixel shader declared
+                for (uint32_t location = 0; location < 12; ++location) b.store(sink, b.load(vec4, interpolant_at(location, 0)));
             }
             fog_input = b.global_variable(f32, Input, "vary" + std::to_string(fog_location));
             b.decorate(fog_input, Location, {fog_location});
@@ -875,7 +881,9 @@ struct Lowering {
     void epilogue_vertex() {
         uint32_t pos_value = b.const_vec4(0, 0, 0, 1);
         bool have_position = false;
+        uint32_t emitted_varyings = 0;   // bit per location below 32
         auto emit_varying = [&](uint32_t location, uint32_t type_id, uint32_t value) {
+            if (location < 32) emitted_varyings |= 1u << location;
             const uint32_t var = b.global_variable(type_id, Output, "vary" + std::to_string(location));
             b.decorate(var, Location, {location});
             interface_ids.push_back(var);
@@ -917,6 +925,10 @@ struct Lowering {
             return;
         }
         (void)have_position;
+        if (sm3()) {   // the pixel shader reads the whole fixed interface, so a model 3 vertex shader provides all of it (unwritten ones: 0, fog 1)
+            for (uint32_t location = 0; location < 12; ++location) if (!(emitted_varyings & (1u << location))) emit_varying(location, vec4, splat(0.0f));
+            if (!(emitted_varyings & (1u << fog_location))) emit_varying(fog_location, f32, b.const_float(1.0f));
+        }
         const uint32_t pos_out = b.global_variable(vec4, Output, "gl_Position");
         b.decorate(pos_out, BuiltIn, {Position});
         interface_ids.push_back(pos_out);

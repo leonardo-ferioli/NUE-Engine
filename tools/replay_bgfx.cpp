@@ -385,7 +385,8 @@ int run_bgfx(int argc, char** argv) {
     };
     std::vector<double> frame_ms;
     auto last_present = std::chrono::steady_clock::now();
-    hooks.presented = [&](uint64_t) { const auto now = std::chrono::steady_clock::now(); frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last_present).count()); pump(); last_present = std::chrono::steady_clock::now(); };
+    const bool log_frame_draws = std::getenv("NUE_FRAME_DRAWS") != nullptr;   // prints the number of draws made up to the end of every frame (to pick --draws ranges)
+    hooks.presented = [&](uint64_t) { if (log_frame_draws) std::printf("present: %llu draws so far\n", (unsigned long long)layer->stats().draws); const auto now = std::chrono::steady_clock::now(); frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last_present).count()); pump(); last_present = std::chrono::steady_clock::now(); };
     d3d9::ReplayStats stats;
     const auto t0 = std::chrono::steady_clock::now();
     const bool ok = d3d9::replay(reader, *layer, stats, error, frames, &hooks);

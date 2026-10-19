@@ -1,11 +1,13 @@
 // gpu::Gpu on bgfx. See nue/bgfx_gpu.hpp.
 #include "nue/bgfx_gpu.hpp"
 #include "shader_container.hpp"
+#include "nue/shader/cross_compile.hpp"
 #include "nue/shader/d3d9_shader.hpp"
 #include <algorithm>
 #include <bgfx/bgfx.h>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <unordered_map>
@@ -397,6 +399,17 @@ Result<Program> BgfxGpuImpl::create_program(const ProgramDesc& desc) {
     if (!desc.vertex || !desc.pixel) return {Status::invalid_argument, {}};
     ContainerResult vs, ps;
     const ShaderTarget target = shader_target();
+    if (const char* dump = std::getenv("NUE_DUMP_GLSL")) {   // debugging aid: the translated shaders as readable GLSL
+        for (int k = 0; k < 2; ++k) {
+            const shader::TranslateResult& t = k ? *desc.pixel : *desc.vertex;
+            std::string text, error;
+            shader::CrossOptions co;
+            if (shader::cross_compile(t.spirv, t.stage, shader::Target::glsl330, co, text, error)) {
+                const std::string path = std::string(dump) + "/prog" + std::to_string(desc.key) + (k ? "_ps.glsl" : "_vs.glsl");
+                if (FILE* f = std::fopen(path.c_str(), "wb")) { std::fwrite(text.data(), 1, text.size(), f); std::fclose(f); }
+            }
+        }
+    }
     if (!build_container(*desc.vertex, target, vs, options_.shader_cache_dir)) { std::fprintf(stderr, "[bgfx] vertex shader failed: %s\n", vs.error.c_str()); return {Status::unsupported, {}}; }
     if (!build_container(*desc.pixel, target, ps, options_.shader_cache_dir)) { std::fprintf(stderr, "[bgfx] pixel shader failed: %s\n", ps.error.c_str()); return {Status::unsupported, {}}; }
     stats_.cross_ms += vs.cross_ms + ps.cross_ms; stats_.compile_ms += vs.compile_ms + ps.compile_ms;
