@@ -23,7 +23,8 @@ HRESULT to_hresult(Status status);
 // D3DCREATE_FPU_PRESERVE is given, and leaves it that way: games that unmask exceptions before CreateDevice rely on it (measured with the real runtime).
 void apply_d3d9_fpu_mode(DWORD behaviour_flags);
 extern const char* volatile g_last_call;           // the COM method the game thread is in (for crash reports and the heartbeat)
-extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create, g_counter_calls;
+extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create;
+extern volatile unsigned g_counter_calls;   // every COM call (written by the game thread only)
 // frame pacing as the game sees it (written by Present, read by the heartbeat)
 extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_frame_count, g_gpu_us, g_render_cpu_us, g_present_us;
 // running totals for the timeline line (written by Present on the game thread): microseconds spent in Present, GPU, backend CPU, game thread waiting for the render thread, render thread waiting for the game thread;
@@ -33,7 +34,9 @@ HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from
 // a thread other than the one that created the device and from then on serialises all calls (Direct3D 9 is not thread safe unless asked, but games do it).
-struct MethodStats { std::atomic<unsigned long long> ticks{0}; std::atomic<unsigned> calls{0}; const char* name = ""; };
+// The counters are plain memory: the game thread is the only writer (calls from other threads are serialised by the lock and are rare), the heartbeat only reads
+// them, and a stale or torn read only blurs one line of the log. Locked or out-of-line atomic operations here cost more than most of the calls they count.
+struct MethodStats { volatile unsigned long long ticks = 0; volatile unsigned calls = 0; const char* name = ""; };
 constexpr unsigned kMaxMethods = 256;
 extern MethodStats g_methods[kMaxMethods];
 extern DWORD g_main_thread;
@@ -41,19 +44,30 @@ extern std::atomic<bool> g_multithreaded;
 extern CRITICAL_SECTION g_call_lock;
 unsigned register_method(const char* name);
 void note_other_thread(const char* method);
+// The id of the calling thread read from its thread block (what GetCurrentThreadId does, without the call into kernel32).
+inline DWORD current_thread_id() {
+#ifdef _WIN64
+    return DWORD(__readgsdword(0x48));
+#else
+    return DWORD(__readfsdword(0x24));
+#endif
+}
+// Timed: the method's time goes to the profile (two reads of the time stamp counter). Not timed: only counted (state setters and getters, which take a few
+// nanoseconds; timing them cost more than the work).
+template <bool Timed>
 class ScopedCall {
 public:
     ScopedCall(unsigned slot, const char* name) : slot_(slot) {
         g_last_call = name;
-        g_counter_calls.store(g_counter_calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);   // one writer (the game thread) in the usual case: no locked instruction
+        g_counter_calls = g_counter_calls + 1;
         if (g_multithreaded.load(std::memory_order_relaxed)) { EnterCriticalSection(&g_call_lock); locked_ = true; }
-        else if (g_main_thread && GetCurrentThreadId() != g_main_thread) { note_other_thread(name); EnterCriticalSection(&g_call_lock); locked_ = true; }
-        start_ = __rdtsc();
+        else if (g_main_thread && current_thread_id() != g_main_thread) { note_other_thread(name); EnterCriticalSection(&g_call_lock); locked_ = true; }
+        if constexpr (Timed) start_ = __rdtsc();
     }
     ~ScopedCall() {
-        MethodStats& m = g_methods[slot_];   // plain read-modify-write: only the game thread writes (calls from other threads are serialised by the lock), the heartbeat only reads
-        m.ticks.store(m.ticks.load(std::memory_order_relaxed) + (__rdtsc() - start_), std::memory_order_relaxed);
-        m.calls.store(m.calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        MethodStats& m = g_methods[slot_];
+        if constexpr (Timed) m.ticks = m.ticks + (__rdtsc() - start_);
+        m.calls = m.calls + 1;
         if (locked_) LeaveCriticalSection(&g_call_lock);
     }
 private:
@@ -61,7 +75,8 @@ private:
     unsigned long long start_ = 0;
     bool locked_ = false;
 };
-#define NUE_CALL() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall nue_scope_(nue_slot_, __func__)
+#define NUE_CALL() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall<true> nue_scope_(nue_slot_, __func__)
+#define NUE_CALL_FAST() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall<false> nue_scope_(nue_slot_, __func__)
 void device_destroyed();                           // lets the factory create another device (bgfx is a singleton)
 
 void set_window_status(const std::string& text);
@@ -514,7 +529,7 @@ private:
     void apply_window_size();
     void reset_state_shadows(bool depth_buffer);
     Surface9* back_buffer_surface();
-    template <class T> static void assign(T*& slot, T* value) { if (value) value->AddRef(); if (slot) slot->Release(); slot = value; }
+    template <class T> static void assign(T*& slot, T* value) { if (slot == value) return; if (value) value->AddRef(); if (slot) slot->Release(); slot = value; }
 
     Direct3D9* d3d_;
     std::shared_ptr<Core> core_;

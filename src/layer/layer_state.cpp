@@ -303,13 +303,19 @@ void LayerImpl::open_pass(const Attachment& a) {
 }
 
 void LayerImpl::ensure_pass() {
-    Attachment a = resolve_attachments();
-    if (pass_open_ && same_attachments(pass_, a)) {
-        pass_attachments_ = a;
+    const PassKey key{state_.render_targets, state_.depth_stencil, surface_generation_};
+    if (pass_open_ && key == pass_key_) {
+        // same targets as the open pass: nothing to resolve
     } else {
-        end_pass();
-        if (!a.valid) return;
-        open_pass(a);
+        Attachment a = resolve_attachments();
+        if (pass_open_ && same_attachments(pass_, a)) {
+            pass_attachments_ = a;
+        } else {
+            end_pass();
+            if (!a.valid) return;
+            open_pass(a);
+        }
+        pass_key_ = key;
     }
     if (!pass_submitted_) {
         if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "pass: rt surface %u (gpu %u) depth %u size %ux%u clear c%d z%d", state_.render_targets[0], pass_.colors[0].value, state_.depth_stencil, pass_attachments_.width, pass_attachments_.height, pass_.clear_color, pass_.clear_depth); log(t); }

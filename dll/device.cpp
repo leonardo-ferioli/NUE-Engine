@@ -160,12 +160,12 @@ void Device9::apply_window_size() {
 
 // ---- device -----------------------------------------------------------------------------------------------------------------------------
 
-HRESULT Device9::TestCooperativeLevel() try { NUE_CALL(); auto* dev = core_->dev(); return dev ? to_hresult(dev->test_cooperative_level()) : D3DERR_DEVICELOST; } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetDirect3D(IDirect3D9** out) try { NUE_CALL(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = d3d_; d3d_->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetDeviceCaps(D3DCAPS9* caps) try { NUE_CALL(); if (!caps) return trace_result(__func__, D3DERR_INVALIDCALL); *caps = caps_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetCreationParameters(D3DDEVICE_CREATION_PARAMETERS* params) try { NUE_CALL(); if (!params) return trace_result(__func__, D3DERR_INVALIDCALL); *params = creation_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::TestCooperativeLevel() try { NUE_CALL_FAST(); auto* dev = core_->dev(); return dev ? to_hresult(dev->test_cooperative_level()) : D3DERR_DEVICELOST; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetDirect3D(IDirect3D9** out) try { NUE_CALL_FAST(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = d3d_; d3d_->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetDeviceCaps(D3DCAPS9* caps) try { NUE_CALL_FAST(); if (!caps) return trace_result(__func__, D3DERR_INVALIDCALL); *caps = caps_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetCreationParameters(D3DDEVICE_CREATION_PARAMETERS* params) try { NUE_CALL_FAST(); if (!params) return trace_result(__func__, D3DERR_INVALIDCALL); *params = creation_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetDisplayMode(UINT, D3DDISPLAYMODE* mode) try { NUE_CALL(); 
+HRESULT Device9::GetDisplayMode(UINT, D3DDISPLAYMODE* mode) try { NUE_CALL_FAST(); 
     if (!mode) return trace_result(__func__, D3DERR_INVALIDCALL);
     mode->Width = pp_.BackBufferWidth; mode->Height = pp_.BackBufferHeight; mode->RefreshRate = 60; mode->Format = D3DFMT_X8R8G8B8;
     return D3D_OK;
@@ -177,7 +177,7 @@ HRESULT Device9::GetSwapChain(UINT index, IDirect3DSwapChain9** out) try { NUE_C
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetRasterStatus(UINT, D3DRASTER_STATUS* status) try { NUE_CALL(); if (!status) return trace_result(__func__, D3DERR_INVALIDCALL); status->InVBlank = FALSE; status->ScanLine = 0; return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetRasterStatus(UINT, D3DRASTER_STATUS* status) try { NUE_CALL_FAST(); if (!status) return trace_result(__func__, D3DERR_INVALIDCALL); status->InVBlank = FALSE; status->ScanLine = 0; return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::Reset(D3DPRESENT_PARAMETERS* pp) try { NUE_CALL(); 
     auto* dev = core_->dev();
@@ -312,7 +312,7 @@ HRESULT Device9::UpdateTexture(IDirect3DBaseTexture9* source, IDirect3DBaseTextu
     return status == Status::ok ? D3D_OK : trace_result(__func__, D3DERR_INVALIDCALL);
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetBackBuffer(UINT swap_chain, UINT index, D3DBACKBUFFER_TYPE, IDirect3DSurface9** out) try { NUE_CALL(); 
+HRESULT Device9::GetBackBuffer(UINT swap_chain, UINT index, D3DBACKBUFFER_TYPE, IDirect3DSurface9** out) try { NUE_CALL_FAST(); 
     if (!out || swap_chain != 0 || index != 0) return trace_result(__func__, D3DERR_INVALIDCALL);
     Surface9* s = back_buffer_surface();
     if (!s) return trace_result(__func__, D3DERR_INVALIDCALL);
@@ -461,7 +461,7 @@ HRESULT Device9::SetRenderTarget(DWORD index, IDirect3DSurface9* target) try { N
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetRenderTarget(DWORD index, IDirect3DSurface9** out) try { NUE_CALL(); 
+HRESULT Device9::GetRenderTarget(DWORD index, IDirect3DSurface9** out) try { NUE_CALL_FAST(); 
     if (!out || index >= 4 || !render_targets_[index]) return trace_result(__func__, D3DERR_NOTFOUND);
     render_targets_[index]->AddRef();
     *out = render_targets_[index];
@@ -476,7 +476,7 @@ HRESULT Device9::SetDepthStencilSurface(IDirect3DSurface9* depth) try { NUE_CALL
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetDepthStencilSurface(IDirect3DSurface9** out) try { NUE_CALL(); 
+HRESULT Device9::GetDepthStencilSurface(IDirect3DSurface9** out) try { NUE_CALL_FAST(); 
     if (!out) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!depth_stencil_) { *out = nullptr; return trace_result(__func__, D3DERR_NOTFOUND); }
     depth_stencil_->AddRef();
@@ -512,7 +512,7 @@ HRESULT Device9::DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT primitive_count, co
 
 // ---- state ------------------------------------------------------------------------------------------------------------------------------
 
-HRESULT Device9::SetTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matrix) try { NUE_CALL(); 
+HRESULT Device9::SetTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matrix) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !matrix) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_) transforms_[DWORD(type)] = *matrix;
@@ -520,7 +520,7 @@ HRESULT Device9::SetTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matri
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetTransform(D3DTRANSFORMSTATETYPE type, D3DMATRIX* matrix) try { NUE_CALL(); 
+HRESULT Device9::GetTransform(D3DTRANSFORMSTATETYPE type, D3DMATRIX* matrix) try { NUE_CALL_FAST(); 
     if (!matrix) return trace_result(__func__, D3DERR_INVALIDCALL);
     auto it = transforms_.find(DWORD(type));
     if (it != transforms_.end()) { *matrix = it->second; return D3D_OK; }
@@ -529,7 +529,7 @@ HRESULT Device9::GetTransform(D3DTRANSFORMSTATETYPE type, D3DMATRIX* matrix) try
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::MultiplyTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matrix) try { NUE_CALL(); 
+HRESULT Device9::MultiplyTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matrix) try { NUE_CALL_FAST(); 
     if (!matrix) return trace_result(__func__, D3DERR_INVALIDCALL);
     D3DMATRIX current;
     GetTransform(type, &current);
@@ -538,7 +538,7 @@ HRESULT Device9::MultiplyTransform(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* 
     return SetTransform(type, &result);
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetViewport(const D3DVIEWPORT9* viewport) try { NUE_CALL(); 
+HRESULT Device9::SetViewport(const D3DVIEWPORT9* viewport) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !viewport) return trace_result(__func__, D3DERR_INVALIDCALL);
     viewport_ = *viewport;
@@ -547,9 +547,9 @@ HRESULT Device9::SetViewport(const D3DVIEWPORT9* viewport) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetViewport(D3DVIEWPORT9* viewport) try { NUE_CALL(); if (!viewport) return trace_result(__func__, D3DERR_INVALIDCALL); *viewport = viewport_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetViewport(D3DVIEWPORT9* viewport) try { NUE_CALL_FAST(); if (!viewport) return trace_result(__func__, D3DERR_INVALIDCALL); *viewport = viewport_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetLight(DWORD index, const D3DLIGHT9* light) try { NUE_CALL(); 
+HRESULT Device9::SetLight(DWORD index, const D3DLIGHT9* light) try { NUE_CALL_FAST(); 
     if (!light) return trace_result(__func__, D3DERR_INVALIDCALL);
     lights_[index].first = *light;
     if (auto* dev = core_->dev()) {
@@ -567,7 +567,7 @@ HRESULT Device9::SetLight(DWORD index, const D3DLIGHT9* light) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetMaterial(const D3DMATERIAL9* material) try { NUE_CALL();
+HRESULT Device9::SetMaterial(const D3DMATERIAL9* material) try { NUE_CALL_FAST();
     if (!material) return trace_result(__func__, D3DERR_INVALIDCALL);
     material_ = *material;
     if (auto* dev = core_->dev()) {
@@ -581,14 +581,14 @@ HRESULT Device9::SetMaterial(const D3DMATERIAL9* material) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetLight(DWORD index, D3DLIGHT9* light) try { NUE_CALL(); 
+HRESULT Device9::GetLight(DWORD index, D3DLIGHT9* light) try { NUE_CALL_FAST(); 
     auto it = lights_.find(index);
     if (!light || it == lights_.end()) return trace_result(__func__, D3DERR_INVALIDCALL);
     *light = it->second.first;
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::LightEnable(DWORD index, BOOL enable) try { NUE_CALL(); 
+HRESULT Device9::LightEnable(DWORD index, BOOL enable) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     lights_[index].second = enable;
@@ -596,14 +596,14 @@ HRESULT Device9::LightEnable(DWORD index, BOOL enable) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetLightEnable(DWORD index, BOOL* enable) try { NUE_CALL(); 
+HRESULT Device9::GetLightEnable(DWORD index, BOOL* enable) try { NUE_CALL_FAST(); 
     auto it = lights_.find(index);
     if (!enable || it == lights_.end()) return trace_result(__func__, D3DERR_INVALIDCALL);
     *enable = it->second.second;
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetRenderState(D3DRENDERSTATETYPE state, DWORD value) try { NUE_CALL(); 
+HRESULT Device9::SetRenderState(D3DRENDERSTATETYPE state, DWORD value) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_ && UINT(state) < 256) render_state_[state] = value;
@@ -611,13 +611,13 @@ HRESULT Device9::SetRenderState(D3DRENDERSTATETYPE state, DWORD value) try { NUE
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetRenderState(D3DRENDERSTATETYPE state, DWORD* value) try { NUE_CALL(); 
+HRESULT Device9::GetRenderState(D3DRENDERSTATETYPE state, DWORD* value) try { NUE_CALL_FAST(); 
     if (!value || UINT(state) >= 256) return trace_result(__func__, D3DERR_INVALIDCALL);
     *value = render_state_[state];
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) try { NUE_CALL(); 
+HRESULT Device9::SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (sampler >= 16 || UINT(type) >= 14) return D3D_OK;   // displacement-map and vertex-texture samplers
@@ -626,13 +626,13 @@ HRESULT Device9::SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD 
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD* value) try { NUE_CALL(); 
+HRESULT Device9::GetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD* value) try { NUE_CALL_FAST(); 
     if (!value || sampler >= 16 || UINT(type) >= 14) return trace_result(__func__, D3DERR_INVALIDCALL);
     *value = sampler_state_[sampler][type];
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value) try { NUE_CALL(); 
+HRESULT Device9::SetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (stage >= 8 || UINT(type) >= 33) return D3D_OK;
@@ -641,13 +641,13 @@ HRESULT Device9::SetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD* value) try { NUE_CALL(); 
+HRESULT Device9::GetTextureStageState(DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD* value) try { NUE_CALL_FAST(); 
     if (!value || stage >= 8 || UINT(type) >= 33) return trace_result(__func__, D3DERR_INVALIDCALL);
     *value = stage_state_[stage][type];
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetTexture(DWORD stage, IDirect3DBaseTexture9* texture) try { NUE_CALL(); 
+HRESULT Device9::SetTexture(DWORD stage, IDirect3DBaseTexture9* texture) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (stage >= 16) return D3D_OK;
@@ -656,14 +656,14 @@ HRESULT Device9::SetTexture(DWORD stage, IDirect3DBaseTexture9* texture) try { N
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetTexture(DWORD stage, IDirect3DBaseTexture9** out) try { NUE_CALL(); 
+HRESULT Device9::GetTexture(DWORD stage, IDirect3DBaseTexture9** out) try { NUE_CALL_FAST(); 
     if (!out || stage >= 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     *out = textures_[stage];
     if (*out) (*out)->AddRef();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetVertexDeclaration(IDirect3DVertexDeclaration9* declaration) try { NUE_CALL(); 
+HRESULT Device9::SetVertexDeclaration(IDirect3DVertexDeclaration9* declaration) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_vertex_declaration(declaration ? static_cast<VertexDeclaration9*>(declaration)->id() : d3d9::DeclarationId{});
@@ -671,14 +671,14 @@ HRESULT Device9::SetVertexDeclaration(IDirect3DVertexDeclaration9* declaration) 
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetVertexDeclaration(IDirect3DVertexDeclaration9** out) try { NUE_CALL(); 
+HRESULT Device9::GetVertexDeclaration(IDirect3DVertexDeclaration9** out) try { NUE_CALL_FAST(); 
     if (!out) return trace_result(__func__, D3DERR_INVALIDCALL);
     *out = declaration_;
     if (*out) (*out)->AddRef();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetFVF(DWORD fvf) try { NUE_CALL(); 
+HRESULT Device9::SetFVF(DWORD fvf) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_fvf(fvf);
@@ -686,7 +686,7 @@ HRESULT Device9::SetFVF(DWORD fvf) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetVertexShader(IDirect3DVertexShader9* shader) try { NUE_CALL(); 
+HRESULT Device9::SetVertexShader(IDirect3DVertexShader9* shader) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_vertex_shader(shader ? static_cast<VertexShader9*>(shader)->id() : d3d9::ShaderId{});
@@ -694,9 +694,9 @@ HRESULT Device9::SetVertexShader(IDirect3DVertexShader9* shader) try { NUE_CALL(
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetVertexShader(IDirect3DVertexShader9** out) try { NUE_CALL(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = vertex_shader_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetVertexShader(IDirect3DVertexShader9** out) try { NUE_CALL_FAST(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = vertex_shader_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetPixelShader(IDirect3DPixelShader9* shader) try { NUE_CALL(); 
+HRESULT Device9::SetPixelShader(IDirect3DPixelShader9* shader) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_pixel_shader(shader ? static_cast<PixelShader9*>(shader)->id() : d3d9::ShaderId{});
@@ -704,27 +704,27 @@ HRESULT Device9::SetPixelShader(IDirect3DPixelShader9* shader) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetPixelShader(IDirect3DPixelShader9** out) try { NUE_CALL(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = pixel_shader_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetPixelShader(IDirect3DPixelShader9** out) try { NUE_CALL_FAST(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = pixel_shader_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetVertexShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetVertexShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_) std::memcpy(&vs_f_[size_t(start) * 4], data, size_t(count) * 16);
     dev->set_vertex_shader_constants_f(start, std::span<const d3d9::Float4>(reinterpret_cast<const d3d9::Float4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetVertexShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL(); if (!data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &vs_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetVertexShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &vs_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetVertexShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetVertexShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_) std::memcpy(vs_i_[start], data, size_t(count) * 16);
     dev->set_vertex_shader_constants_i(start, std::span<const d3d9::Int4>(reinterpret_cast<const d3d9::Int4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetVertexShaderConstantI(UINT start, int* data, UINT count) try { NUE_CALL(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, vs_i_[start], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetVertexShaderConstantI(UINT start, int* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, vs_i_[start], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetVertexShaderConstantB(UINT start, const BOOL* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetVertexShaderConstantB(UINT start, const BOOL* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     uint32_t values[16];
@@ -732,27 +732,27 @@ HRESULT Device9::SetVertexShaderConstantB(UINT start, const BOOL* data, UINT cou
     dev->set_vertex_shader_constants_b(start, std::span<const uint32_t>(values, count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetVertexShaderConstantB(UINT start, BOOL* data, UINT count) try { NUE_CALL(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &vs_b_[start], size_t(count) * sizeof(BOOL)); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetVertexShaderConstantB(UINT start, BOOL* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &vs_b_[start], size_t(count) * sizeof(BOOL)); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetPixelShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetPixelShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_) std::memcpy(&ps_f_[size_t(start) * 4], data, size_t(count) * 16);
     dev->set_pixel_shader_constants_f(start, std::span<const d3d9::Float4>(reinterpret_cast<const d3d9::Float4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetPixelShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL(); if (!data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &ps_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetPixelShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &ps_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetPixelShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetPixelShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     if (!recording_block_) std::memcpy(ps_i_[start], data, size_t(count) * 16);
     dev->set_pixel_shader_constants_i(start, std::span<const d3d9::Int4>(reinterpret_cast<const d3d9::Int4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetPixelShaderConstantI(UINT start, int* data, UINT count) try { NUE_CALL(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, ps_i_[start], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetPixelShaderConstantI(UINT start, int* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, ps_i_[start], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetPixelShaderConstantB(UINT start, const BOOL* data, UINT count) try { NUE_CALL(); 
+HRESULT Device9::SetPixelShaderConstantB(UINT start, const BOOL* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     uint32_t values[16];
@@ -760,9 +760,9 @@ HRESULT Device9::SetPixelShaderConstantB(UINT start, const BOOL* data, UINT coun
     dev->set_pixel_shader_constants_b(start, std::span<const uint32_t>(values, count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetPixelShaderConstantB(UINT start, BOOL* data, UINT count) try { NUE_CALL(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &ps_b_[start], size_t(count) * sizeof(BOOL)); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetPixelShaderConstantB(UINT start, BOOL* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 16) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &ps_b_[start], size_t(count) * sizeof(BOOL)); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetStreamSource(UINT stream, IDirect3DVertexBuffer9* buffer, UINT offset, UINT stride) try { NUE_CALL(); 
+HRESULT Device9::SetStreamSource(UINT stream, IDirect3DVertexBuffer9* buffer, UINT offset, UINT stride) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || stream >= 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_stream_source(stream, buffer ? static_cast<VertexBuffer9*>(buffer)->id() : d3d9::BufferId{}, offset, stride);
@@ -770,7 +770,7 @@ HRESULT Device9::SetStreamSource(UINT stream, IDirect3DVertexBuffer9* buffer, UI
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetStreamSource(UINT stream, IDirect3DVertexBuffer9** out, UINT* offset, UINT* stride) try { NUE_CALL(); 
+HRESULT Device9::GetStreamSource(UINT stream, IDirect3DVertexBuffer9** out, UINT* offset, UINT* stride) try { NUE_CALL_FAST(); 
     if (!out || stream >= 16) return trace_result(__func__, D3DERR_INVALIDCALL);
     *out = streams_[stream];
     if (*out) (*out)->AddRef();
@@ -779,7 +779,7 @@ HRESULT Device9::GetStreamSource(UINT stream, IDirect3DVertexBuffer9** out, UINT
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::SetIndices(IDirect3DIndexBuffer9* buffer) try { NUE_CALL(); 
+HRESULT Device9::SetIndices(IDirect3DIndexBuffer9* buffer) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL);
     dev->set_indices(buffer ? static_cast<IndexBuffer9*>(buffer)->id() : d3d9::BufferId{});
@@ -787,7 +787,7 @@ HRESULT Device9::SetIndices(IDirect3DIndexBuffer9* buffer) try { NUE_CALL();
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-HRESULT Device9::GetIndices(IDirect3DIndexBuffer9** out) try { NUE_CALL(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = indices_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetIndices(IDirect3DIndexBuffer9** out) try { NUE_CALL_FAST(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = indices_; if (*out) (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 // ---- state blocks -----------------------------------------------------------------------------------------------------------------------
 

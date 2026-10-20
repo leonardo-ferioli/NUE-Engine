@@ -24,7 +24,8 @@ MethodStats g_methods[kMaxMethods];
 DWORD g_main_thread = 0;
 std::atomic<bool> g_multithreaded{false};
 CRITICAL_SECTION g_call_lock;
-std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
+std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0};
+volatile unsigned g_counter_calls = 0;
 std::atomic<unsigned long long> g_frame_call_total_us{0}, g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
@@ -201,7 +202,7 @@ void profile_report(ProfileSnapshot& previous, unsigned frames) {
     LARGE_INTEGER qpc, frequency;
     QueryPerformanceCounter(&qpc); QueryPerformanceFrequency(&frequency);
     now.tsc = __rdtsc(); now.qpc = static_cast<unsigned long long>(qpc.QuadPart);
-    for (unsigned i = 0; i < kMaxMethods; ++i) { now.ticks[i] = g_methods[i].ticks.load(); now.calls[i] = g_methods[i].calls.load(); }
+    for (unsigned i = 0; i < kMaxMethods; ++i) { now.ticks[i] = g_methods[i].ticks; now.calls[i] = g_methods[i].calls; }
     if (previous.qpc && now.qpc > previous.qpc && frames) {
         const double seconds = double(now.qpc - previous.qpc) / double(frequency.QuadPart);
         const double ms_per_tick = seconds * 1000.0 / double(now.tsc - previous.tsc);
@@ -313,7 +314,7 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
     now.thread_cpu = g_thread_cpu_100ns.load(); now.thread_cycles = g_thread_cycles.load();
     now.frame_call_us = g_frame_call_total_us.load();
     now.present_us = g_present_total_us.load(); now.gpu_us = g_gpu_total_us.load(); now.render_us = g_render_total_us.load(); now.wait_render_us = g_wait_render_total_us.load(); now.wait_submit_us = g_wait_submit_total_us.load();
-    for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks.load();
+    for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks;
     if (previous.qpc && frames && now.qpc > previous.qpc) {
         const double seconds = double(now.qpc - previous.qpc) / double(frequency.QuadPart);
         const double ms_per_tick = seconds * 1000.0 / double(now.tsc - previous.tsc);
@@ -346,7 +347,7 @@ void heartbeat() {
     TimelineSnapshot timeline_previous;
     for (;;) {
         Sleep(3000);
-        const unsigned now = g_counter_calls.load();
+        const unsigned now = g_counter_calls;
         if (now != last) {
             const unsigned frames = g_frame_count.exchange(0), sum = g_frame_sum_us.exchange(0), worst = g_frame_max_us.exchange(0), slow = g_frame_slow.exchange(0);
             if (frames) profile_report(profile_previous, frames);

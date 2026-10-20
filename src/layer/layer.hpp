@@ -323,6 +323,10 @@ private:
     bool pass_open_ = false, pass_submitted_ = false;
     gpu::PassDesc pass_;
     Attachment pass_attachments_;
+    // what the open pass was resolved from: while the bound targets and the surfaces are the same, a draw does not resolve the attachments again
+    struct PassKey { std::array<uint32_t, 4> targets{}; uint32_t depth = 0; uint64_t generation = 0; bool operator==(const PassKey&) const = default; };
+    PassKey pass_key_;
+    uint64_t surface_generation_ = 1;   // bumped whenever a surface or texture is created, destroyed or the device is reset
 
     // programs
     struct TranslationKey { uint64_t shader; uint64_t options; bool operator==(const TranslationKey&) const = default; };

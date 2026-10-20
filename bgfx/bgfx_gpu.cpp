@@ -223,6 +223,12 @@ private:
     std::vector<bgfx::VertexLayout> layout_storage_;
     bgfx::VertexLayoutHandle dummy_vertex_layout_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_vs_ = BGFX_INVALID_HANDLE, u_ps_ = BGFX_INVALID_HANDLE, u_tex_[16];
+    // The constants last handed to bgfx for u_vs / u_ps. The backend keeps a uniform's value until it is set again and draws run in the order they are
+    // submitted (every view is sequential), so a draw whose constants equal the previous draw's does not set them: no copy into the frame, no constant
+    // buffer update on the render thread. Forgotten whenever something else sets these uniforms and at every frame.
+    std::vector<std::byte> last_vs_, last_ps_;
+    uint64_t uniform_sets_ = 0, uniform_skips_ = 0;
+    void set_constants(bgfx::UniformHandle u, Bytes data, std::vector<std::byte>& last);
     uint32_t window_width_ = 0, window_height_ = 0;
     uint32_t next_view_ = 0, current_view_ = 0, pass_draws_ = 0;
     bool pass_open_ = false;
@@ -270,7 +276,7 @@ std::string BgfxGpuImpl::profile_report() const {
     const double n = double(std::max<uint64_t>(prof_draws_, 1)), f = double(std::max<uint64_t>(prof_frames_, 1));
     std::snprintf(text, sizeof text, "adapter per draw (ns): %.0f of which bgfx::submit %.0f; bgfx::frame() blocks %.2f ms per frame (%llu draws, %llu frames)\n", double(prof_draw_ns_) / n, double(prof_submit_ns_) / n, double(prof_frame_ns_) / f / 1e6, (unsigned long long)prof_draws_, (unsigned long long)prof_frames_);
     char more[256];
-    std::snprintf(more, sizeof more, "bgfx per frame: GPU %.2f ms, render-thread CPU %.2f ms, API thread waits for the render thread %.2f ms, render thread waits for the API thread %.2f ms\n", prof_gpu_ms_ / f, prof_render_cpu_ms_ / f, prof_wait_render_ms_ / f, prof_wait_submit_ms_ / f);
+    std::snprintf(more, sizeof more, "bgfx per frame: GPU %.2f ms, render-thread CPU %.2f ms, API thread waits for the render thread %.2f ms, render thread waits for the API thread %.2f ms; constants sets skipped (same as the previous draw) %.1f%%\n", prof_gpu_ms_ / f, prof_render_cpu_ms_ / f, prof_wait_render_ms_ / f, prof_wait_submit_ms_ / f, 100.0 * double(uniform_skips_) / double(std::max<uint64_t>(uniform_skips_ + uniform_sets_, 1)));
     return std::string(text) + more;
 }
 
@@ -596,6 +602,13 @@ bgfx::VertexLayoutHandle BgfxGpuImpl::layout_handle(const DrawDesc& d, uint32_t 
     return h;
 }
 
+void BgfxGpuImpl::set_constants(bgfx::UniformHandle u, Bytes data, std::vector<std::byte>& last) {
+    if (data.size() == last.size() && !last.empty() && std::memcmp(data.data(), last.data(), data.size()) == 0) { ++uniform_skips_; return; }
+    bgfx::setUniform(u, data.data(), uint16_t(data.size() / 16));
+    last.assign(data.begin(), data.end());
+    ++uniform_sets_;
+}
+
 void BgfxGpuImpl::draw(const DrawDesc& d) {
     if (!pass_open_) return;
     const bool timed = options_.profile_draws;
@@ -627,8 +640,8 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
             else bgfx::setIndexBuffer(e->ib, d.first_index, d.index_count);
         }
     }
-    bgfx::setUniform(u_vs_, d.vertex_constants.data(), uint16_t(d.vertex_constants.size() / 16));
-    bgfx::setUniform(u_ps_, d.pixel_constants.data(), uint16_t(d.pixel_constants.size() / 16));
+    set_constants(u_vs_, d.vertex_constants, last_vs_);
+    set_constants(u_ps_, d.pixel_constants, last_ps_);
     for (uint32_t i = 0; i < 16; ++i) {
         if (!d.textures[i]) continue;
         TextureEntry* t = textures_.get(d.textures[i].value);
@@ -682,6 +695,7 @@ void BgfxGpuImpl::draw_quad(uint32_t view, bgfx::TextureHandle source, uint32_t 
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     const float vc[2][4] = {{1, 1, 0, 0}, {1, 0, 0, 0}};
     bgfx::setUniform(u_vs_, vc, 2);
+    last_vs_.clear(); last_ps_.clear();
     const float pc[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
     bgfx::setUniform(u_ps_, pc, 2);
     bgfx::setTexture(0, u_tex_[0], source, sampler);
@@ -746,6 +760,7 @@ Status BgfxGpuImpl::present(uint32_t) {
     }
     ++frame_;
     next_view_ = 0;
+    last_vs_.clear(); last_ps_.clear();
     // transient buffer entries die with the frame
     for (uint32_t i = 1; i < buffers_.items.size(); ++i) if (buffers_.items[i].alive && buffers_.items[i].transient) buffers_.release(i);
     return Status::ok;

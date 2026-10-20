@@ -216,6 +216,7 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
 }
 
 Status LayerImpl::reset(const DeviceParams& p) {
+    ++surface_generation_;
     end_pass();
     init_state(state_);   // Reset and CreateDevice: every state is back at its default, nothing is bound
     ++program_epoch_;
@@ -275,6 +276,7 @@ static gpu::Format render_target_format(const FormatInfo& info) {
 }
 
 Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uint32_t levels, uint32_t usage, uint32_t format, uint32_t pool) {
+    ++surface_generation_;
     const FormatInfo& info = format_info(format);
     if (!info.valid || !width || !height) { note_unsupported(("create_texture format " + std::to_string(format)).c_str()); return {Status::unsupported, {}}; }
     TextureObject t;
@@ -300,6 +302,7 @@ Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uin
 }
 
 Result<TextureId> LayerImpl::create_cube_texture(uint32_t edge, uint32_t levels, uint32_t usage, uint32_t format, uint32_t pool) {
+    ++surface_generation_;
     const FormatInfo& info = format_info(format);
     if (!info.valid || !edge) { note_unsupported(("create_cube_texture format " + std::to_string(format)).c_str()); return {Status::unsupported, {}}; }
     TextureObject t;
@@ -318,6 +321,7 @@ Result<TextureId> LayerImpl::create_cube_texture(uint32_t edge, uint32_t levels,
 }
 
 Result<SurfaceId> LayerImpl::create_render_target(uint32_t width, uint32_t height, uint32_t format, uint32_t multisample, bool) {
+    ++surface_generation_;
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
     s.alive = true; s.kind = SurfaceObject::Kind::render_target; s.width = width; s.height = height; s.format = format;
@@ -329,6 +333,7 @@ Result<SurfaceId> LayerImpl::create_render_target(uint32_t width, uint32_t heigh
 }
 
 Result<SurfaceId> LayerImpl::create_depth_stencil(uint32_t width, uint32_t height, uint32_t format, uint32_t multisample) {
+    ++surface_generation_;
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
     s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = format;
@@ -339,6 +344,7 @@ Result<SurfaceId> LayerImpl::create_depth_stencil(uint32_t width, uint32_t heigh
 }
 
 Result<SurfaceId> LayerImpl::texture_surface(TextureId id, uint32_t level, uint32_t face) {
+    ++surface_generation_;
     TextureObject* t = textures_.get(id.value);
     if (!t) { bad_handle("texture_surface"); return {Status::invalid_argument, {}}; }
     SurfaceObject s;
@@ -356,6 +362,7 @@ Result<SurfaceId> LayerImpl::back_buffer(uint32_t, uint32_t) {
 }
 
 void LayerImpl::destroy(TextureId id) {
+    ++surface_generation_;
     TextureObject* t = textures_.get(id.value);
     if (!t) return;
     for (uint32_t s = 0; s < state_.textures.size(); ++s) if (state_.textures[s] == id.value) { state_.textures[s] = 0; if (s < 16) cube_mask_ &= ~(1u << s); }
@@ -376,6 +383,7 @@ void LayerImpl::destroy(BufferId id) {
 }
 
 void LayerImpl::destroy(SurfaceId id) {
+    ++surface_generation_;
     SurfaceObject* s = surfaces_.get(id.value);
     if (!s || id.value == backbuffer_surface_ || id.value == auto_depth_surface_) return;
     for (auto& r : state_.render_targets) if (r == id.value) r = 0;

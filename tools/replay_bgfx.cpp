@@ -189,16 +189,26 @@ static int run_native(const std::string& folder, const std::string& out_dir, uin
 
 #ifdef _WIN32
 #include <dbghelp.h>
+#include <timeapi.h>
 #include <atomic>
 #include <thread>
 // A sampling profiler: another thread suspends the replaying thread every millisecond and records where it was; symbols come from the PDB.
 struct Sampler {
+    // Each sample keeps where the thread was and, when that is outside this program (a Windows or driver function), the first return address on its stack that
+    // points into this program: "who called it". The stack is scanned, not unwound, so the caller is a good guess, not a proof.
+    struct Sample { uint64_t ip, caller; };
     std::atomic<bool> stop{false};
     std::thread worker;
-    std::vector<uint64_t> samples;   // preallocated: the sampler must not allocate while the sampled thread is suspended (it could hold the heap lock)
+    std::vector<Sample> samples;   // preallocated: the sampler must not allocate while the sampled thread is suspended (it could hold the heap lock)
     uint32_t total = 0;
+    uint64_t code_begin = 0, code_end = 0;
     void start() {
         samples.reserve(1u << 20);
+        timeBeginPeriod(1);   // 1 ms sleeps: a sample per millisecond
+        const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleA(nullptr));
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+        code_begin = uint64_t(uintptr_t(base)); code_end = code_begin + nt->OptionalHeader.SizeOfImage;
         HANDLE target = nullptr;
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &target, 0, FALSE, DUPLICATE_SAME_ACCESS);
         worker = std::thread([this, target] {
@@ -206,13 +216,23 @@ struct Sampler {
                 Sleep(1);
                 if (SuspendThread(target) == DWORD(-1)) continue;
                 CONTEXT ctx{}; ctx.ContextFlags = CONTEXT_CONTROL;
-                if (GetThreadContext(target, &ctx) && samples.size() < samples.capacity()) { samples.push_back(
+                if (GetThreadContext(target, &ctx) && samples.size() < samples.capacity()) {
 #ifdef _WIN64
-                    ctx.Rip
+                    const uint64_t ip = ctx.Rip, sp = ctx.Rsp;
 #else
-                    ctx.Eip
+                    const uint64_t ip = ctx.Eip, sp = ctx.Esp;
 #endif
-                    ); ++total; }
+                    uint64_t caller = 0;
+                    if (ip < code_begin || ip >= code_end) {
+                        const auto* stack = reinterpret_cast<const uintptr_t*>(uintptr_t(sp));
+                        for (int i = 0; i < 512 && !caller; ++i) {   // the thread is suspended: its stack does not move under us
+                            const uint64_t v = stack[i];
+                            if (v > code_begin + 0x1000 && v < code_end) caller = v;
+                        }
+                    }
+                    samples.push_back({ip, caller});
+                    ++total;
+                }
                 ResumeThread(target);
             }
             CloseHandle(target);
@@ -224,23 +244,34 @@ struct Sampler {
         SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
         char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH);
         std::string dir = exe; dir = dir.substr(0, dir.find_last_of(char(92)));
-        SymInitialize(process, dir.c_str(), FALSE);   // only this program's PDB: no symbol server, no system modules
-        SymLoadModuleEx(process, nullptr, exe, nullptr, DWORD64(GetModuleHandleA(nullptr)), 0, nullptr, 0);
-        std::map<std::string, uint32_t> by_function;
-        std::map<uint64_t, uint32_t> counts;
-        for (uint64_t rip : samples) ++counts[rip];
-        for (auto& [rip, n] : counts) {
+        SymInitialize(process, dir.c_str(), TRUE);   // the modules loaded now, symbols from the PDBs next to them (no symbol server)
+        SymRefreshModuleList(process);
+        std::map<uint64_t, std::string> names;
+        auto name_of = [&](uint64_t address) -> const std::string& {
+            auto it = names.find(address);
+            if (it != names.end()) return it->second;
             alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 256];
             auto* sym = reinterpret_cast<SYMBOL_INFO*>(buffer);
             sym->SizeOfStruct = sizeof(SYMBOL_INFO); sym->MaxNameLen = 255;
             DWORD64 disp = 0;
-            by_function[SymFromAddr(process, rip, &disp, sym) ? std::string(sym->Name) : "(unknown)"] += n;
+            return names[address] = SymFromAddr(process, address, &disp, sym) ? std::string(sym->Name) : std::string("(unknown)");
+        };
+        std::map<std::string, uint32_t> by_function, by_caller;
+        for (const Sample& s : samples) {
+            const std::string& f = name_of(s.ip);
+            ++by_function[f];
+            if (s.caller) ++by_caller[f + "  <-  " + name_of(s.caller)];
         }
-        std::vector<std::pair<uint32_t, std::string>> ordered;
-        for (auto& [name, n] : by_function) ordered.push_back({n, name});
-        std::sort(ordered.rbegin(), ordered.rend());
+        auto print = [&](const std::map<std::string, uint32_t>& m, unsigned count) {
+            std::vector<std::pair<uint32_t, std::string>> ordered;
+            for (auto& [name, n] : m) ordered.push_back({n, name});
+            std::sort(ordered.rbegin(), ordered.rend());
+            for (unsigned i = 0; i < ordered.size() && i < count; ++i) std::printf("  %5.1f%%  %s\n", 100.0 * ordered[i].first / std::max(total, 1u), ordered[i].second.c_str());
+        };
         std::printf("samples: %u\n", total);
-        for (unsigned i = 0; i < ordered.size() && i < top; ++i) std::printf("  %5.1f%%  %s\n", 100.0 * ordered[i].first / std::max(total, 1u), ordered[i].second.c_str());
+        print(by_function, top);
+        std::printf("functions outside this program, by the caller found on the stack:\n");
+        print(by_caller, 25);
     }
 };
 #endif
@@ -265,13 +296,21 @@ static int run_bench(int argc, char** argv) {
     std::unique_ptr<gpu::Gpu> gpu_owner;
     gpu::BgfxGpu* bgfx_gpu = nullptr;
     NullGpu* null_gpu = nullptr;
+#ifdef _WIN32
+    std::unique_ptr<d3d9::NativeCapture> com_device;
+    if (mode == "com") {   // the drop-in dll through its COM objects (NUE_D3D9_DLL=<path>): the same calls the game makes, minus the launcher
+        com_device = d3d9::create_native_d3d9(make_window(1280, 720, false), error);
+        if (!com_device) { std::fprintf(stderr, "COM device failed: %s\n", error.c_str()); return 1; }
+        std::printf("device: %s through COM\n", std::getenv("NUE_D3D9_DLL") ? std::getenv("NUE_D3D9_DLL") : "the system d3d9.dll");
+    } else
+#endif
     if (mode == "null" || mode == "devnull") { auto g = std::make_unique<NullGpu>(); null_gpu = g.get(); gpu_owner = std::move(g); }
     else {
         gpu::BgfxOptions options;
         options.renderer = mode == "vulkan" ? gpu::Renderer::vulkan : mode == "opengl" ? gpu::Renderer::opengl : mode == "noop" ? gpu::Renderer::noop : gpu::Renderer::d3d11;
         options.window_width = 1280; options.window_height = 720;
         options.single_threaded = !multithreaded;
-        options.profile_draws = true;
+        options.profile_draws = !std::getenv("NUE_BENCH_LIGHT");   // NUE_BENCH_LIGHT=1: no per-draw clocks (what the dll does), for the sampler and for timing the real cost
         options.shader_cache_dir = cache_dir;
         options.window = make_window(1280, 720, false);
         auto g = gpu::create_bgfx_gpu(options, error);
@@ -282,12 +321,16 @@ static int run_bench(int argc, char** argv) {
     }
     d3d9::LayerOptions lo;
     lo.log = log_line;
-    lo.profile = true;
-    std::unique_ptr<d3d9::Layer> layer_owner = d3d9::create_layer(*gpu_owner, lo);
+    lo.profile = !std::getenv("NUE_BENCH_LIGHT");
+    std::unique_ptr<d3d9::Layer> layer_owner = gpu_owner ? d3d9::create_layer(*gpu_owner, lo) : nullptr;
     NullDevice bare_device;   // --bgfx devnull: only the replay harness, no layer
     const bool bare = mode == "devnull";
     d3d9::Layer* layer = layer_owner.get();
+#ifdef _WIN32
+    d3d9::Device& device = com_device ? com_device->device() : bare ? static_cast<d3d9::Device&>(bare_device) : static_cast<d3d9::Device&>(*layer);
+#else
     d3d9::Device& device = bare ? static_cast<d3d9::Device&>(bare_device) : static_cast<d3d9::Device&>(*layer);
+#endif
     d3d9::TraceReader reader;
     if (!reader.open(folder, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     d3d9::ReplayStats stats;
@@ -325,13 +368,16 @@ static int run_bench(int argc, char** argv) {
 #endif
     for (unsigned loop = 0; loop <= loops; ++loop) {
         timing = loop > 0;
-        if (loop == 1) { layer->reset_profile(); if (bgfx_gpu) bgfx_gpu->reset_profile(); }
+        if (loop == 1) { if (layer) layer->reset_profile(); if (bgfx_gpu) bgfx_gpu->reset_profile(); }
 #ifdef _WIN32
         if (loop == 1 && sample) sampler.start();
 #endif
         last = std::chrono::steady_clock::now();
         for (const d3d9::Record& r : window) if (!session.step(r)) { std::fprintf(stderr, "malformed record in the window\n"); return 1; }
     }
+#ifdef _WIN32
+    if (sample) sampler.report(45);
+#endif
     if (frame_ms.empty()) { std::printf("no frames measured\n"); return 1; }
     if (std::getenv("NUE_BENCH_FRAMES")) for (size_t i = 0; i < frame_ms.size(); ++i) std::printf("frame %zu: %.2f ms\n", i % 120, frame_ms[i]);
     std::vector<double> v = frame_ms;
@@ -339,7 +385,7 @@ static int run_bench(int argc, char** argv) {
     double sum = 0; for (double x : v) sum += x;
     std::printf("%zu frames timed: mean %.2f ms, median %.2f ms, p95 %.2f ms, p99 %.2f ms, max %.2f ms  =>  %.0f fps mean, %.0f fps at p99\n", v.size(), sum / double(v.size()), v[v.size() / 2],
                 v[size_t(double(v.size()) * 0.95)], v[size_t(double(v.size()) * 0.99)], v.back(), 1000.0 * double(v.size()) / sum, 1000.0 / v[size_t(double(v.size()) * 0.99)]);
-    if (bare) return 0;
+    if (bare || !layer) return 0;
     const auto& s = layer->stats();
     std::printf("layer per frame (all loops): draws %.0f, transient copies %.0f, static uploads %.2f, constants %.1f KB\n", double(s.draws) / double(stats.frames), double(s.transient_copies) / double(stats.frames),
                 double(s.static_buffer_uploads) / double(stats.frames), double(s.constants_bytes) / double(stats.frames) / 1024.0);
