@@ -24,6 +24,7 @@ struct LockedRegion { std::byte* data = nullptr; uint32_t pitch = 0, slice_pitch
 
 struct DeviceParams {
     uint32_t back_width = 0, back_height = 0, back_format = 0, depth_format = 0, multisample = 0, buffers = 1;
+    uint32_t multisample_quality = 0xFFFFFFFFu;   // D3DPRESENT_PARAMETERS::MultiSampleQuality; 0xFFFFFFFF = not known (the traces do not record it)
     bool windowed = true;
     uint32_t present_interval = 0;
 };

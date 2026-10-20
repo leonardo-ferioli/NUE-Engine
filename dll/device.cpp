@@ -107,6 +107,7 @@ d3d9::DeviceParams Device9::params_from(const D3DPRESENT_PARAMETERS& pp, UINT& w
     p.back_format = pp.BackBufferFormat == D3DFMT_UNKNOWN ? uint32_t(D3DFMT_X8R8G8B8) : uint32_t(pp.BackBufferFormat);
     p.depth_format = pp.EnableAutoDepthStencil ? uint32_t(pp.AutoDepthStencilFormat) : 0;
     p.multisample = uint32_t(pp.MultiSampleType);
+    p.multisample_quality = pp.MultiSampleQuality;
     p.buffers = pp.BackBufferCount ? pp.BackBufferCount : 1;
     p.windowed = pp.Windowed != FALSE;
     p.present_interval = pp.PresentationInterval;
@@ -196,6 +197,30 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
         std::string report = core_->layer->report();
         if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }
     }
+    // F12 saves the frame just presented (the game's back buffer, before scaling to the window) as nue_screenshot_N.bmp next to the dll
+    static bool f12_was_down = false;
+    const bool f12_down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+    if (f12_down && !f12_was_down && core_->gpu) {
+        core_->layer->flush();
+        uint32_t w = 0, h = 0;
+        std::vector<std::byte> bgra;
+        static unsigned shot = 0;
+        if (core_->gpu->read_back(gpu::backbuffer, w, h, bgra) == Status::ok && w && h) {
+            char name[64];
+            std::snprintf(name, sizeof name, "\\nue_screenshot_%u.bmp", ++shot);
+            const std::string path = config().dll_directory + name;
+            if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                uint8_t header[54] = {'B', 'M'};
+                const uint32_t size = 54 + w * h * 4;
+                std::memcpy(header + 2, &size, 4); header[10] = 54; header[14] = 40;
+                const int32_t bw = int32_t(w), bh = -int32_t(h);
+                std::memcpy(header + 18, &bw, 4); std::memcpy(header + 22, &bh, 4); header[26] = 1; header[28] = 32;
+                std::fwrite(header, 1, 54, f); std::fwrite(bgra.data(), 1, bgra.size(), f); std::fclose(f);
+                log("screenshot saved: %s (%ux%u)", path.c_str(), w, h);
+            }
+        }
+    }
+    f12_was_down = f12_down;
     return result;
 } catch (...) { return guard_failed(__func__); }
 

@@ -70,7 +70,7 @@ void write_bmp(const std::filesystem::path& path, uint32_t w, uint32_t h, const 
     f.write(reinterpret_cast<const char*>(bgra), size_t(w) * h * 4);
 }
 
-struct Metrics { double mae = 0, p999 = 0, max_diff = 0; double masked_fraction = 0; };
+struct Metrics { double mae = 0, p999 = 0, max_diff = 0; double masked_fraction = 0; double edge_mae = 0; double crop_mae = 0, crop_edge_mae = 0, crop_p999 = 0; bool has_crop = false; };
 
 Metrics compare(const Image& ref, const uint8_t* ours, std::vector<uint8_t>* diff_image) {
     const uint32_t W = ref.width, H = ref.height;
@@ -89,6 +89,13 @@ Metrics compare(const Image& ref, const uint8_t* ours, std::vector<uint8_t>* dif
             if (xx >= 0 && yy >= 0 && xx < W && yy < H) mask[size_t(yy) * W + xx] = 1;
         }
     Metrics m;
+    // NUE_CROP=x,y,w,h: the same metrics inside a region (e.g. a car), plus the error on the edge band that the standard p99.9 leaves out
+    int crop[4] = {0, 0, 0, 0};
+    if (const char* c = std::getenv("NUE_CROP")) if (std::sscanf(c, "%d,%d,%d,%d", &crop[0], &crop[1], &crop[2], &crop[3]) == 4 && crop[2] > 0 && crop[3] > 0) m.has_crop = true;
+    double edge_sum = 0, crop_sum = 0, crop_edge_sum = 0;
+    uint64_t edge_n = 0, crop_n = 0, crop_edge_n = 0;
+    std::vector<uint32_t> crop_histogram(256, 0);
+    uint64_t crop_counted = 0;
     double sum = 0;
     std::vector<uint32_t> histogram(256, 0);
     uint64_t counted = 0, masked = 0;
@@ -98,12 +105,28 @@ Metrics compare(const Image& ref, const uint8_t* ours, std::vector<uint8_t>* dif
         int mx = 0, total = 0;
         for (int k = 0; k < 3; ++k) { const int d = std::abs(int(r[k]) - int(o[k])); mx = std::max(mx, d); total += d; }
         sum += total / 3.0;
+        if (mask[i]) { edge_sum += total / 3.0; ++edge_n; }
+        if (m.has_crop) {
+            const int x = int(i % W), y = int(i / W);
+            if (x >= crop[0] && y >= crop[1] && x < crop[0] + crop[2] && y < crop[1] + crop[3]) {
+                crop_sum += total / 3.0; ++crop_n;
+                if (mask[i]) { crop_edge_sum += total / 3.0; ++crop_edge_n; } else { ++crop_histogram[mx]; ++crop_counted; }
+            }
+        }
         m.max_diff = std::max<double>(m.max_diff, mx);
         if (diff_image) { uint8_t v = uint8_t(std::min(255, mx * 4)); (*diff_image)[i * 4] = (*diff_image)[i * 4 + 1] = (*diff_image)[i * 4 + 2] = v; if (mask[i]) (*diff_image)[i * 4 + 2] = std::max<uint8_t>(v, 40); }
         if (mask[i]) { ++masked; continue; }
         ++histogram[mx]; ++counted;
     }
     m.mae = sum / double(size_t(W) * H);
+    m.edge_mae = edge_n ? edge_sum / double(edge_n) : 0;
+    if (m.has_crop && crop_n) {
+        m.crop_mae = crop_sum / double(crop_n);
+        m.crop_edge_mae = crop_edge_n ? crop_edge_sum / double(crop_edge_n) : 0;
+        uint64_t a = 0;
+        const uint64_t t = uint64_t(std::ceil(double(crop_counted) * 0.999));
+        for (int v = 0; v < 256; ++v) { a += crop_histogram[v]; if (a >= t) { m.crop_p999 = v; break; } }
+    }
     m.masked_fraction = double(masked) / double(size_t(W) * H);
     uint64_t acc = 0;
     const uint64_t target = uint64_t(std::ceil(double(counted) * 0.999));
@@ -387,7 +410,9 @@ int run_bgfx(int argc, char** argv) {
         write_bmp(std::filesystem::path(out_dir) / dname, rw, rh, diff.data());
         results.push_back({frame, m});
         sum_mae += m.mae; worst_p999 = std::max(worst_p999, m.p999);
-        std::printf("frame %u: MAE %.3f/255, p99.9 outside edges %.0f/255 (max %.0f, %.1f%% of pixels masked as edges)\n", frame, m.mae, m.p999, m.max_diff, 100.0 * m.masked_fraction);
+        std::printf("frame %u: MAE %.3f/255, p99.9 outside edges %.0f/255 (max %.0f, %.1f%% of pixels masked as edges), error on the edge band %.2f", frame, m.mae, m.p999, m.max_diff, 100.0 * m.masked_fraction, m.edge_mae);
+        if (m.has_crop) std::printf("; crop: MAE %.3f, edge-band MAE %.2f, p99.9 %.0f", m.crop_mae, m.crop_edge_mae, m.crop_p999);
+        std::printf("\n");
     };
     std::vector<double> frame_ms;
     auto last_present = std::chrono::steady_clock::now();

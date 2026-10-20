@@ -71,6 +71,31 @@ void LayerImpl::init_state(DeviceState& st) {
 
 // ---- lifecycle ---------------------------------------------------------------------------------------------------------------------------
 
+constexpr uint32_t kUnknownQuality = 0xFFFFFFFFu;
+
+// Direct3D 9 multisample type -> sample count. NONMASKABLE (1) means "the driver's quality level `quality`": the levels of the hardware the game was
+// written against are 2x, 4x, 8x in that order. NUE_MSAA=N forces a count (tests, and a way to turn it off with 1).
+uint32_t LayerImpl::samples_for(uint32_t type, uint32_t quality) const {
+    if (type == 0) return 1;   // D3DMULTISAMPLE_NONE stays single-sampled whatever is forced
+    uint32_t forced = options_.msaa_override;
+    if (const char* e = std::getenv("NUE_MSAA")) forced = uint32_t(std::atoi(e));
+    if (forced) return std::min(std::clamp<uint32_t>(forced, 1, 16), std::max(gpu_.caps().max_samples, 1u));
+    uint32_t n = 1;
+    if (type == 1) n = quality >= 4 ? 8 : quality >= 2 ? 4 : 2;   // levels 0-1 -> 2 samples, 2-3 -> 4, 4 and above -> 8 (an unknown quality, as in the recorded traces, means the highest)
+    if (type == 1 && quality == kUnknownQuality) n = 8;
+    else if (type >= 2) n = type;
+    n = n >= 16 ? 16 : n >= 8 ? 8 : n >= 3 ? 4 : n;
+    return std::min(n, std::max(gpu_.caps().max_samples, 1u));
+}
+
+// Render targets and depth surfaces the game creates with a multisample type: the same quality as the back buffer when the type is the same (Direct3D 9 only
+// lets a multisampled target be used with a depth surface of the same type, and the creation calls carry no quality here).
+uint32_t LayerImpl::surface_samples(uint32_t multisample_type) const {
+    if (multisample_type == 0) return 1;
+    if (multisample_type == params_.multisample) return backbuffer_samples_;
+    return samples_for(multisample_type, kUnknownQuality);
+}
+
 void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
     if (auto_depth_surface_) {
         if (auto* s = surfaces_.get(auto_depth_surface_)) { if (s->gpu) gpu_.destroy(s->gpu); }
@@ -81,7 +106,7 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
     const FormatInfo& info = format_info(params_.depth_format);
     SurfaceObject s;
     s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = params_.depth_format;
-    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false);
+    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, backbuffer_samples_);
     s.gpu = r.value;
     auto_depth_surface_ = surfaces_.add(std::move(s));
 }
@@ -90,14 +115,19 @@ Status LayerImpl::reset(const DeviceParams& p) {
     end_pass();
     const bool resized = p.back_width != params_.back_width || p.back_height != params_.back_height;
     params_ = p;
+    { char text[200]; std::snprintf(text, sizeof text, "device parameters: back buffer %ux%u format %u, depth format %u, multisample type %u, %u buffers, %s, present interval %x", p.back_width, p.back_height, p.back_format, p.depth_format, p.multisample, p.buffers, p.windowed ? "windowed" : "fullscreen", p.present_interval); log(text); }
     if (p.back_width && p.back_height) {
+        const uint32_t samples = samples_for(p.multisample, p.multisample_quality);
+        { char text[200]; std::snprintf(text, sizeof text, "multisample: requested type %u quality %u -> %u samples (the renderer allows up to %u)", p.multisample, p.multisample_quality, samples, gpu_.caps().max_samples); log(text); }
+        if (samples != backbuffer_samples_) { backbuffer_samples_ = samples; if (auto_depth_surface_) { resized_for_samples_ = true; } }
+        gpu_.set_backbuffer_samples(backbuffer_samples_);
         gpu_.resize(p.back_width, p.back_height);
         if (!format_has_alpha(p.back_format)) init_opaque_target(gpu::backbuffer);
         if (!backbuffer_surface_) {
             SurfaceObject s; s.alive = true; s.kind = SurfaceObject::Kind::backbuffer; s.width = p.back_width; s.height = p.back_height; s.format = p.back_format;
             backbuffer_surface_ = surfaces_.add(std::move(s));
         } else if (auto* s = surfaces_.get(backbuffer_surface_)) { s->width = p.back_width; s->height = p.back_height; s->format = p.back_format; }
-        if (resized || !auto_depth_surface_) recreate_auto_depth(p.back_width, p.back_height);
+        if (resized || resized_for_samples_ || !auto_depth_surface_) { recreate_auto_depth(p.back_width, p.back_height); resized_for_samples_ = false; }
         state_.render_targets[0] = backbuffer_surface_;
         state_.depth_stencil = auto_depth_surface_;
         state_.viewport = Viewport{0, 0, p.back_width, p.back_height, 0.0f, 1.0f};
@@ -173,22 +203,21 @@ Result<TextureId> LayerImpl::create_cube_texture(uint32_t edge, uint32_t levels,
 }
 
 Result<SurfaceId> LayerImpl::create_render_target(uint32_t width, uint32_t height, uint32_t format, uint32_t multisample, bool) {
-    (void)multisample;
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
     s.alive = true; s.kind = SurfaceObject::Kind::render_target; s.width = width; s.height = height; s.format = format;
-    auto r = gpu_.create_texture(width, height, 1, render_target_format(info), true, false);
+    auto r = gpu_.create_texture(width, height, 1, render_target_format(info), true, false, surface_samples(multisample));
     if (!r) return {r.status, {}};
     s.gpu = r.value;
     if (!format_has_alpha(format)) init_opaque_target(s.gpu);
     return {Status::ok, SurfaceId{surfaces_.add(std::move(s))}};
 }
 
-Result<SurfaceId> LayerImpl::create_depth_stencil(uint32_t width, uint32_t height, uint32_t format, uint32_t) {
+Result<SurfaceId> LayerImpl::create_depth_stencil(uint32_t width, uint32_t height, uint32_t format, uint32_t multisample) {
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
     s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = format;
-    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false);
+    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, surface_samples(multisample));
     if (!r) return {r.status, {}};
     s.gpu = r.value;
     return {Status::ok, SurfaceId{surfaces_.add(std::move(s))}};

@@ -19,6 +19,7 @@ struct LayerOptions {
     // Debugging: only draws numbered first..last (counted over the whole replay) are executed.
     uint64_t debug_draw_first = 0, debug_draw_last = ~0ull, debug_draw_also = ~0ull;   // also execute this one draw
     bool debug_record_draws = false;
+    uint32_t msaa_override = 0;        // 0 = as the game asks; 1 = no multisampling; 2, 4, 8, 16 = that many samples for every multisampled target
     bool profile = false;              // time the phases of every draw (Layer::profile_report)
     bool debug_log_passes = false;     // log every pass and copy as it is opened   // keep a description of the last draws (Layer::recent_draws)
 };

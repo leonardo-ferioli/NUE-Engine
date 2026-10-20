@@ -39,7 +39,7 @@ struct BufferEntry {
 struct TextureEntry {
     bool alive = false, render_target = false, depth = false, cube = false;
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
-    uint32_t width = 0, height = 0, levels = 1;
+    uint32_t width = 0, height = 0, levels = 1, samples = 1;
     Format format = Format::rgba8;
 };
 struct ProgramEntry { bool alive = false; bgfx::ProgramHandle handle = BGFX_INVALID_HANDLE; };
@@ -125,13 +125,18 @@ uint32_t pack_stencil(const DepthStencilState& ds) {
     return f | op_s(ds.stencil_fail) | op_z(ds.stencil_depth_fail) | op_p(ds.stencil_pass);
 }
 
+uint64_t msaa_flag(uint32_t samples) {
+    return samples >= 16 ? BGFX_TEXTURE_RT_MSAA_X16 : samples >= 8 ? BGFX_TEXTURE_RT_MSAA_X8 : samples >= 4 ? BGFX_TEXTURE_RT_MSAA_X4 : BGFX_TEXTURE_RT_MSAA_X2;
+}
+
 uint32_t sampler_flags(const SamplerDesc& s) {
     uint32_t f = 0;
     auto addr = [](uint8_t a, uint32_t mirror, uint32_t clamp, uint32_t border) -> uint32_t { return a == 1 || a == 4 ? mirror : a == 2 ? clamp : a == 3 ? border : 0; };
     f |= addr(s.address_u, BGFX_SAMPLER_U_MIRROR, BGFX_SAMPLER_U_CLAMP, BGFX_SAMPLER_U_BORDER);
     f |= addr(s.address_v, BGFX_SAMPLER_V_MIRROR, BGFX_SAMPLER_V_CLAMP, BGFX_SAMPLER_V_BORDER);
     f |= addr(s.address_w, BGFX_SAMPLER_W_MIRROR, BGFX_SAMPLER_W_CLAMP, BGFX_SAMPLER_W_BORDER);
-    if (s.min == 0) f |= BGFX_SAMPLER_MIN_POINT; else if (s.min == 2) f |= BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;   // anisotropic filtering needs both
+    static const bool no_aniso = std::getenv("NUE_NO_ANISO") != nullptr;   // experiment: treat anisotropic as linear
+    if (s.min == 0) f |= BGFX_SAMPLER_MIN_POINT; else if (s.min == 2 && !no_aniso) f |= BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;   // anisotropic filtering needs both
     if (s.mag == 0 && s.min != 2) f |= BGFX_SAMPLER_MAG_POINT;
     if (s.mip == 0) f |= BGFX_SAMPLER_MIP_POINT;
     return f;
@@ -175,7 +180,8 @@ public:
     const BgfxStats& stats() const override { return stats_; }
     Result<Buffer> create_static_buffer(Bytes initial, BufferKind kind) override;
     Result<Buffer> allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) override;
-    Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube) override;
+    Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube, uint32_t samples = 1) override;
+    void set_backbuffer_samples(uint32_t samples) override { backbuffer_samples_ = std::max(samples, 1u); }
     void update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<Program> create_program(const ProgramDesc&) override;
     void copy_texture(Texture dst, const int32_t* dst_rect4, Texture src, const int32_t* src_rect4, bool linear) override;
@@ -221,6 +227,7 @@ private:
     uint64_t prof_draw_ns_ = 0, prof_draws_ = 0, prof_layout_ns_ = 0, prof_uniform_ns_ = 0, prof_texture_ns_ = 0, prof_submit_ns_ = 0, prof_frame_ns_ = 0, prof_frames_ = 0;
     double prof_gpu_ms_ = 0, prof_render_cpu_ms_ = 0, prof_wait_render_ms_ = 0, prof_wait_submit_ms_ = 0;
     bool initialised_ = false;
+    uint32_t backbuffer_samples_ = 1;
     bgfx::ProgramHandle blit_program_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
     uint32_t readback_w_ = 0, readback_h_ = 0;
@@ -308,6 +315,7 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     caps_.origin_bottom_left = caps->originBottomLeft;
     caps_.homogeneous_depth = caps->homogeneousDepth;
     caps_.mrt = caps->limits.maxFBAttachments > 1;
+    caps_.max_samples = (caps->formats[bgfx::TextureFormat::BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_MSAA) ? 8 : 1;   // bgfx falls back to what the device supports
     for (size_t i = 0; i < size_t(Format::count); ++i) {
         const auto f = texture_format(Format(i));
         caps_.texture_format[i] = (caps->formats[f] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0;
@@ -394,12 +402,17 @@ void BgfxGpuImpl::destroy(Buffer b) {
     buffers_.release(b.value);
 }
 
-Result<Texture> BgfxGpuImpl::create_texture(uint32_t width, uint32_t height, uint32_t levels, Format format, bool render_target, bool cube) {
+Result<Texture> BgfxGpuImpl::create_texture(uint32_t width, uint32_t height, uint32_t levels, Format format, bool render_target, bool cube, uint32_t samples) {
     TextureEntry t;
     t.alive = true; t.render_target = render_target; t.cube = cube; t.width = width; t.height = height; t.levels = std::max(levels, 1u); t.format = format;
     t.depth = format == Format::d16 || format == Format::d24s8 || format == Format::d32f;
     uint64_t flags = BGFX_SAMPLER_NONE;
-    if (render_target) flags |= BGFX_TEXTURE_RT | (t.depth ? BGFX_TEXTURE_RT_WRITE_ONLY : BGFX_TEXTURE_BLIT_DST);
+    if (render_target) {
+        // the multisample flags already contain the render-target bit and must not be OR-ed with BGFX_TEXTURE_RT (x8 | RT would read as x16)
+        const bool ms = samples > 1 && !cube && caps_.max_samples > 1;
+        flags |= (ms ? msaa_flag(std::min(samples, caps_.max_samples)) : BGFX_TEXTURE_RT) | (t.depth ? BGFX_TEXTURE_RT_WRITE_ONLY : BGFX_TEXTURE_BLIT_DST);
+        t.samples = ms ? std::min(samples, caps_.max_samples) : 1;
+    }
     if (t.levels > 1) flags |= BGFX_TEXTURE_MIP_COUNT(t.levels);
     const auto f = texture_format(format);
     t.handle = cube ? bgfx::createTextureCube(uint16_t(width), t.levels > 1, 1, f, flags)
@@ -483,7 +496,8 @@ bgfx::FrameBufferHandle BgfxGpuImpl::framebuffer_for(const bgfx::TextureHandle& 
     attachments[0].init(color, bgfx::Access::Write, uint16_t(layer), 1, uint16_t(mip), 0);
     if (bgfx::isValid(depth)) attachments[1].init(depth, bgfx::Access::Write, 0, 1, 0, 0);
     const bgfx::FrameBufferHandle fb = bgfx::createFrameBuffer(bgfx::isValid(depth) ? 2 : 1, attachments, false);
-    framebuffers_[key] = fb;
+    if (!bgfx::isValid(fb)) std::fprintf(stderr, "[bgfx] framebuffer could not be created (colour texture %u, depth texture %d, layer %u, mip %u)%c", unsigned(color.idx), bgfx::isValid(depth) ? int(depth.idx) : -1, layer, mip, 10);
+    if (bgfx::isValid(fb)) framebuffers_[key] = fb;   // an invalid one is not kept (it would be destroyed later); the pass that needs it is dropped
     return fb;
 }
 
@@ -495,6 +509,7 @@ void BgfxGpuImpl::begin_pass(const PassDesc& p) {
     ++stats_.views;
     pass_open_ = true; pass_draws_ = 0;
     const bgfx::FrameBufferHandle fb = framebuffer_for(color->handle, depth ? depth->handle : bgfx::TextureHandle(BGFX_INVALID_HANDLE), p.color_layer[0], p.color_mip[0]);
+    if (!bgfx::isValid(fb)) { pass_open_ = false; return; }   // e.g. attachments with different multisampling
     bgfx::setViewFrameBuffer(uint16_t(current_view_), fb);
     uint32_t rect[4] = {uint32_t(p.rect[0]), uint32_t(p.rect[1]), uint32_t(p.rect[2]), uint32_t(p.rect[3])};
     if (!rect[2] || !rect[3]) { rect[0] = rect[1] = 0; rect[2] = std::max(1u, color->width >> p.color_mip[0]); rect[3] = std::max(1u, color->height >> p.color_mip[0]); }
@@ -596,7 +611,7 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
 // ---- frame ----------------------------------------------------------------------------------------------------------------------------------
 
 Status BgfxGpuImpl::resize(uint32_t width, uint32_t height) {
-    if (backbuffer_.alive && backbuffer_.width == width && backbuffer_.height == height) return Status::ok;
+    if (backbuffer_.alive && backbuffer_.width == width && backbuffer_.height == height && backbuffer_.samples == std::min(backbuffer_samples_, std::max(caps_.max_samples, 1u))) return Status::ok;
     if (backbuffer_.alive) {
         for (auto it = framebuffers_.begin(); it != framebuffers_.end();) {
             if (uint16_t(it->first & 0xFFFF) == backbuffer_.handle.idx) { bgfx::destroy(it->second); it = framebuffers_.erase(it); } else ++it;
@@ -605,7 +620,9 @@ Status BgfxGpuImpl::resize(uint32_t width, uint32_t height) {
     }
     backbuffer_ = TextureEntry{};
     backbuffer_.alive = true; backbuffer_.render_target = true; backbuffer_.width = width; backbuffer_.height = height; backbuffer_.format = Format::bgra8;
-    backbuffer_.handle = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+    backbuffer_.samples = std::min(backbuffer_samples_, std::max(caps_.max_samples, 1u));
+    backbuffer_.handle = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1, bgfx::TextureFormat::BGRA8,
+                                               (backbuffer_.samples > 1 ? msaa_flag(backbuffer_.samples) : BGFX_TEXTURE_RT) | BGFX_TEXTURE_BLIT_DST | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
     if (bgfx::isValid(readback_)) { bgfx::destroy(readback_); readback_ = BGFX_INVALID_HANDLE; }
     return bgfx::isValid(backbuffer_.handle) ? Status::ok : Status::out_of_memory;
 }

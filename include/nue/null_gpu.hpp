@@ -17,7 +17,7 @@ public:
     const gpu::GpuCaps& caps() override { return capabilities; }
     Result<gpu::Buffer> create_static_buffer(Bytes initial, gpu::BufferKind kind) override;
     Result<gpu::Buffer> allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) override;
-    Result<gpu::Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube) override;
+    Result<gpu::Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube, uint32_t samples = 1) override;
     void update_texture(gpu::Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<gpu::Program> create_program(const gpu::ProgramDesc& desc) override;
     void copy_texture(gpu::Texture dst, const int32_t* dst_rect4, gpu::Texture src, const int32_t* src_rect4, bool linear) override;

@@ -6,6 +6,8 @@ renderer=d3d11
 vsync=1
 ; run bgfx's backend on its own thread (faster; 0 = everything on the game thread)
 render_thread=1
+; multisampling: auto = what the game asks for (its multisample type and quality), off, or 2 / 4 / 8 samples forced (8x costs about twice the GPU time of off on an integrated GPU at 720p)
+msaa=auto
 ; nue_d3d9.log next to the dll (what the game asked for that the translator cannot do is summarised when the device is released)
 log=1
 log_unsupported=1

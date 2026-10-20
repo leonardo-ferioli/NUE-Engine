@@ -44,6 +44,7 @@ public:
         pp.BackBufferWidth = p.back_width; pp.BackBufferHeight = p.back_height;
         pp.BackBufferFormat = D3DFORMAT(p.back_format ? p.back_format : D3DFMT_X8R8G8B8);
         pp.BackBufferCount = 1;
+        if (const char* ms = std::getenv("NUE_NATIVE_MSAA")) { unsigned type = 0, quality = 0; if (std::sscanf(ms, "%u:%u", &type, &quality) >= 1) { pp.MultiSampleType = D3DMULTISAMPLE_TYPE(type); pp.MultiSampleQuality = quality; backbuffer_multisample_ = type != 0; backbuffer_ms_type_ = type; backbuffer_quality_ = quality; } }   // e.g. 1:7 = non-maskable, highest quality
         pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
         pp.hDeviceWindow = hwnd_;
         pp.Windowed = TRUE;
@@ -98,15 +99,15 @@ public:
         return {Status::ok, BufferId{ibs_.add(b) | 0x80000000u}};
     }
     Result<SurfaceId> create_render_target(uint32_t w, uint32_t h, uint32_t format, uint32_t ms, bool lockable) override {
-        (void)ms;
+        const D3DMULTISAMPLE_TYPE type = backbuffer_multisample_ && ms == backbuffer_ms_type_ ? D3DMULTISAMPLE_TYPE(ms) : D3DMULTISAMPLE_NONE;
         IDirect3DSurface9* s = nullptr;
-        if (FAILED(device_->CreateRenderTarget(w, h, D3DFORMAT(format), D3DMULTISAMPLE_NONE, 0, lockable, &s, nullptr))) return {Status::unsupported, {}};
+        if (FAILED(device_->CreateRenderTarget(w, h, D3DFORMAT(format), type, backbuffer_multisample_ && type != D3DMULTISAMPLE_NONE ? backbuffer_quality_ : 0, lockable, &s, nullptr))) return {Status::unsupported, {}};
         return {Status::ok, SurfaceId{surfaces_.add(s)}};
     }
     Result<SurfaceId> create_depth_stencil(uint32_t w, uint32_t h, uint32_t format, uint32_t ms) override {
-        (void)ms;
+        const D3DMULTISAMPLE_TYPE type = backbuffer_multisample_ && ms == backbuffer_ms_type_ ? D3DMULTISAMPLE_TYPE(ms) : D3DMULTISAMPLE_NONE;
         IDirect3DSurface9* s = nullptr;
-        if (FAILED(device_->CreateDepthStencilSurface(w, h, D3DFORMAT(format), D3DMULTISAMPLE_NONE, 0, FALSE, &s, nullptr))) return {Status::unsupported, {}};
+        if (FAILED(device_->CreateDepthStencilSurface(w, h, D3DFORMAT(format), type, backbuffer_multisample_ && type != D3DMULTISAMPLE_NONE ? backbuffer_quality_ : 0, FALSE, &s, nullptr))) return {Status::unsupported, {}};
         return {Status::ok, SurfaceId{surfaces_.add(s)}};
     }
     Result<DeclarationId> create_vertex_declaration(std::span<const uint8_t> e) override {
@@ -249,6 +250,8 @@ public:
     Device& device() override { return *this; }
 
 private:
+    bool backbuffer_multisample_ = false;   // NUE_NATIVE_MSAA: surfaces of the same multisample type as the back buffer get the same quality
+    uint32_t backbuffer_ms_type_ = 0, backbuffer_quality_ = 0;
     bool is_cube(uint32_t id) const { return id < cube_.size() && cube_[id]; }
     IDirect3D9* d3d_ = nullptr;
     IDirect3DDevice9* device_ = nullptr;

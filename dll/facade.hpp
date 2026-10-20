@@ -35,7 +35,8 @@ struct Config {
     bool vsync = true;                             // honour the game's present interval (false: never wait for the display)
     bool render_thread = true;                     // bgfx runs its backend on its own thread
     bool log = true;
-    bool log_unsupported = true;                   // one line per unsupported feature the game asks for (also summarised at exit)
+    bool log_unsupported = true;
+    uint32_t msaa = 0;                             // 0 = as the game asks (its multisample type and quality); 1 = off; 2, 4, 8 = force that many samples                   // one line per unsupported feature the game asks for (also summarised at exit)
     std::string shader_cache;                      // folder for compiled shaders (default: <dll folder>\nue_shader_cache)
     std::string dll_directory;
 };

@@ -58,6 +58,7 @@ void load_config() {
     g_config.log = truthy(ini_value(ini, "log"), g_config.log);
     g_config.log_unsupported = truthy(ini_value(ini, "log_unsupported"), g_config.log_unsupported);
     g_config.shader_cache = ini_value(ini, "shader_cache");
+    if (auto v = ini_value(ini, "msaa"); !v.empty()) g_config.msaa = v == "off" ? 1u : v == "auto" ? 0u : uint32_t(std::atoi(v.c_str()));
     if (const char* e = std::getenv("NUE_RENDERER")) g_config.renderer = e;   // environment wins
     if (const char* e = std::getenv("NUE_VSYNC")) g_config.vsync = truthy(e, g_config.vsync);
     if (const char* e = std::getenv("NUE_RENDER_THREAD")) g_config.render_thread = truthy(e, g_config.render_thread);
@@ -268,6 +269,7 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     d3d9::LayerOptions layer_options;
     layer_options.log = log_line;
     layer_options.log_unsupported = cfg.log_unsupported;
+    layer_options.msaa_override = cfg.msaa;
     auto core = std::make_shared<Core>();
     core->gpu = std::move(gpu_owner);
     core->layer = d3d9::create_layer(*core->gpu, layer_options);
@@ -281,7 +283,7 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     d3d9::DeviceParams params;
     params.back_width = filled.BackBufferWidth; params.back_height = filled.BackBufferHeight; params.back_format = uint32_t(filled.BackBufferFormat);
     params.depth_format = filled.EnableAutoDepthStencil ? uint32_t(filled.AutoDepthStencilFormat) : 0;
-    params.multisample = uint32_t(filled.MultiSampleType); params.buffers = filled.BackBufferCount; params.windowed = filled.Windowed != FALSE;
+    params.multisample = uint32_t(filled.MultiSampleType); params.multisample_quality = filled.MultiSampleQuality; params.buffers = filled.BackBufferCount; params.windowed = filled.Windowed != FALSE;
     params.present_interval = filled.PresentationInterval;
     if (core->layer->reset(params) != Status::ok) { log("CreateDevice failed: the layer refused the back buffer parameters"); return D3DERR_NOTAVAILABLE; }
 

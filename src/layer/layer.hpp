@@ -228,6 +228,10 @@ private:
     void open_pass(const Attachment&);
     void ensure_pass();
     void recreate_auto_depth(uint32_t width, uint32_t height);
+    uint32_t samples_for(uint32_t multisample_type, uint32_t quality) const;
+    uint32_t surface_samples(uint32_t multisample_type) const;
+    uint32_t backbuffer_samples_ = 1;
+    bool resized_for_samples_ = false;
 
     // buffers
     struct VertexSource { gpu::Buffer buffer; uint32_t offset = 0, stride = 0; };

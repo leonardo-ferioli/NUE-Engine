@@ -111,7 +111,7 @@ struct PassDesc {
 
 struct GpuCaps {
     bool texture_format[static_cast<size_t>(Format::count)] = {};
-    uint32_t max_texture_size = 0, max_anisotropy = 1;
+    uint32_t max_texture_size = 0, max_anisotropy = 1, max_samples = 1;   // max_samples: multisampled render targets (1 = none)
     bool instancing = false, mrt = false;
     bool origin_bottom_left = false;                         // OpenGL-style render targets
     bool homogeneous_depth = false;                          // clip-space depth in [-1, 1] (OpenGL)
@@ -126,7 +126,8 @@ public:
     // Memory valid for this frame only (dynamic data, user-pointer draws): `bytes` of vertices of `stride` bytes, or of indices (`index`, stride 2 or 4).
     // `out` receives the span to fill. Draw it with offset 0.
     virtual Result<Buffer>  allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) = 0;
-    virtual Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube) = 0;
+    // `samples` > 1 makes a multisampled render target (colour or depth): it resolves when it is sampled or copied to a texture.
+    virtual Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube, uint32_t samples = 1) = 0;
     virtual void            update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) = 0;
     virtual Result<Program> create_program(const ProgramDesc&) = 0;
     // Copies (and, when the sizes differ, stretches) a rectangle {x, y, w, h} of `src` into `dst`; null rectangles are the whole texture.
@@ -136,6 +137,7 @@ public:
     virtual void end_pass() = 0;
     virtual Status present(uint32_t swap_interval) = 0;
     virtual Status resize(uint32_t width, uint32_t height) = 0;
+    virtual void   set_backbuffer_samples(uint32_t samples) { (void)samples; }   // multisampling of the game's back buffer; takes effect at the next resize()
     // Copies the colour contents of a texture (or the last presented frame for `backbuffer`) as 32-bit BGRA; waits for the GPU (rare, slow).
     virtual Status read_back(Texture, uint32_t& width, uint32_t& height, std::vector<std::byte>& bgra) = 0;
     virtual void   destroy(Buffer) = 0;

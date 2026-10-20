@@ -65,7 +65,8 @@ Result<gpu::Buffer> NullGpu::allocate_transient(uint32_t bytes, uint32_t stride,
     return {Status::ok, gpu::Buffer{id}};
 }
 
-Result<gpu::Texture> NullGpu::create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube) {
+Result<gpu::Texture> NullGpu::create_texture(uint32_t width, uint32_t height, uint32_t levels, gpu::Format format, bool render_target, bool cube, uint32_t samples) {
+    (void)samples;
     ++textures_created;
     mix(0xC1);
     mix(width); mix(height); mix(levels); mix(uint64_t(format)); mix(render_target); mix(cube);
