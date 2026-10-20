@@ -96,12 +96,12 @@ void Device9::shutdown() {
     if (back_buffer_) { back_buffer_->Release(); back_buffer_ = nullptr; }
     if (core_ && core_->alive) {
         if (core_->layer) {
-            log("device released; what the translator could not do:\n%s", core_->layer->report().c_str());
-            core_->layer->flush();
+            std::string report;
+            core_->backend([&] { report = core_->layer->report(); core_->layer->flush(); });
+            log("device released; what the translator could not do:\n%s", report.c_str());
         }
         core_->alive = false;
-        core_->layer.reset();
-        core_->gpu.reset();
+        core_->release_backend();
     }
 }
 
@@ -139,7 +139,7 @@ void Device9::apply_window_size() {
     if (!GetClientRect(window_, &client)) return;
     const UINT w = UINT(std::max<LONG>(client.right - client.left, 0)), h = UINT(std::max<LONG>(client.bottom - client.top, 0));
     if (!w || !h) return;
-    if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; core_->gpu->set_window_size(w, h); visible_known_ = false; }
+    if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; core_->backend_async([gpu = core_->gpu.get(), w, h] { gpu->set_window_size(w, h); }); visible_known_ = false; }
     // The part of the client area that is on a monitor: a window larger than the screen (or partly outside it) must not hide the sides of the picture.
     POINT origin{0, 0};
     ClientToScreen(window_, &origin);
@@ -152,7 +152,7 @@ void Device9::apply_window_size() {
         visible_client_ = in_client;
         visible_known_ = true;
         const LONG vw = std::max<LONG>(in_client.right - in_client.left, 0), vh = std::max<LONG>(in_client.bottom - in_client.top, 0);
-        core_->gpu->set_visible_area(in_client.left, in_client.top, UINT(vw), UINT(vh));
+        core_->backend_async([gpu = core_->gpu.get(), in_client, vw, vh] { gpu->set_visible_area(in_client.left, in_client.top, UINT(vw), UINT(vh)); });
         log("window %ux%u at %ld,%ld; visible on the monitor: %ldx%ld; back buffer %ux%u is fitted into it", w, h, origin.x, origin.y, vw, vh, pp_.BackBufferWidth, pp_.BackBufferHeight);
         status_dirty_ = 3;
     }
@@ -230,7 +230,7 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     last_present_ticks_ = (unsigned long long)end.QuadPart;
     g_present_us = unsigned((end.QuadPart - begin.QuadPart) * 1000000ull / static_cast<unsigned long long>(frequency.QuadPart));
     if (core_->gpu) {
-        const auto& st = core_->gpu->stats();
+        const gpu::BgfxStats st = core_->gpu_stats();
         g_gpu_us = unsigned(st.gpu_ms * 1000.0); g_render_cpu_us = unsigned(st.render_cpu_ms * 1000.0);
         g_frame_call_total_us += (unsigned long long)(st.frame_call_ms * 1000.0);
         g_present_total_us += g_present_us.load(); g_gpu_total_us += (unsigned long long)(st.gpu_ms * 1000.0); g_render_total_us += (unsigned long long)(st.render_cpu_ms * 1000.0);
@@ -243,30 +243,34 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
         if (QueryThreadCycleTime(GetCurrentThread(), &cycles)) g_thread_cycles = cycles;
     }
     if (++present_count_ % 180 == 0 && core_->layer) {   // what the translator could not do, as soon as the game asks for it
-        std::string report = core_->layer->report();
+        std::string report = core_->front()->report();
         if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }
     }
     if (status_dirty_ > 0 && core_->gpu && --status_dirty_ == 0) {   // a few frames after a resize bgfx has applied it, so its back buffer size can be read
+        std::string gpu_audit;
+        core_->backend([&] { gpu_audit = core_->gpu->audit(); });
         char text[700];
         std::snprintf(text, sizeof text, "client %ux%u; visible area %ld,%ld %ldx%ld; game back buffer %ux%u; %s", window_w_, window_h_, visible_client_.left, visible_client_.top,
-                      visible_client_.right - visible_client_.left, visible_client_.bottom - visible_client_.top, pp_.BackBufferWidth, pp_.BackBufferHeight, core_->gpu->audit().c_str());
+                      visible_client_.right - visible_client_.left, visible_client_.bottom - visible_client_.top, pp_.BackBufferWidth, pp_.BackBufferHeight, gpu_audit.c_str());
         set_window_status(text);
     }
     // resource audit: textures by format and size, which ones have data, creation failures, bgfx handles against its limits (first after ~2 s, then every ~10 s)
     if ((present_count_ == 120 || present_count_ % 600 == 0) && core_->layer) {
-        log("audit: %s", core_->layer->audit().c_str());
-        if (core_->gpu) log("audit: %s", core_->gpu->audit().c_str());
+        std::string layer_audit, gpu_audit;
+        core_->backend([&] { layer_audit = core_->layer->audit(); if (core_->gpu) gpu_audit = core_->gpu->audit(); });
+        log("audit: %s", layer_audit.c_str());
+        if (!gpu_audit.empty()) log("audit: %s", gpu_audit.c_str());
     }
     // F12 saves the frame just presented (the game's back buffer, before scaling to the window) as nue_screenshot_N.bmp next to the dll.
     // F11 asks for a report of every texture the next frame uses (nue_textures_N.txt, with a screenshot of that frame); F10 turns on / off the magenta checker for textures without data.
     static bool f12_was_down = false, f11_was_down = false, f10_was_down = false, shot_with_report = false;
     const bool f12_down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0, f11_down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0, f10_down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
-    if (config().texture_report_at && present_count_ == config().texture_report_at) core_->layer->request_texture_report();
-    if (f11_down && !f11_was_down) { core_->layer->request_texture_report(); log("F11: the textures used by the next frame will be written to nue_textures_N.txt"); }
-    if (f10_down && !f10_was_down) { core_->layer->set_mark_missing_textures(!core_->layer->mark_missing_textures()); log("F10: textures without data are %s", core_->layer->mark_missing_textures() ? "drawn as a magenta checker" : "drawn as the game's data"); }
+    if (config().texture_report_at && present_count_ == config().texture_report_at) core_->front()->request_texture_report();
+    if (f11_down && !f11_was_down) { core_->front()->request_texture_report(); log("F11: the textures used by the next frame will be written to nue_textures_N.txt"); }
+    if (f10_down && !f10_was_down) { d3d9::Layer* front = core_->front(); front->set_mark_missing_textures(!front->mark_missing_textures()); log("F10: textures without data are %s", front->mark_missing_textures() ? "drawn as a magenta checker" : "drawn as the game's data"); }
     f11_was_down = f11_down; f10_was_down = f10_down;
     {
-        const std::string report = core_->layer->take_texture_report();
+        const std::string report = core_->front()->take_texture_report();
         if (!report.empty()) {
             static unsigned report_number = 0;
             char name[64];
@@ -280,11 +284,12 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     if ((f12_down && !f12_was_down) || shot_with_report) {
         shot_with_report = false;
         if (core_->gpu) {
-            core_->layer->flush();
             uint32_t w = 0, h = 0;
             std::vector<std::byte> bgra;
             static unsigned shot = 0;
-            if (core_->gpu->read_back(gpu::backbuffer, w, h, bgra) == Status::ok && w && h) {
+            Status read = Status::unsupported;
+            core_->backend([&] { core_->layer->flush(); read = core_->gpu->read_back(gpu::backbuffer, w, h, bgra); });
+            if (read == Status::ok && w && h) {
                 char name[64];
                 std::snprintf(name, sizeof name, "\\nue_screenshot_%u.bmp", ++shot);
                 const std::string path = config().dll_directory + name;
@@ -440,10 +445,11 @@ HRESULT Device9::GetRenderTargetData(IDirect3DSurface9* render_target, IDirect3D
     auto* to = static_cast<Surface9*>(destination);
     if (from->kind() != Surface9::Kind::back_buffer) return unsupported("GetRenderTargetData of a surface other than the back buffer");
     if (to->kind() != Surface9::Kind::system_memory) return trace_result(__func__, D3DERR_INVALIDCALL);
-    core_->layer->flush();
     uint32_t w = 0, h = 0;
     std::vector<std::byte> bgra;
-    if (core_->gpu->read_back(gpu::backbuffer, w, h, bgra) != Status::ok) return trace_result(__func__, D3DERR_NOTAVAILABLE);
+    Status read = Status::unsupported;
+    core_->backend([&] { core_->layer->flush(); read = core_->gpu->read_back(gpu::backbuffer, w, h, bgra); });
+    if (read != Status::ok) return trace_result(__func__, D3DERR_NOTAVAILABLE);
     const UINT copy_w = std::min<UINT>(w, to->width()), copy_h = std::min<UINT>(h, to->height());
     auto& memory = to->memory();
     for (UINT y = 0; y < copy_h; ++y) std::memcpy(memory.data() + size_t(y) * to->width() * 4, bgra.data() + size_t(y) * w * 4, size_t(copy_w) * 4);

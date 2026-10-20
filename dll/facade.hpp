@@ -14,6 +14,7 @@
 #include <vector>
 #include "nue/bgfx_gpu.hpp"
 #include "nue/d3d9_layer.hpp"
+#include "threaded.hpp"
 
 namespace nue::facade {
 
@@ -30,6 +31,7 @@ extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_fra
 // running totals for the timeline line (written by Present on the game thread): microseconds spent in Present, GPU, backend CPU, game thread waiting for the render thread, render thread waiting for the game thread;
 // CPU time (100 ns units) and CPU cycles consumed by the game thread so far
 extern std::atomic<unsigned long long> g_present_total_us, g_gpu_total_us, g_render_total_us, g_wait_render_total_us, g_wait_submit_total_us, g_thread_cpu_100ns, g_thread_cycles, g_frame_call_total_us;
+extern std::atomic<unsigned long long> g_worker_busy_total_us;   // worker mode: microseconds the worker thread spent running the calls
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from
@@ -92,6 +94,8 @@ struct Config {
     uint32_t texture_report_at = 0;                // present number at which a texture report is written without a key press (0 = never; tests and unattended runs)
     std::string render_thread_priority = "default";   // default | idle | lowest | below | normal | above | highest: priority of the threads bgfx starts (the game thread keeps the launcher's)
     int render_thread_cpu = -1;                    // -1 = the system chooses; N = ideal processor of the render thread
+    bool worker_thread = false;                    // the game thread only records its calls; a worker thread runs the translator and bgfx (threaded.hpp)
+    uint32_t worker_copy_mb = 256;                 // worker mode: buffer contents kept on the game's side for locks that read them (MB)
     bool mark_missing = false;                     // textures without data are drawn as a magenta checker (F10 toggles it while the game runs)
     uint32_t msaa = 0;                             // 0 = as the game asks (its multisample type and quality); 1 = off; 2, 4, 8 = force that many samples                   // one line per unsupported feature the game asks for (also summarised at exit)
     std::string shader_cache;                      // folder for compiled shaders (default: <dll folder>\nue_shader_cache)
@@ -103,8 +107,19 @@ const Config& config();
 struct Core {
     std::unique_ptr<gpu::BgfxGpu> gpu;
     std::unique_ptr<d3d9::Layer> layer;
+    std::unique_ptr<ThreadedLayer> threaded;   // worker mode: the game's calls go here, and layer and gpu belong to the worker thread
     bool alive = true;
-    d3d9::Device* dev() { return alive && layer ? layer.get() : nullptr; }
+    ~Core() { release_backend(); }
+    void release_backend() {   // the layer, then the adapter, on the thread that made them; then the worker ends
+        backend([this] { layer.reset(); gpu.reset(); });
+        threaded.reset();
+    }
+    d3d9::Layer* front() { return threaded ? static_cast<d3d9::Layer*>(threaded.get()) : layer.get(); }
+    d3d9::Device* dev() { return alive && layer ? front() : nullptr; }
+    // runs f where layer and gpu may be used: on the worker once everything queued before has run (waiting for it), or here
+    template <class F> void backend(F&& f) { if (threaded) threaded->sync(std::function<void()>(std::forward<F>(f))); else f(); }
+    template <class F> void backend_async(F&& f) { if (threaded) threaded->post(std::function<void()>(std::forward<F>(f))); else f(); }
+    gpu::BgfxStats gpu_stats() const { return threaded ? threaded->gpu_stats() : gpu->stats(); }
 };
 
 class Device9;

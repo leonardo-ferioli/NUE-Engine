@@ -81,9 +81,9 @@ endif()
 
 # The drop-in d3d9.dll (Windows): the COM objects of Direct3D 9 on the layer + bgfx. Copy it next to the game's executable.
 if(WIN32 AND NUE_WITH_BGFX)
-    add_library(nue_d3d9_dll SHARED dll/main.cpp dll/device.cpp dll/resources.cpp)
+    add_library(nue_d3d9_dll SHARED dll/main.cpp dll/device.cpp dll/resources.cpp dll/threaded.cpp)
     set_target_properties(nue_d3d9_dll PROPERTIES OUTPUT_NAME d3d9 PREFIX "" ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/dll_import)
-    target_include_directories(nue_d3d9_dll PRIVATE dll)
+    target_include_directories(nue_d3d9_dll PRIVATE dll src)
     target_link_libraries(nue_d3d9_dll PRIVATE nue_d3d9_bgfx user32 gdi32 dxguid)
     target_compile_definitions(nue_d3d9_dll PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_options(nue_d3d9_dll PRIVATE -Wno-microsoft-exception-spec)

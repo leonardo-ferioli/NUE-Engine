@@ -27,6 +27,7 @@ CRITICAL_SECTION g_call_lock;
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0};
 volatile unsigned g_counter_calls = 0;
 std::atomic<unsigned long long> g_frame_call_total_us{0}, g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
+std::atomic<unsigned long long> g_worker_busy_total_us{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
 namespace {
@@ -61,7 +62,7 @@ void load_config() {
     g_config_loaded = true;
     g_config.dll_directory = module_directory();
     const std::string ini = g_config.dll_directory + "\\nue_d3d9.ini";
-    // nue_d3d9.ini:  [graphics]  renderer=d3d11|vulkan   vsync=1   render_thread=1   log=1   shader_cache=<folder>
+    // nue_d3d9.ini:  [graphics]  renderer=d3d11|vulkan   vsync=1   render_thread=1   worker_thread=0   log=1   shader_cache=<folder>
     if (auto v = ini_value(ini, "renderer"); !v.empty()) g_config.renderer = v;
     g_config.vsync = truthy(ini_value(ini, "vsync"), g_config.vsync);
     g_config.render_thread = truthy(ini_value(ini, "render_thread"), g_config.render_thread);
@@ -81,6 +82,9 @@ void load_config() {
     if (const char* e = std::getenv("NUE_RENDERER")) g_config.renderer = e;   // environment wins
     if (const char* e = std::getenv("NUE_VSYNC")) g_config.vsync = truthy(e, g_config.vsync);
     if (const char* e = std::getenv("NUE_RENDER_THREAD")) g_config.render_thread = truthy(e, g_config.render_thread);
+    g_config.worker_thread = truthy(ini_value(ini, "worker_thread"), g_config.worker_thread);
+    if (auto v = ini_value(ini, "worker_copy_mb"); !v.empty()) g_config.worker_copy_mb = uint32_t(std::atoi(v.c_str()));
+    if (const char* e = std::getenv("NUE_WORKER_THREAD")) g_config.worker_thread = truthy(e, g_config.worker_thread);
     if (g_config.shader_cache.empty()) g_config.shader_cache = g_config.dll_directory + "\\nue_shader_cache";
 }
 
@@ -232,7 +236,7 @@ void profile_report(ProfileSnapshot& previous, unsigned frames) {
 
 // The frame as the game thread lives it: where the wall time of a frame goes, and whether the game thread is CPU bound (busy ~100 %) or waiting.
 struct TimelineSnapshot {
-    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0, frame_call_us = 0;
+    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0, frame_call_us = 0, worker_us = 0;
 };
 
 unsigned long long filetime_value(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
@@ -313,6 +317,7 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
     if (GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) now.process_cpu = filetime_value(k) + filetime_value(u);
     now.thread_cpu = g_thread_cpu_100ns.load(); now.thread_cycles = g_thread_cycles.load();
     now.frame_call_us = g_frame_call_total_us.load();
+    now.worker_us = g_worker_busy_total_us.load();
     now.present_us = g_present_total_us.load(); now.gpu_us = g_gpu_total_us.load(); now.render_us = g_render_total_us.load(); now.wait_render_us = g_wait_render_total_us.load(); now.wait_submit_us = g_wait_submit_total_us.load();
     for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks;
     if (previous.qpc && frames && now.qpc > previous.qpc) {
@@ -331,11 +336,14 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
         const double gpu = double(now.gpu_us - previous.gpu_us) / 1000.0 / f;
         const double core_speed = core_speed_probe();
         const double gpu_busy = gpu_busy_percent();
+        const double worker = double(now.worker_us - previous.worker_us) / 1000.0 / f;
+        char worker_text[160] = "";
+        if (worker > 0) std::snprintf(worker_text, sizeof worker_text, "; worker thread (translator + bgfx calls) %.2f ms busy per frame, the game thread waits for it in Present", worker);
         char gpu_text[64];
         if (gpu_busy >= 0) std::snprintf(gpu_text, sizeof gpu_text, "%.0f%% of the time (%.2f ms per frame)", gpu_busy, gpu_busy * 0.01 * wall); else std::snprintf(gpu_text, sizeof gpu_text, "(counters not available)");
         log("timeline: %u frames in %.1f s, per frame: wall %.2f ms = game code outside the dll %.2f + inside the dll %.2f (of which in Present %.2f, bgfx::frame() %.2f: sorting the frame and waiting for the render thread if it is behind); game thread CPU busy %.0f%% (%s); "
-            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU frame span %.2f ms (first to last timestamp of a frame, idle gaps included), GPU 3D engine really busy %s; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start",
-            frames, seconds, wall, wall - in_dll, in_dll, waiting, in_frame_call, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, gpu_text, process_cores, core_speed);
+            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU frame span %.2f ms (first to last timestamp of a frame, idle gaps included), GPU 3D engine really busy %s; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start%s",
+            frames, seconds, wall, wall - in_dll, in_dll, waiting, in_frame_call, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, gpu_text, process_cores, core_speed, worker_text);
     }
     previous = now;
 }
@@ -498,12 +506,6 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     options.single_threaded = !cfg.render_thread;
     options.shader_cache_dir = cfg.shader_cache;
     options.log = log_line;
-    std::string error;
-    const std::vector<DWORD> threads_before = process_threads();
-    auto gpu_owner = gpu::create_bgfx_gpu(options, error);
-    if (gpu_owner) tune_render_threads(threads_before, cfg);
-    if (!gpu_owner) { log("CreateDevice failed: bgfx could not start (%s)", error.c_str()); return D3DERR_NOTAVAILABLE; }
-
     d3d9::LayerOptions layer_options;
     layer_options.log = log_line;
     layer_options.log_unsupported = cfg.log_unsupported;
@@ -511,8 +513,20 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     layer_options.texture_copy_mb = cfg.texture_copy_mb;
     layer_options.mark_missing_textures = cfg.mark_missing;
     auto core = std::make_shared<Core>();
-    core->gpu = std::move(gpu_owner);
-    core->layer = d3d9::create_layer(*core->gpu, layer_options);
+    std::string error;
+    // bgfx is used from the thread that started it: in worker mode the adapter and the layer are made (and later destroyed) on the worker
+    if (cfg.worker_thread) core->threaded = std::make_unique<ThreadedLayer>(uint64_t(cfg.worker_copy_mb) << 20);
+    const char* renderer_name = "";
+    core->backend([&] {
+        const std::vector<DWORD> threads_before = process_threads();
+        core->gpu = gpu::create_bgfx_gpu(options, error);
+        if (!core->gpu) return;
+        tune_render_threads(threads_before, cfg);
+        core->layer = d3d9::create_layer(*core->gpu, layer_options);
+        renderer_name = core->gpu->stats().renderer_name;
+    });
+    if (!core->gpu) { log("CreateDevice failed: bgfx could not start (%s)", error.c_str()); return D3DERR_NOTAVAILABLE; }
+    if (core->threaded) core->threaded->attach(core->layer.get(), core->gpu.get());
 
     // fill in what a game leaves to the runtime and make the layer's back buffer
     D3DPRESENT_PARAMETERS filled = *pp;
@@ -525,7 +539,10 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     params.depth_format = filled.EnableAutoDepthStencil ? uint32_t(filled.AutoDepthStencilFormat) : 0;
     params.multisample = uint32_t(filled.MultiSampleType); params.multisample_quality = filled.MultiSampleQuality; params.buffers = filled.BackBufferCount; params.windowed = filled.Windowed != FALSE;
     params.present_interval = filled.PresentationInterval;
-    if (core->layer->reset(params) != Status::ok) { log("CreateDevice failed: the layer refused the back buffer parameters"); return D3DERR_NOTAVAILABLE; }
+    if (core->front()->reset(params) != Status::ok) {
+        log("CreateDevice failed: the layer refused the back buffer parameters");
+        return D3DERR_NOTAVAILABLE;   // ~Core releases them
+    }
 
     D3DCAPS9 caps{};
     GetDeviceCaps(adapter, type, &caps);
@@ -535,9 +552,9 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     auto* device = new Device9(this, core, creation, filled, caps, window);
     ++g_devices;
     *out = device;
-    log("CreateDevice: behaviour flags 0x%lx, %ux%u, back buffer format %d, depth %d, %s, interval %u, window %ux%u, renderer %s%s", static_cast<unsigned long>(behaviour), filled.BackBufferWidth, filled.BackBufferHeight, int(filled.BackBufferFormat),
+    log("CreateDevice: behaviour flags 0x%lx, %ux%u, back buffer format %d, depth %d, %s, interval %u, window %ux%u, renderer %s%s%s", static_cast<unsigned long>(behaviour), filled.BackBufferWidth, filled.BackBufferHeight, int(filled.BackBufferFormat),
         filled.EnableAutoDepthStencil ? int(filled.AutoDepthStencilFormat) : 0, filled.Windowed ? "windowed" : "fullscreen", unsigned(filled.PresentationInterval), window_w, window_h,
-        core->gpu->stats().renderer_name, options.single_threaded ? "" : " (render thread)");
+        renderer_name, options.single_threaded ? "" : " (render thread)", core->threaded ? " (worker thread)" : "");
     return D3D_OK;
 }
 
