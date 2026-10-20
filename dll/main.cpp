@@ -3,6 +3,7 @@
 // runtime, which is loaded from the Windows folder and only ever asked those questions (it never creates a device): the game then takes the same
 // decisions it takes with the real driver. The device, and everything the game draws, is ours.
 #include "facade.hpp"
+#include <tlhelp32.h>
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -22,6 +23,7 @@ DWORD g_main_thread = 0;
 std::atomic<bool> g_multithreaded{false};
 CRITICAL_SECTION g_call_lock;
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
+std::atomic<unsigned long long> g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
 namespace {
@@ -68,6 +70,8 @@ void load_config() {
     if (auto v = ini_value(ini, "texture_report_at"); !v.empty()) g_config.texture_report_at = uint32_t(std::atoi(v.c_str()));
     if (const char* e = std::getenv("NUE_TEXTURE_REPORT_AT")) g_config.texture_report_at = uint32_t(std::atoi(e));
     g_config.mark_missing = truthy(ini_value(ini, "mark_missing_textures"), g_config.mark_missing);
+    if (auto v = ini_value(ini, "render_thread_priority"); !v.empty()) g_config.render_thread_priority = v;
+    if (auto v = ini_value(ini, "render_thread_cpu"); !v.empty()) g_config.render_thread_cpu = std::atoi(v.c_str());
     if (const char* e = std::getenv("NUE_MARK_MISSING")) g_config.mark_missing = truthy(e, g_config.mark_missing);
     if (const char* e = std::getenv("NUE_RENDERER")) g_config.renderer = e;   // environment wins
     if (const char* e = std::getenv("NUE_VSYNC")) g_config.vsync = truthy(e, g_config.vsync);
@@ -220,16 +224,79 @@ void profile_report(ProfileSnapshot& previous, unsigned frames) {
     previous = now;
 }
 
+
+// The frame as the game thread lives it: where the wall time of a frame goes, and whether the game thread is CPU bound (busy ~100 %) or waiting.
+struct TimelineSnapshot {
+    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0;
+};
+
+unsigned long long filetime_value(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
+
+// How fast a core runs right now, measured: a short chain of dependent integer operations timed three times (the fastest counts, so a busy core does not skew it). The operating system
+// does not report the real clock of this machine (it says the rated 2000 MHz all the time), but the speed of a core under a load that shares the chip with the GPU does change:
+// the first measurement (in the menu) is 100 %, a later 80 % means the cores run 20 % slower than then.
+double core_speed_probe() {
+    static double best_rate = 0;
+    double rate = 0;
+    LARGE_INTEGER frequency, begin, end;
+    QueryPerformanceFrequency(&frequency);
+    for (int round = 0; round < 3; ++round) {
+        volatile unsigned x = 12345;
+        unsigned v = x;
+        QueryPerformanceCounter(&begin);
+        for (unsigned i = 0; i < 400000; ++i) v = v * 1664525u + 1013904223u;
+        QueryPerformanceCounter(&end);
+        x = v;
+        const double seconds = double(end.QuadPart - begin.QuadPart) / double(frequency.QuadPart);
+        if (seconds > 0) rate = std::max(rate, 400000.0 / seconds);
+    }
+    best_rate = std::max(best_rate, rate);
+    return best_rate > 0 ? 100.0 * rate / best_rate : 0;
+}
+
+void timeline_report(TimelineSnapshot& previous, unsigned frames) {
+    TimelineSnapshot now;
+    LARGE_INTEGER qpc, frequency;
+    QueryPerformanceCounter(&qpc); QueryPerformanceFrequency(&frequency);
+    now.qpc = static_cast<unsigned long long>(qpc.QuadPart); now.tsc = __rdtsc();
+    FILETIME c, e, k, u;
+    if (GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) now.process_cpu = filetime_value(k) + filetime_value(u);
+    now.thread_cpu = g_thread_cpu_100ns.load(); now.thread_cycles = g_thread_cycles.load();
+    now.present_us = g_present_total_us.load(); now.gpu_us = g_gpu_total_us.load(); now.render_us = g_render_total_us.load(); now.wait_render_us = g_wait_render_total_us.load(); now.wait_submit_us = g_wait_submit_total_us.load();
+    for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks.load();
+    if (previous.qpc && frames && now.qpc > previous.qpc) {
+        const double seconds = double(now.qpc - previous.qpc) / double(frequency.QuadPart);
+        const double ms_per_tick = seconds * 1000.0 / double(now.tsc - previous.tsc);
+        const double f = double(frames);
+        const double wall = seconds * 1000.0 / f;
+        const double in_dll = double(now.dll_ticks - previous.dll_ticks) * ms_per_tick / f;
+        const double waiting = double(now.wait_render_us - previous.wait_render_us) / 1000.0 / f;
+        const double thread_s = double(now.thread_cpu - previous.thread_cpu) * 1e-7;
+        const double busy = 100.0 * thread_s / seconds;
+        const double process_cores = double(now.process_cpu - previous.process_cpu) * 1e-7 / seconds;
+        const double render = double(now.render_us - previous.render_us) / 1000.0 / f;
+        const double idle = double(now.wait_submit_us - previous.wait_submit_us) / 1000.0 / f;
+        const double gpu = double(now.gpu_us - previous.gpu_us) / 1000.0 / f;
+        const double core_speed = core_speed_probe();
+        log("timeline: %u frames in %.1f s, per frame: wall %.2f ms = game code outside the dll %.2f + inside the dll %.2f (of which waiting for the render thread %.2f); game thread CPU busy %.0f%% (%s); "
+            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU %.2f ms; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start",
+            frames, seconds, wall, wall - in_dll, in_dll, waiting, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, process_cores, core_speed);
+    }
+    previous = now;
+}
+
 void heartbeat() {
     unsigned last = 0;
     int quiet = 0;
     ProfileSnapshot profile_previous;
+    TimelineSnapshot timeline_previous;
     for (;;) {
         Sleep(3000);
         const unsigned now = g_counter_calls.load();
         if (now != last) {
             const unsigned frames = g_frame_count.exchange(0), sum = g_frame_sum_us.exchange(0), worst = g_frame_max_us.exchange(0), slow = g_frame_slow.exchange(0);
             if (frames) profile_report(profile_previous, frames);
+            if (frames) timeline_report(timeline_previous, frames);
             if (frames) log("frames: %.1f fps, mean %.2f ms, worst %.2f ms, %u of %u over 20 ms; last frame: GPU %.2f ms, backend CPU %.2f ms, Present %.2f ms", frames / 3.0, sum / 1000.0 / frames, worst / 1000.0, slow, frames, g_gpu_us.load() / 1000.0, g_render_cpu_us.load() / 1000.0, g_present_us.load() / 1000.0);
             log("alive: %u calls, %u presents, %u draws, %u resources created, in %s", now, g_counter_present.load(), g_counter_draw.load(), g_counter_create.load(), g_last_call);
             quiet = 0;
@@ -252,6 +319,52 @@ void install_diagnostics() {
 
 }  // namespace
 
+
+// ---- threads --------------------------------------------------------------------------------------------------------------------------------
+
+namespace {
+std::vector<DWORD> process_threads() {
+    std::vector<DWORD> ids;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return ids;
+    THREADENTRY32 entry{sizeof entry};
+    for (BOOL ok = Thread32First(snapshot, &entry); ok; ok = Thread32Next(snapshot, &entry)) if (entry.th32OwnerProcessID == GetCurrentProcessId()) ids.push_back(entry.th32ThreadID);
+    CloseHandle(snapshot);
+    return ids;
+}
+
+int priority_from_name(const std::string& name, bool& known) {
+    known = true;
+    if (name == "idle") return THREAD_PRIORITY_IDLE;
+    if (name == "lowest") return THREAD_PRIORITY_LOWEST;
+    if (name == "below") return THREAD_PRIORITY_BELOW_NORMAL;
+    if (name == "normal") return THREAD_PRIORITY_NORMAL;
+    if (name == "above") return THREAD_PRIORITY_ABOVE_NORMAL;
+    if (name == "highest") return THREAD_PRIORITY_HIGHEST;
+    known = false;
+    return THREAD_PRIORITY_NORMAL;
+}
+
+// The threads bgfx started (its render thread) are told apart from the game's by comparing the thread list before and after bgfx::init. They are logged with their priority,
+// and optionally given a priority / ideal processor from nue_d3d9.ini (render_thread_priority, render_thread_cpu).
+void tune_render_threads(const std::vector<DWORD>& before, const Config& cfg) {
+    const std::vector<DWORD> after = process_threads();
+    bool known = false;
+    const int wanted = priority_from_name(cfg.render_thread_priority, known);
+    SYSTEM_INFO info; GetSystemInfo(&info);
+    log("threads: game thread %lu priority %d, process priority class 0x%lx, %lu logical processors", static_cast<unsigned long>(GetCurrentThreadId()), GetThreadPriority(GetCurrentThread()), static_cast<unsigned long>(GetPriorityClass(GetCurrentProcess())),
+        static_cast<unsigned long>(info.dwNumberOfProcessors));
+    for (DWORD id : after) {
+        if (std::find(before.begin(), before.end(), id) != before.end()) continue;
+        HANDLE thread = OpenThread(THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, id);
+        if (!thread) continue;
+        if (known) SetThreadPriority(thread, wanted);
+        if (cfg.render_thread_cpu >= 0) SetThreadIdealProcessor(thread, DWORD(cfg.render_thread_cpu));
+        log("threads: started while bgfx started (its render thread among them, and the driver's): thread %lu, priority %d%s%s", static_cast<unsigned long>(id), GetThreadPriority(thread), known ? (" (set from " + cfg.render_thread_priority + ")").c_str() : "", cfg.render_thread_cpu >= 0 ? " (ideal processor set)" : "");
+        CloseHandle(thread);
+    }
+}
+}  // namespace
 
 // ---- IDirect3D9 -------------------------------------------------------------------------------------------------------------------------
 
@@ -331,7 +444,9 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     options.shader_cache_dir = cfg.shader_cache;
     options.log = log_line;
     std::string error;
+    const std::vector<DWORD> threads_before = process_threads();
     auto gpu_owner = gpu::create_bgfx_gpu(options, error);
+    if (gpu_owner) tune_render_threads(threads_before, cfg);
     if (!gpu_owner) { log("CreateDevice failed: bgfx could not start (%s)", error.c_str()); return D3DERR_NOTAVAILABLE; }
 
     d3d9::LayerOptions layer_options;

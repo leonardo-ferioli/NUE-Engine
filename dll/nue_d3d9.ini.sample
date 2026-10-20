@@ -17,3 +17,7 @@ log_unsupported=1
 texture_copy_mb=160
 ; draw textures that have no data as a magenta checker (F10 toggles it while the game runs; F11 writes nue_textures_N.txt, F12 a screenshot)
 mark_missing_textures=0
+; threads (nothing changes unless you set them). The log lists the threads bgfx starts; render_thread_priority = idle | lowest | below | normal | above | highest sets the priority of all
+; of them, render_thread_cpu = N asks for logical processor N as their ideal processor
+;render_thread_priority=default
+;render_thread_cpu=-1

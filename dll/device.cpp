@@ -229,7 +229,18 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     }
     last_present_ticks_ = (unsigned long long)end.QuadPart;
     g_present_us = unsigned((end.QuadPart - begin.QuadPart) * 1000000ull / static_cast<unsigned long long>(frequency.QuadPart));
-    if (core_->gpu) { g_gpu_us = unsigned(core_->gpu->stats().gpu_ms * 1000.0); g_render_cpu_us = unsigned(core_->gpu->stats().render_cpu_ms * 1000.0); }
+    if (core_->gpu) {
+        const auto& st = core_->gpu->stats();
+        g_gpu_us = unsigned(st.gpu_ms * 1000.0); g_render_cpu_us = unsigned(st.render_cpu_ms * 1000.0);
+        g_present_total_us += g_present_us.load(); g_gpu_total_us += (unsigned long long)(st.gpu_ms * 1000.0); g_render_total_us += (unsigned long long)(st.render_cpu_ms * 1000.0);
+        g_wait_render_total_us += (unsigned long long)(st.wait_render_ms * 1000.0); g_wait_submit_total_us += (unsigned long long)(st.wait_submit_ms * 1000.0);
+    }
+    {   // CPU the game thread has used (the busy share of the frame) and the cycles it took: the effective clock
+        FILETIME created, exited, kernel, user;
+        if (GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) g_thread_cpu_100ns = ((static_cast<unsigned long long>(kernel.dwHighDateTime) << 32) | kernel.dwLowDateTime) + ((static_cast<unsigned long long>(user.dwHighDateTime) << 32) | user.dwLowDateTime);
+        ULONG64 cycles = 0;
+        if (QueryThreadCycleTime(GetCurrentThread(), &cycles)) g_thread_cycles = cycles;
+    }
     if (++present_count_ % 180 == 0 && core_->layer) {   // what the translator could not do, as soon as the game asks for it
         std::string report = core_->layer->report();
         if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }

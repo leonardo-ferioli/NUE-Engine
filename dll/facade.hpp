@@ -26,6 +26,9 @@ extern const char* volatile g_last_call;           // the COM method the game th
 extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create, g_counter_calls;
 // frame pacing as the game sees it (written by Present, read by the heartbeat)
 extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_frame_count, g_gpu_us, g_render_cpu_us, g_present_us;
+// running totals for the timeline line (written by Present on the game thread): microseconds spent in Present, GPU, backend CPU, game thread waiting for the render thread, render thread waiting for the game thread;
+// CPU time (100 ns units) and CPU cycles consumed by the game thread so far
+extern std::atomic<unsigned long long> g_present_total_us, g_gpu_total_us, g_render_total_us, g_wait_render_total_us, g_wait_submit_total_us, g_thread_cpu_100ns, g_thread_cycles;
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from
@@ -42,14 +45,15 @@ class ScopedCall {
 public:
     ScopedCall(unsigned slot, const char* name) : slot_(slot) {
         g_last_call = name;
-        ++g_counter_calls;
+        g_counter_calls.store(g_counter_calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);   // one writer (the game thread) in the usual case: no locked instruction
         if (g_multithreaded.load(std::memory_order_relaxed)) { EnterCriticalSection(&g_call_lock); locked_ = true; }
         else if (g_main_thread && GetCurrentThreadId() != g_main_thread) { note_other_thread(name); EnterCriticalSection(&g_call_lock); locked_ = true; }
         start_ = __rdtsc();
     }
     ~ScopedCall() {
-        g_methods[slot_].ticks.fetch_add(__rdtsc() - start_, std::memory_order_relaxed);
-        g_methods[slot_].calls.fetch_add(1, std::memory_order_relaxed);
+        MethodStats& m = g_methods[slot_];   // plain read-modify-write: only the game thread writes (calls from other threads are serialised by the lock), the heartbeat only reads
+        m.ticks.store(m.ticks.load(std::memory_order_relaxed) + (__rdtsc() - start_), std::memory_order_relaxed);
+        m.calls.store(m.calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
         if (locked_) LeaveCriticalSection(&g_call_lock);
     }
 private:
@@ -71,6 +75,8 @@ struct Config {
     bool log_unsupported = true;
     uint32_t texture_copy_mb = 160;                // texture contents kept in system memory for later Locks (MB; 0 = none for textures on the GPU)
     uint32_t texture_report_at = 0;                // present number at which a texture report is written without a key press (0 = never; tests and unattended runs)
+    std::string render_thread_priority = "default";   // default | idle | lowest | below | normal | above | highest: priority of the threads bgfx starts (the game thread keeps the launcher's)
+    int render_thread_cpu = -1;                    // -1 = the system chooses; N = ideal processor of the render thread
     bool mark_missing = false;                     // textures without data are drawn as a magenta checker (F10 toggles it while the game runs)
     uint32_t msaa = 0;                             // 0 = as the game asks (its multisample type and quality); 1 = off; 2, 4, 8 = force that many samples                   // one line per unsupported feature the game asks for (also summarised at exit)
     std::string shader_cache;                      // folder for compiled shaders (default: <dll folder>\nue_shader_cache)
