@@ -16,6 +16,9 @@ using ShaderId = Id<struct ShaderTag>;
 using StateBlockId = Id<struct StateBlockTag>;
 
 struct Float4 { float x, y, z, w; };
+// D3DLIGHT9 / D3DMATERIAL9 without the Windows types (type: 1 point, 2 spot, 3 directional).
+struct LightDesc { uint32_t type = 3; float diffuse[4] = {1, 1, 1, 0}, specular[4] = {}, ambient[4] = {}, position[3] = {}, direction[3] = {0, 0, 1}, range = 0, falloff = 0, attenuation[3] = {}, theta = 0, phi = 0; };
+struct MaterialDesc { float diffuse[4] = {1, 1, 1, 1}, ambient[4] = {1, 1, 1, 1}, specular[4] = {}, emissive[4] = {}, power = 0; };
 struct Int4 { int32_t x, y, z, w; };
 
 // Memory the guest writes into between lock and unlock. It lies in the guest arena (the shim converts it to a guest address); the layer
@@ -75,6 +78,8 @@ public:
     virtual void set_texture_stage_state(uint32_t stage, uint32_t type, uint32_t value) = 0;
     virtual void set_transform(uint32_t type, const float* matrix16) = 0;
     virtual void light_enable(uint32_t index, bool enable) = 0;
+    virtual void set_light(uint32_t index, const LightDesc&) { (void)index; }
+    virtual void set_material(const MaterialDesc&) {}
     virtual void set_viewport(const uint32_t* x_y_w_h, float min_z, float max_z) = 0;
     virtual void set_texture(uint32_t sampler, TextureId) = 0;
     virtual void set_render_target(uint32_t index, SurfaceId) = 0;

@@ -19,7 +19,7 @@ const FormatInfo table[] = {
     make(fmt_a8b8g8r8, "A8B8G8R8", 1, 1, 4, GF::rgba8),
     make(fmt_x8b8g8r8, "X8B8G8R8", 1, 1, 4, GF::count, Convert::x8_opaque, false, false, GF::rgba8),
     make(fmt_r8g8b8, "R8G8B8", 1, 1, 3, GF::count, Convert::r8g8b8, false, false, GF::bgra8),
-    make(fmt_r5g6b5, "R5G6B5", 1, 1, 2, GF::r5g6b5),
+    make(fmt_r5g6b5, "R5G6B5", 1, 1, 2, GF::count, Convert::none, false, false, GF::bgra8),   // decoded on the CPU: the GPU formats swap red and blue (nue_format_test)
     make(fmt_x1r5g5b5, "X1R5G5B5", 1, 1, 2, GF::count, Convert::x1r5g5b5),
     make(fmt_a1r5g5b5, "A1R5G5B5", 1, 1, 2, GF::a1r5g5b5),
     make(fmt_a4r4g4b4, "A4R4G4B4", 1, 1, 2, GF::a4r4g4b4),
@@ -35,8 +35,8 @@ const FormatInfo table[] = {
     make(fmt_a16b16g16r16, "A16B16G16R16", 1, 1, 8, GF::count, Convert::a16b16g16r16),
     make(fmt_a2b10g10r10, "A2B10G10R10", 1, 1, 4, GF::count, Convert::a2b10g10r10),
     make(fmt_a2r10g10b10, "A2R10G10B10", 1, 1, 4, GF::count, Convert::a2r10g10b10),
-    make(fmt_v8u8, "V8U8", 1, 1, 2, GF::rg8),
-    make(fmt_q8w8v8u8, "Q8W8V8U8", 1, 1, 4, GF::rgba8),
+    make(fmt_v8u8, "V8U8", 1, 1, 2, GF::count, Convert::v8u8, false, false, GF::rgba8s),
+    make(fmt_q8w8v8u8, "Q8W8V8U8", 1, 1, 4, GF::rgba8s),
     make(fmt_v16u16, "V16U16", 1, 1, 4, GF::count, Convert::v16u16),
     make(fmt_r16f, "R16F", 1, 1, 2, GF::r16f),
     make(fmt_g16r16f, "G16R16F", 1, 1, 4, GF::rg16f),
@@ -160,7 +160,7 @@ void decode_dxt(Convert kind, const uint8_t* src, uint32_t src_pitch, uint32_t w
 
 void convert_pixels(const FormatInfo& f, gpu::Format target, const uint8_t* src, uint32_t src_pitch, uint32_t width, uint32_t height, std::vector<std::byte>& out, uint32_t& out_pitch) {
     const bool bgra = target == GF::bgra8;
-    const bool to_rgba8 = target == GF::rgba8 || target == GF::bgra8;
+    const bool to_rgba8 = target == GF::rgba8 || target == GF::bgra8 || target == GF::rgba8s;
     if (!to_rgba8 || (f.native == target && f.convert != Convert::x8_opaque)) {   // same layout: copy rows
         const uint32_t row = level_pitch(f, width), rows = (height + f.block_h - 1) / f.block_h;
         out.resize(size_t(row) * rows);
@@ -184,12 +184,13 @@ void convert_pixels(const FormatInfo& f, gpu::Format target, const uint8_t* src,
             case Convert::x8_opaque: {   // source and target share the channel order: copy and force alpha
                 d[0] = s[x * 4]; d[1] = s[x * 4 + 1]; d[2] = s[x * 4 + 2]; d[3] = 255; break;
             }
+            case Convert::v8u8: d[0] = s[x * 2]; d[1] = s[x * 2 + 1]; d[2] = 127; d[3] = 127; break;
             case Convert::r8g8b8: put(d, s[x * 3 + 2], s[x * 3 + 1], s[x * 3], 255, bgra); break;   // stored B,G,R
             case Convert::l8: put(d, s[x], s[x], s[x], 255, bgra); break;
             case Convert::a8l8: put(d, s[x * 2], s[x * 2], s[x * 2], s[x * 2 + 1], bgra); break;
             case Convert::a4l4: { const uint8_t v = s[x]; const uint8_t l = expand(v & 15, 4); put(d, l, l, l, expand(v >> 4, 4), bgra); break; }
             case Convert::l16: { const uint8_t l = s[x * 2 + 1]; put(d, l, l, l, 255, bgra); break; }
-            case Convert::g16r16: put(d, s[x * 4 + 1], s[x * 4 + 3], 0, 255, bgra); break;
+            case Convert::g16r16: put(d, s[x * 4 + 1], s[x * 4 + 3], 255, 255, bgra); break;   // blue reads as 1
             case Convert::v16u16: put(d, s[x * 4 + 1] ^ 0x80, s[x * 4 + 3] ^ 0x80, 255, 255, bgra); break;
             case Convert::a16b16g16r16: put(d, s[x * 8 + 1], s[x * 8 + 3], s[x * 8 + 5], s[x * 8 + 7], bgra); break;
             case Convert::r3g3b2: { const uint8_t v = s[x]; put(d, expand(v >> 5, 3), expand((v >> 2) & 7, 3), expand(v & 3, 2), 255, bgra); break; }

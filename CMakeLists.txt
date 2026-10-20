@@ -92,6 +92,14 @@ if(WIN32 AND NUE_WITH_BGFX)
     target_link_libraries(nue_window_test PRIVATE user32)
     target_include_directories(nue_window_test PRIVATE include)
     target_compile_definitions(nue_window_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+    # every texture format and mip level through the dll and through the system runtime, compared: nue_format_test <path to d3d9.dll>
+    add_executable(nue_format_test tools/format_test.cpp)
+    target_link_libraries(nue_format_test PRIVATE user32)
+    target_compile_definitions(nue_format_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+    # render states and fixed-function texture stages through the dll and the system runtime, compared: nue_state_test <path to d3d9.dll> [filter]
+    add_executable(nue_state_test tools/state_test.cpp)
+    target_link_libraries(nue_state_test PRIVATE user32)
+    target_compile_definitions(nue_state_test PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
 add_executable(nue_replay tools/replay.cpp)

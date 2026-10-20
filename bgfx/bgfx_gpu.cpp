@@ -53,7 +53,7 @@ bgfx::TextureFormat::Enum texture_format(Format f) {
     case Format::rgba16f: return TF::RGBA16F; case Format::rgba32f: return TF::RGBA32F; case Format::r16f: return TF::R16F; case Format::r32f: return TF::R32F;
     case Format::rg16f: return TF::RG16F; case Format::rg32f: return TF::RG32F; case Format::d16: return TF::D16; case Format::d24s8: return TF::D24S8;
     case Format::d32f: return TF::D32F; case Format::bc1: return TF::BC1; case Format::bc2: return TF::BC2; case Format::bc3: return TF::BC3;
-    case Format::astc4x4: return TF::ASTC4x4; case Format::etc2_rgba8: return TF::ETC2A1; default: return TF::RGBA8;
+    case Format::rgba8s: return TF::RGBA8S; case Format::astc4x4: return TF::ASTC4x4; case Format::etc2_rgba8: return TF::ETC2A1; default: return TF::RGBA8;
     }
 }
 

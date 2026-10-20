@@ -19,7 +19,7 @@ using Program = Id<struct ProgramTag>;
 inline constexpr Texture backbuffer{0xFFFFFFFFu};
 
 enum class Format : uint8_t {
-    rgba8, bgra8, r5g6b5, a4r4g4b4, a1r5g5b5, r8, a8, rg8, rgba16f, rgba32f, r16f, r32f, rg16f, rg32f, d16, d24s8, d32f, bc1, bc2, bc3, astc4x4, etc2_rgba8, count
+    rgba8, bgra8, r5g6b5, a4r4g4b4, a1r5g5b5, r8, a8, rg8, rgba16f, rgba32f, r16f, r32f, rg16f, rg32f, d16, d24s8, d32f, bc1, bc2, bc3, astc4x4, etc2_rgba8, rgba8s, count
 };
 enum class BufferKind : uint8_t { vertex, index16, index32 };
 enum class Topology : uint8_t { points, lines, line_strip, triangles, triangle_strip };   // fans are converted to lists by the layer

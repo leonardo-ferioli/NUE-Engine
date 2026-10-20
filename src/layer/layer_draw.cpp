@@ -389,7 +389,6 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         if (!decl) { ++stats_.draws_skipped; return; }
         if (ff_vertex || ff_pixel) {
             ++stats_.draws_fixed_function;
-            if (state_.rs[rs_lighting] && ff_vertex) note_unsupported_literal("fixed-function lighting (drawn unlit with the vertex colours)");
             if (ff_vertex) vs = fixed_function_vertex(*decl);
             if (ff_pixel) ps = fixed_function_pixel();
         }

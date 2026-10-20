@@ -12,7 +12,8 @@ void LayerImpl::set_render_state(uint32_t state, uint32_t value) {
     if (recording_) { recording_->values.rs[state] = value; recording_->rs.set(state); return; }
     if (state_.rs[state] != value) {
         switch (state) {   // render states that select the program
-        case rs_alphatestenable: case rs_alphafunc: case rs_fogenable: case rs_fogtablemode: case rs_fogvertexmode: case rs_specularenable: case rs_lighting: ++program_epoch_; break;
+        case rs_alphatestenable: case rs_alphafunc: case rs_fogenable: case rs_fogtablemode: case rs_fogvertexmode: case rs_specularenable: case rs_lighting:
+        case rs_colorvertex: case rs_localviewer: case rs_diffusematerialsource: case rs_specularmaterialsource: case rs_ambientmaterialsource: case rs_emissivematerialsource: ++program_epoch_; break;
         default: break;
         }
     }
@@ -50,10 +51,21 @@ void LayerImpl::set_transform(uint32_t type, const float* m) {
     std::memcpy(target, m, 64);
 }
 
+void LayerImpl::set_light(uint32_t index, const LightDesc& light) {
+    if (index >= 32) return;
+    if (state_.lights[index].type != light.type) ++program_epoch_;   // the light's kind is part of the generated vertex program
+    state_.lights[index] = light;
+    state_.lights_defined.set(index);
+}
+
+void LayerImpl::set_material(const MaterialDesc& material) { state_.material = material; }
+
 void LayerImpl::light_enable(uint32_t index, bool enable) {
     if (index >= 32) return;
     if (recording_) { recording_->lights_mask |= 1u << index; if (enable) recording_->lights_value |= 1u << index; else recording_->lights_value &= ~(1u << index); return; }
+    const uint32_t before = state_.lights_enabled;
     if (enable) state_.lights_enabled |= 1u << index; else state_.lights_enabled &= ~(1u << index);
+    if (state_.lights_enabled != before) ++program_epoch_;
 }
 
 void LayerImpl::set_viewport(const uint32_t* r, float min_z, float max_z) {

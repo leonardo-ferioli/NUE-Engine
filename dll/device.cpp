@@ -520,7 +520,33 @@ HRESULT Device9::GetViewport(D3DVIEWPORT9* viewport) try { NUE_CALL(); if (!view
 HRESULT Device9::SetLight(DWORD index, const D3DLIGHT9* light) try { NUE_CALL(); 
     if (!light) return trace_result(__func__, D3DERR_INVALIDCALL);
     lights_[index].first = *light;
-    return D3D_OK;   // lights are stored; the layer draws fixed-function geometry unlit (see the coverage table)
+    if (auto* dev = core_->dev()) {
+        d3d9::LightDesc d;
+        d.type = uint32_t(light->Type);
+        const D3DCOLORVALUE* colors[3] = {&light->Diffuse, &light->Specular, &light->Ambient};
+        float* targets[3] = {d.diffuse, d.specular, d.ambient};
+        for (int k = 0; k < 3; ++k) { targets[k][0] = colors[k]->r; targets[k][1] = colors[k]->g; targets[k][2] = colors[k]->b; targets[k][3] = colors[k]->a; }
+        d.position[0] = light->Position.x; d.position[1] = light->Position.y; d.position[2] = light->Position.z;
+        d.direction[0] = light->Direction.x; d.direction[1] = light->Direction.y; d.direction[2] = light->Direction.z;
+        d.range = light->Range; d.falloff = light->Falloff; d.attenuation[0] = light->Attenuation0; d.attenuation[1] = light->Attenuation1; d.attenuation[2] = light->Attenuation2;
+        d.theta = light->Theta; d.phi = light->Phi;
+        dev->set_light(index, d);
+    }
+    return D3D_OK;
+} catch (...) { return guard_failed(__func__); }
+
+HRESULT Device9::SetMaterial(const D3DMATERIAL9* material) try { NUE_CALL();
+    if (!material) return trace_result(__func__, D3DERR_INVALIDCALL);
+    material_ = *material;
+    if (auto* dev = core_->dev()) {
+        d3d9::MaterialDesc m;
+        const D3DCOLORVALUE* colors[4] = {&material->Diffuse, &material->Ambient, &material->Specular, &material->Emissive};
+        float* targets[4] = {m.diffuse, m.ambient, m.specular, m.emissive};
+        for (int k = 0; k < 4; ++k) { targets[k][0] = colors[k]->r; targets[k][1] = colors[k]->g; targets[k][2] = colors[k]->b; targets[k][3] = colors[k]->a; }
+        m.power = material->Power;
+        dev->set_material(m);
+    }
+    return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::GetLight(DWORD index, D3DLIGHT9* light) try { NUE_CALL(); 

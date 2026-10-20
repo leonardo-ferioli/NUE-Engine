@@ -426,7 +426,7 @@ public:
     STDMETHOD(MultiplyTransform)(D3DTRANSFORMSTATETYPE type, const D3DMATRIX* matrix) override;
     STDMETHOD(SetViewport)(const D3DVIEWPORT9* viewport) override;
     STDMETHOD(GetViewport)(D3DVIEWPORT9* viewport) override;
-    STDMETHOD(SetMaterial)(const D3DMATERIAL9* material) override { if (material) material_ = *material; return D3D_OK; }
+    STDMETHOD(SetMaterial)(const D3DMATERIAL9* material) override;
     STDMETHOD(GetMaterial)(D3DMATERIAL9* material) override { if (material) *material = material_; return D3D_OK; }
     STDMETHOD(SetLight)(DWORD index, const D3DLIGHT9* light) override;
     STDMETHOD(GetLight)(DWORD index, D3DLIGHT9* light) override;

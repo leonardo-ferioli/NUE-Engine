@@ -99,6 +99,9 @@ struct DeviceState {
     std::array<uint32_t, 4> render_targets{};
     uint32_t depth_stencil = 0;
     uint32_t lights_enabled = 0;
+    std::array<LightDesc, 32> lights{};
+    std::bitset<32> lights_defined;
+    MaterialDesc material;
 };
 
 struct StateBlock {
@@ -168,6 +171,8 @@ public:
     void set_texture_stage_state(uint32_t stage, uint32_t type, uint32_t value) override;
     void set_transform(uint32_t type, const float* matrix16) override;
     void light_enable(uint32_t index, bool enable) override;
+    void set_light(uint32_t index, const LightDesc&) override;
+    void set_material(const MaterialDesc&) override;
     void set_viewport(const uint32_t* x_y_w_h, float min_z, float max_z) override;
     void set_texture(uint32_t sampler, TextureId) override;
     void set_render_target(uint32_t index, SurfaceId) override;
@@ -258,8 +263,8 @@ private:
     DrawProgram select_program(const Declaration* declaration, const DeviceState& st, ShaderObject* vs, ShaderObject* ps, bool vertex_fog_from_fixed_function);
     ShaderObject* fixed_function_vertex(const Declaration&);
     ShaderObject* fixed_function_pixel();
-    void fill_ff_vertex_constants(std::array<Float4, 48>&) const;
-    void fill_ff_pixel_constants(std::array<Float4, 48>&) const;
+    void fill_ff_vertex_constants(std::array<Float4, 128>&) const;
+    void fill_ff_pixel_constants(std::array<Float4, 128>&) const;
     const shader::TranslateResult* translate(ShaderObject&, uint32_t shader_id, const shader::TranslateOptions&, uint64_t options_key);
     void fill_vertex_fixup(float* fix, const Attachment&) const;
     void fill_pixel_fixup(float* fix) const;
@@ -328,7 +333,7 @@ private:
     uint64_t prof_[8] = {};   // ns: total, program, sources, textures, constants, states+gpu draw, (unused), draws profiled
     uint64_t clock_ns() const;
     std::unordered_map<uint64_t, std::unique_ptr<ShaderObject>> ff_shaders_;
-    std::array<Float4, 48> ff_constants_{};
+    std::array<Float4, 128> ff_constants_{};
     // The program of the last draw, valid while nothing that selects it changed (program_epoch_ is bumped by the setters of such state).
     struct ProgramCache { bool valid = false; uint64_t epoch = 0; const Declaration* decl = nullptr; ShaderObject* vs = nullptr; ShaderObject* ps = nullptr; bool ff_vertex = false, ff_pixel = false; DrawProgram program; };
     ProgramCache program_cache_;
