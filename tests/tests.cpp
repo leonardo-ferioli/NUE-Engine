@@ -5,6 +5,7 @@
 #include "nue/null_gpu.hpp"
 #include "nue/shader/d3d9_shader.hpp"
 #include "nue/shader/d3d9_to_spirv.hpp"
+#include "nue/window_fit.hpp"
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -156,12 +157,35 @@ static void test_dynamic_buffer_policy() {
     CHECK(s.layer->stats().transient_copies >= 1);
 }
 
+// A picture is fitted into the visible area without distortion, never larger than the area, centred, for the usual desktop shapes.
+static void test_window_fit() {
+    struct Case { uint32_t cw, ch, aw, ah; uint32_t ew, eh; } cases[] = {
+        {1280, 720, 2496, 1664, 2496, 1404},   // 16:9 picture on a 3:2 desktop (the reported case: 2958x1664 before): fit the width, bars above and below
+        {1280, 720, 1920, 1080, 1920, 1080},   // 16:9 on 16:9: fills
+        {1280, 720, 1920, 1200, 1920, 1080},   // 16:9 on 16:10
+        {1280, 720, 3440, 1440, 2560, 1440},   // 16:9 on 21:9: bars left and right
+        {1280, 720, 1024, 768, 1024, 576},     // 16:9 on 4:3
+        {1024, 768, 1920, 1080, 1440, 1080},   // 4:3 on 16:9
+        {2496, 1664, 2496, 1664, 2496, 1664},  // the desktop resolution itself
+    };
+    for (const Case& c : cases) {
+        const nue::FitRect r = nue::fit_aspect(c.cw, c.ch, 0, 0, c.aw, c.ah);
+        std::printf("fit %ux%u into %ux%u -> %ux%u at %d,%d%c", c.cw, c.ch, c.aw, c.ah, r.width, r.height, r.x, r.y, 10);
+        CHECK(r.width == c.ew && r.height == c.eh);
+        CHECK(r.width <= c.aw && r.height <= c.ah);
+        CHECK(r.x == int32_t((c.aw - r.width) / 2) && r.y == int32_t((c.ah - r.height) / 2));
+    }
+    const nue::FitRect offset = nue::fit_aspect(1280, 720, 100, 50, 800, 800);   // an area that starts away from the origin
+    CHECK(offset.width == 800 && offset.height == 450 && offset.x == 100 && offset.y == 50 + 175);
+}
+
 int main() {
     test_formats();
     test_fixed_function_programs();
     test_layer_null_gpu();
     test_state_blocks();
     test_dynamic_buffer_policy();
+    test_window_fit();
     if (failures) { std::printf("%d check(s) failed\n", failures); return 1; }
     std::printf("PASS nue_d3d9 tests\n");
     return 0;

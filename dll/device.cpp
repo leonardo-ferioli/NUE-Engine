@@ -115,11 +115,27 @@ d3d9::DeviceParams Device9::params_from(const D3DPRESENT_PARAMETERS& pp, UINT& w
 }
 
 void Device9::apply_window_size() {
-    if (!window_ || !core_->gpu) return;
+    if (!window_ || !core_->gpu || IsIconic(window_)) return;
     RECT client{};
     if (!GetClientRect(window_, &client)) return;
     const UINT w = UINT(std::max<LONG>(client.right - client.left, 0)), h = UINT(std::max<LONG>(client.bottom - client.top, 0));
-    if (w && h && (w != window_w_ || h != window_h_)) { window_w_ = w; window_h_ = h; core_->gpu->set_window_size(w, h); }
+    if (!w || !h) return;
+    if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; core_->gpu->set_window_size(w, h); visible_known_ = false; }
+    // The part of the client area that is on a monitor: a window larger than the screen (or partly outside it) must not hide the sides of the picture.
+    POINT origin{0, 0};
+    ClientToScreen(window_, &origin);
+    const RECT screen{origin.x, origin.y, origin.x + LONG(w), origin.y + LONG(h)};
+    MONITORINFO info{sizeof info};
+    RECT visible = screen;
+    if (GetMonitorInfoA(MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &info)) IntersectRect(&visible, &screen, &info.rcMonitor);
+    const RECT in_client{visible.left - origin.x, visible.top - origin.y, visible.right - origin.x, visible.bottom - origin.y};
+    if (!visible_known_ || std::memcmp(&in_client, &visible_client_, sizeof in_client) != 0) {
+        visible_client_ = in_client;
+        visible_known_ = true;
+        const LONG vw = std::max<LONG>(in_client.right - in_client.left, 0), vh = std::max<LONG>(in_client.bottom - in_client.top, 0);
+        core_->gpu->set_visible_area(in_client.left, in_client.top, UINT(vw), UINT(vh));
+        log("window %ux%u at %ld,%ld; visible on the monitor: %ldx%ld; back buffer %ux%u is fitted into it", w, h, origin.x, origin.y, vw, vh, pp_.BackBufferWidth, pp_.BackBufferHeight);
+    }
 }
 
 // ---- device -----------------------------------------------------------------------------------------------------------------------------
@@ -196,6 +212,11 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     if (++present_count_ % 180 == 0 && core_->layer) {   // what the translator could not do, as soon as the game asks for it
         std::string report = core_->layer->report();
         if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }
+    }
+    // resource audit: textures by format and size, which ones have data, creation failures, bgfx handles against its limits (first after ~2 s, then every ~10 s)
+    if ((present_count_ == 120 || present_count_ % 600 == 0) && core_->layer) {
+        log("audit: %s", core_->layer->audit().c_str());
+        if (core_->gpu) log("audit: %s", core_->gpu->audit().c_str());
     }
     // F12 saves the frame just presented (the game's back buffer, before scaling to the window) as nue_screenshot_N.bmp next to the dll
     static bool f12_was_down = false;

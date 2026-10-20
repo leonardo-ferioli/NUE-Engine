@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <atomic>
+#include <intrin.h>
 #include <map>
 #include <memory>
 #include <string>
@@ -27,7 +28,36 @@ extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create
 extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_frame_count, g_gpu_us, g_render_cpu_us, g_present_us;
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
-#define NUE_CALL() (::nue::facade::g_last_call = __func__, ++::nue::facade::g_counter_calls)
+// Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from
+// a thread other than the one that created the device and from then on serialises all calls (Direct3D 9 is not thread safe unless asked, but games do it).
+struct MethodStats { std::atomic<unsigned long long> ticks{0}; std::atomic<unsigned> calls{0}; const char* name = ""; };
+constexpr unsigned kMaxMethods = 256;
+extern MethodStats g_methods[kMaxMethods];
+extern DWORD g_main_thread;
+extern std::atomic<bool> g_multithreaded;
+extern CRITICAL_SECTION g_call_lock;
+unsigned register_method(const char* name);
+void note_other_thread(const char* method);
+class ScopedCall {
+public:
+    ScopedCall(unsigned slot, const char* name) : slot_(slot) {
+        g_last_call = name;
+        ++g_counter_calls;
+        if (g_multithreaded.load(std::memory_order_relaxed)) { EnterCriticalSection(&g_call_lock); locked_ = true; }
+        else if (g_main_thread && GetCurrentThreadId() != g_main_thread) { note_other_thread(name); EnterCriticalSection(&g_call_lock); locked_ = true; }
+        start_ = __rdtsc();
+    }
+    ~ScopedCall() {
+        g_methods[slot_].ticks.fetch_add(__rdtsc() - start_, std::memory_order_relaxed);
+        g_methods[slot_].calls.fetch_add(1, std::memory_order_relaxed);
+        if (locked_) LeaveCriticalSection(&g_call_lock);
+    }
+private:
+    unsigned slot_;
+    unsigned long long start_ = 0;
+    bool locked_ = false;
+};
+#define NUE_CALL() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall nue_scope_(nue_slot_, __func__)
 void device_destroyed();                           // lets the factory create another device (bgfx is a singleton)
 
 struct Config {
@@ -480,6 +510,8 @@ private:
     D3DCAPS9 caps_;
     HWND window_;
     UINT window_w_ = 0, window_h_ = 0;
+    RECT visible_client_{};
+    bool visible_known_ = false;
     BOOL cursor_ = FALSE;
     D3DGAMMARAMP gamma_{};
     D3DMATERIAL9 material_{};

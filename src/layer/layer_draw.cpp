@@ -109,6 +109,7 @@ gpu::Buffer LayerImpl::static_gpu_buffer(BufferObject& b) {
     if (b.gpu) retired_buffers_.push_back(b.gpu);
     auto r = gpu_.create_static_buffer(Bytes(b.shadow.data(), b.shadow.size()), !b.index ? gpu::BufferKind::vertex : b.format_or_fvf == fmt_index32 ? gpu::BufferKind::index32 : gpu::BufferKind::index16);
     b.gpu = r ? r.value : gpu::Buffer{};
+    if (!r) { ++stats_.buffer_create_failures; if (stats_.buffer_create_failures <= 20 || stats_.buffer_create_failures % 200 == 0) log("FAILED to create a static " + std::string(b.index ? "index" : "vertex") + " buffer of " + std::to_string(b.shadow.size()) + " bytes (failure " + std::to_string(stats_.buffer_create_failures) + "; its draws are skipped)"); }
     b.gpu_version = b.version;
     b.used_since_update = true;
     ++stats_.static_buffer_uploads;
@@ -528,6 +529,10 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         TextureObject* t = textures_.get(state_.textures[i]);
         const bool cube_expected = false;
         d.textures[i] = t && t->gpu ? t->gpu : dummy_texture(t ? t->cube : cube_expected);
+        if (t && t->gpu && !t->render_target && !(t->uploaded_levels & 1u) && !t->warned_empty) {   // sampled with no data at all in its top level
+            t->warned_empty = true; ++stats_.sampled_before_upload;
+            if (stats_.sampled_before_upload <= 20) log("texture " + std::to_string(t->width) + "x" + std::to_string(t->height) + " d3d format " + std::to_string(t->format) + " levels " + std::to_string(t->levels) + " sampled by a draw before any data was uploaded to it");
+        }
         d.samplers[i] = sampler_desc(i);
         if (t && t->levels <= 1) d.samplers[i].use_mips = false;
     }

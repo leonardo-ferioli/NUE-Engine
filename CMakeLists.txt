@@ -41,6 +41,13 @@ if(WIN32)
 endif()
 
 if(NUE_WITH_BGFX)
+    # Handle limits of bgfx (compile-time): the defaults of 4096 textures / vertex buffers / index buffers and 128 frame buffers / 64 vertex layouts are
+    # too small for a race of this game (thousands of textures and buffers alive at once); a handle past the limit is invalid and the object is silently missing.
+    set(BGFX_CONFIG_MAX_TEXTURES 16384 CACHE STRING "" FORCE)
+    set(BGFX_CONFIG_MAX_VERTEX_BUFFERS 16384 CACHE STRING "" FORCE)
+    set(BGFX_CONFIG_MAX_INDEX_BUFFERS 16384 CACHE STRING "" FORCE)
+    set(BGFX_CONFIG_MAX_FRAME_BUFFERS 1024 CACHE STRING "" FORCE)
+    set(BGFX_CONFIG_MAX_VERTEX_LAYOUTS 1024 CACHE STRING "" FORCE)
     set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
     set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)

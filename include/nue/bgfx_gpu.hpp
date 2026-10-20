@@ -23,6 +23,7 @@ struct BgfxOptions {
 struct BgfxStats {
     uint64_t programs = 0, shader_builds = 0, views = 0, draws = 0;
     double cross_ms = 0, compile_ms = 0;     // SPIR-V -> HLSL/GLSL/MSL and the shader compiler, accumulated
+    uint64_t failed_creates = 0;             // bgfx handles that could not be made (limits, memory): the object is missing in the picture
     double gpu_ms = 0, render_cpu_ms = 0;    // the last frame: GPU time and the CPU time of the backend (render thread), from bgfx's own counters
     const char* renderer_name = "";
 };
@@ -33,6 +34,7 @@ public:
     virtual void set_window_size(uint32_t width, uint32_t height) = 0;
     virtual void reset_profile() = 0;
     virtual std::string profile_report() const = 0;   // time inside the adapter's draw and present
+    virtual std::string audit() const = 0;            // handles in use against bgfx's limits, memory, failed creations
 };
 
 std::unique_ptr<BgfxGpu> create_bgfx_gpu(const BgfxOptions& options, std::string& error);

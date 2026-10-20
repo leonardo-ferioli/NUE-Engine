@@ -3,6 +3,7 @@
 // runtime, which is loaded from the Windows folder and only ever asked those questions (it never creates a device): the game then takes the same
 // decisions it takes with the real driver. The device, and everything the game draws, is ours.
 #include "facade.hpp"
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,10 @@ namespace nue::facade {
 
 HMODULE g_module = nullptr;
 const char* volatile g_last_call = "(none yet)";
+MethodStats g_methods[kMaxMethods];
+DWORD g_main_thread = 0;
+std::atomic<bool> g_multithreaded{false};
+CRITICAL_SECTION g_call_lock;
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
@@ -107,6 +112,18 @@ void apply_d3d9_fpu_mode(DWORD behaviour_flags) {
 
 // ---- diagnostics: what happened when the game dies or stops ----------------------------------------------------------------------------
 
+unsigned register_method(const char* name) {
+    static std::atomic<unsigned> next{0};
+    const unsigned slot = next.fetch_add(1);
+    if (slot >= kMaxMethods) return kMaxMethods - 1;
+    g_methods[slot].name = name;
+    return slot;
+}
+
+void note_other_thread(const char* method) {
+    if (!g_multithreaded.exchange(true)) log("a thread other than the one that created the device calls Direct3D 9 (%s, thread %lu, device thread %lu): all calls are serialised from now on", method, static_cast<unsigned long>(GetCurrentThreadId()), static_cast<unsigned long>(g_main_thread));
+}
+
 HRESULT trace_result(const char* method, HRESULT hr) {
     if (!FAILED(hr)) return hr;
     static std::mutex mutex;
@@ -157,14 +174,50 @@ void on_invalid_parameter(const wchar_t* expression, const wchar_t* function, co
     log("FATAL: invalid parameter passed to the C runtime (%ls in %ls, %ls:%u) while in %s", expression ? expression : L"?", function ? function : L"?", file ? file : L"?", line, g_last_call);
 }
 
+struct ProfileSnapshot { unsigned long long ticks[kMaxMethods] = {}; unsigned calls[kMaxMethods] = {}; unsigned long long tsc = 0, qpc = 0; };
+
+void profile_report(ProfileSnapshot& previous, unsigned frames) {
+    ProfileSnapshot now;
+    LARGE_INTEGER qpc, frequency;
+    QueryPerformanceCounter(&qpc); QueryPerformanceFrequency(&frequency);
+    now.tsc = __rdtsc(); now.qpc = static_cast<unsigned long long>(qpc.QuadPart);
+    for (unsigned i = 0; i < kMaxMethods; ++i) { now.ticks[i] = g_methods[i].ticks.load(); now.calls[i] = g_methods[i].calls.load(); }
+    if (previous.qpc && now.qpc > previous.qpc && frames) {
+        const double seconds = double(now.qpc - previous.qpc) / double(frequency.QuadPart);
+        const double ms_per_tick = seconds * 1000.0 / double(now.tsc - previous.tsc);
+        struct Row { unsigned slot; double ms; unsigned calls; };
+        std::vector<Row> rows;
+        double total_ms = 0;
+        unsigned total_calls = 0;
+        for (unsigned i = 0; i < kMaxMethods; ++i) {
+            total_calls += now.calls[i] - previous.calls[i];
+            const unsigned long long dt = now.ticks[i] - previous.ticks[i];
+            if (!dt) continue;
+            rows.push_back({i, double(dt) * ms_per_tick, now.calls[i] - previous.calls[i]});
+            total_ms += rows.back().ms;
+        }
+        std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.ms > b.ms; });
+        std::string top;
+        for (size_t k = 0; k < rows.size() && k < 6; ++k) {
+            char item[160];
+            std::snprintf(item, sizeof item, "%s%s %.1f ms/frame (%u calls/frame, %.2f us each)", k ? "; " : "", g_methods[rows[k].slot].name, rows[k].ms / frames, rows[k].calls / frames, rows[k].ms * 1000.0 / std::max(rows[k].calls, 1u));
+            top += item;
+        }
+        log("profile: inside the Direct3D 9 dll %.2f ms per frame (%.0f%% of wall time), %u calls per frame; most expensive: %s", total_ms / frames, 100.0 * total_ms / (seconds * 1000.0), total_calls / frames, top.c_str());
+    }
+    previous = now;
+}
+
 void heartbeat() {
     unsigned last = 0;
     int quiet = 0;
+    ProfileSnapshot profile_previous;
     for (;;) {
         Sleep(3000);
         const unsigned now = g_counter_calls.load();
         if (now != last) {
             const unsigned frames = g_frame_count.exchange(0), sum = g_frame_sum_us.exchange(0), worst = g_frame_max_us.exchange(0), slow = g_frame_slow.exchange(0);
+            if (frames) profile_report(profile_previous, frames);
             if (frames) log("frames: %.1f fps, mean %.2f ms, worst %.2f ms, %u of %u over 20 ms; last frame: GPU %.2f ms, backend CPU %.2f ms, Present %.2f ms", frames / 3.0, sum / 1000.0 / frames, worst / 1000.0, slow, frames, g_gpu_us.load() / 1000.0, g_render_cpu_us.load() / 1000.0, g_present_us.load() / 1000.0);
             log("alive: %u calls, %u presents, %u draws, %u resources created, in %s", now, g_counter_present.load(), g_counter_draw.load(), g_counter_create.load(), g_last_call);
             quiet = 0;
@@ -192,6 +245,8 @@ void install_diagnostics() {
 
 Direct3D9::Direct3D9() {
     install_diagnostics();
+    static std::once_flag lock_once;
+    std::call_once(lock_once, [] { InitializeCriticalSection(&g_call_lock); });
     char system[MAX_PATH] = {};
     GetSystemDirectoryA(system, MAX_PATH);   // in a 32-bit process on 64-bit Windows this is SysWOW64
     const std::string path = std::string(system) + "\\d3d9.dll";
@@ -245,6 +300,7 @@ HMONITOR Direct3D9::GetAdapterMonitor(UINT adapter) { return real_ ? real_->GetA
 HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD behaviour, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** out) {
     if (!pp || !out) return D3DERR_INVALIDCALL;
     *out = nullptr;
+    g_main_thread = GetCurrentThreadId();
     HWND window = pp->hDeviceWindow ? pp->hDeviceWindow : focus;
     if (!window || adapter != 0) return D3DERR_INVALIDCALL;
     if (g_devices.load() > 0) { log("CreateDevice refused: a device already exists (bgfx is a singleton)"); return D3DERR_NOTAVAILABLE; }

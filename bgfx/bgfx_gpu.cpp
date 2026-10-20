@@ -2,6 +2,7 @@
 #include "nue/bgfx_gpu.hpp"
 #include "shader_container.hpp"
 #include "nue/shader/cross_compile.hpp"
+#include "nue/window_fit.hpp"
 #include "nue/shader/d3d9_shader.hpp"
 #include <algorithm>
 #include <bgfx/bgfx.h>
@@ -182,6 +183,7 @@ public:
     Result<Buffer> allocate_transient(uint32_t bytes, uint32_t stride, bool index, MutableBytes& out) override;
     Result<Texture> create_texture(uint32_t width, uint32_t height, uint32_t levels, Format, bool render_target, bool cube, uint32_t samples = 1) override;
     void set_backbuffer_samples(uint32_t samples) override { backbuffer_samples_ = std::max(samples, 1u); }
+    void set_visible_area(int32_t x, int32_t y, uint32_t width, uint32_t height) override { visible_[0] = x; visible_[1] = y; visible_[2] = int32_t(width); visible_[3] = int32_t(height); visible_set_ = width && height; }
     void update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<Program> create_program(const ProgramDesc&) override;
     void copy_texture(Texture dst, const int32_t* dst_rect4, Texture src, const int32_t* src_rect4, bool linear) override;
@@ -196,6 +198,8 @@ public:
     void destroy(Program) override;
     void set_window_size(uint32_t width, uint32_t height) override;
     std::string profile_report() const override;
+    std::string audit() const override;
+    void fail(const char* what);
     void reset_profile() override { prof_draw_ns_ = prof_draws_ = prof_layout_ns_ = prof_uniform_ns_ = prof_texture_ns_ = prof_submit_ns_ = prof_frame_ns_ = prof_frames_ = 0; prof_gpu_ms_ = prof_render_cpu_ms_ = prof_wait_render_ms_ = prof_wait_submit_ms_ = 0; }
 
 private:
@@ -228,12 +232,38 @@ private:
     double prof_gpu_ms_ = 0, prof_render_cpu_ms_ = 0, prof_wait_render_ms_ = 0, prof_wait_submit_ms_ = 0;
     bool initialised_ = false;
     uint32_t backbuffer_samples_ = 1;
+    int32_t visible_[4] = {};
+    bool visible_set_ = false;
     bgfx::ProgramHandle blit_program_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle readback_ = BGFX_INVALID_HANDLE;
     uint32_t readback_w_ = 0, readback_h_ = 0;
     std::vector<std::byte> const_scratch_;
     shader::TranslateResult blit_vs_, blit_ps_;
 };
+
+void BgfxGpuImpl::fail(const char* what) {
+    ++stats_.failed_creates;
+    if ((stats_.failed_creates <= 20 || stats_.failed_creates % 200 == 0) && options_.log) {
+        char text[300];
+        std::snprintf(text, sizeof text, "bgfx could not create: %s (failure %llu; %s)", what, (unsigned long long)stats_.failed_creates, audit().c_str());
+        options_.log(text);
+    }
+}
+
+std::string BgfxGpuImpl::audit() const {
+    const bgfx::Stats* st = bgfx::getStats();
+    const bgfx::Caps* caps = bgfx::getCaps();
+    char text[700];
+    if (!st || !caps) return "bgfx not running";
+    std::snprintf(text, sizeof text,
+                  "bgfx handles in use / limit: textures %u/%u, vertex buffers %u/%u, index buffers %u/%u, frame buffers %u/%u, vertex layouts %zu/%u, programs %u/%u, shaders %u/%u, uniforms %u/%u; "
+                  "texture memory %.0f MB, render target memory %.0f MB; failed creations %llu",
+                  unsigned(st->numTextures), caps->limits.maxTextures, unsigned(st->numVertexBuffers), caps->limits.maxVertexBuffers, unsigned(st->numIndexBuffers), caps->limits.maxIndexBuffers,
+                  unsigned(st->numFrameBuffers), caps->limits.maxFrameBuffers, layouts_.size(), caps->limits.maxVertexLayouts, unsigned(st->numPrograms), caps->limits.maxPrograms,
+                  unsigned(st->numShaders), caps->limits.maxShaders, unsigned(st->numUniforms), caps->limits.maxUniforms, double(st->textureMemoryUsed) / 1048576.0, double(st->rtMemoryUsed) / 1048576.0,
+                  (unsigned long long)stats_.failed_creates);
+    return text;
+}
 
 std::string BgfxGpuImpl::profile_report() const {
     char text[512];
@@ -367,9 +397,11 @@ Result<Buffer> BgfxGpuImpl::create_static_buffer(Bytes initial, BufferKind kind)
         layout.begin().add(bgfx::Attrib::Position, 4, bgfx::AttribType::Uint8, true).end();
         e.vb = bgfx::createVertexBuffer(padded, layout);
         e.stride = 4;
+        if (!bgfx::isValid(e.vb)) { fail("static vertex buffer"); return {Status::out_of_memory, {}}; }
     } else {
         e.index = true;
         e.ib = bgfx::createIndexBuffer(mem, kind == BufferKind::index32 ? BGFX_BUFFER_INDEX32 : BGFX_BUFFER_NONE);
+        if (!bgfx::isValid(e.ib)) { fail("static index buffer"); return {Status::out_of_memory, {}}; }
     }
     return {Status::ok, Buffer{buffers_.add(e)}};
 }
@@ -380,7 +412,7 @@ Result<Buffer> BgfxGpuImpl::allocate_transient(uint32_t bytes, uint32_t stride, 
     if (index) {
         const bool wide = stride == 4;
         const uint32_t count = bytes / stride;
-        if (bgfx::getAvailTransientIndexBuffer(count, wide) < count) return {Status::out_of_memory, {}};
+        if (bgfx::getAvailTransientIndexBuffer(count, wide) < count) { fail("transient index buffer exhausted (draws are skipped)"); return {Status::out_of_memory, {}}; }
         bgfx::allocTransientIndexBuffer(&e.tib, count, wide);
         out = MutableBytes(reinterpret_cast<std::byte*>(e.tib.data), size_t(count) * stride);
     } else {
@@ -388,7 +420,7 @@ Result<Buffer> BgfxGpuImpl::allocate_transient(uint32_t bytes, uint32_t stride, 
         bgfx::VertexLayout layout;
         layout.begin().add(bgfx::Attrib::Position, 4, bgfx::AttribType::Uint8, true).end();
         layout.m_stride = uint16_t(stride);
-        if (bgfx::getAvailTransientVertexBuffer(count, layout) < count) return {Status::out_of_memory, {}};
+        if (bgfx::getAvailTransientVertexBuffer(count, layout) < count) { fail("transient vertex buffer exhausted (draws are skipped)"); return {Status::out_of_memory, {}}; }
         bgfx::allocTransientVertexBuffer(&e.tvb, count, layout);
         out = MutableBytes(reinterpret_cast<std::byte*>(e.tvb.data), size_t(count) * stride);
     }
@@ -423,7 +455,7 @@ Result<Texture> BgfxGpuImpl::create_texture(uint32_t width, uint32_t height, uin
             if (bgfx::isValid(t.handle)) break;
         }
     }
-    if (!bgfx::isValid(t.handle)) { std::fprintf(stderr, "[bgfx] texture %ux%u levels %u format %d rt %d cube %d could not be created%c", width, height, t.levels, int(format), int(render_target), int(cube), 10); return {Status::out_of_memory, {}}; }
+    if (!bgfx::isValid(t.handle)) { char what[160]; std::snprintf(what, sizeof what, "texture %ux%u levels %u format %d rt %d cube %d samples %u", width, height, t.levels, int(format), int(render_target), int(cube), samples); fail(what); return {Status::out_of_memory, {}}; }
     return {Status::ok, Texture{textures_.add(t)}};
 }
 
@@ -496,7 +528,7 @@ bgfx::FrameBufferHandle BgfxGpuImpl::framebuffer_for(const bgfx::TextureHandle& 
     attachments[0].init(color, bgfx::Access::Write, uint16_t(layer), 1, uint16_t(mip), 0);
     if (bgfx::isValid(depth)) attachments[1].init(depth, bgfx::Access::Write, 0, 1, 0, 0);
     const bgfx::FrameBufferHandle fb = bgfx::createFrameBuffer(bgfx::isValid(depth) ? 2 : 1, attachments, false);
-    if (!bgfx::isValid(fb)) std::fprintf(stderr, "[bgfx] framebuffer could not be created (colour texture %u, depth texture %d, layer %u, mip %u)%c", unsigned(color.idx), bgfx::isValid(depth) ? int(depth.idx) : -1, layer, mip, 10);
+    if (!bgfx::isValid(fb)) { char what[160]; std::snprintf(what, sizeof what, "framebuffer (colour texture %u, depth texture %d, layer %u, mip %u)", unsigned(color.idx), bgfx::isValid(depth) ? int(depth.idx) : -1, layer, mip); fail(what); }
     if (bgfx::isValid(fb)) framebuffers_[key] = fb;   // an invalid one is not kept (it would be destroyed later); the pass that needs it is dropped
     return fb;
 }
@@ -559,6 +591,7 @@ bgfx::VertexLayoutHandle BgfxGpuImpl::layout_handle(const DrawDesc& d, uint32_t 
     if (d.vertex_stride[stream] > pos) skip(d.vertex_stride[stream] - pos);
     layout.end();
     const bgfx::VertexLayoutHandle h = bgfx::createVertexLayout(layout);
+    if (!bgfx::isValid(h)) { fail("vertex layout"); return h; }
     layouts_[key] = h;
     return h;
 }
@@ -581,6 +614,7 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
         BufferEntry* e = buffers_.get(d.vertex_buffer[s].value);
         if (!e) continue;
         const bgfx::VertexLayoutHandle lh = layout_handle(d, s);
+        if (!bgfx::isValid(lh)) return;   // a draw without its vertex layout would read garbage
         const uint32_t stride = d.vertex_stride[s] ? d.vertex_stride[s] : 1;
         if (e->transient) bgfx::setVertexBuffer(uint8_t(s), &e->tvb, 0, d.vertex_count ? d.vertex_count : UINT32_MAX, lh);
         else bgfx::setVertexBuffer(uint8_t(s), e->vb, d.vertex_offset[s] / stride, d.vertex_count ? d.vertex_count : UINT32_MAX, lh);
@@ -683,13 +717,22 @@ void BgfxGpuImpl::copy_texture(Texture dst_id, const int32_t* dr, Texture src_id
 Status BgfxGpuImpl::present(uint32_t) {
     end_pass();
     if (backbuffer_.alive && blit_program_.idx != bgfx::kInvalidHandle) {
+        // The picture goes to the visible part of the window with its own aspect ratio (black bars when the window or the screen differs from it); a view
+        // that clears the whole window comes first.
+        const FitRect fit = visible_set_ ? fit_aspect(backbuffer_.width, backbuffer_.height, visible_[0], visible_[1], uint32_t(visible_[2]), uint32_t(visible_[3]))
+                                         : fit_aspect(backbuffer_.width, backbuffer_.height, 0, 0, window_width_, window_height_);
+        const uint32_t clear_view = next_view_++;
+        bgfx::setViewFrameBuffer(uint16_t(clear_view), BGFX_INVALID_HANDLE);
+        bgfx::setViewRect(uint16_t(clear_view), 0, 0, uint16_t(window_width_), uint16_t(window_height_));
+        bgfx::setViewClear(uint16_t(clear_view), BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
+        bgfx::touch(uint16_t(clear_view));
         const uint32_t view = next_view_++;
         bgfx::setViewFrameBuffer(uint16_t(view), BGFX_INVALID_HANDLE);
-        bgfx::setViewRect(uint16_t(view), 0, 0, uint16_t(window_width_), uint16_t(window_height_));
-        bgfx::setViewClear(uint16_t(view), BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
+        bgfx::setViewRect(uint16_t(view), uint16_t(std::max(fit.x, 0)), uint16_t(std::max(fit.y, 0)), uint16_t(fit.width), uint16_t(fit.height));
+        bgfx::setViewClear(uint16_t(view), BGFX_CLEAR_NONE);
         bgfx::setViewMode(uint16_t(view), bgfx::ViewMode::Sequential);
         const float uv[4] = {0, 0, 1, 1};
-        draw_quad(view, backbuffer_.handle, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | (window_width_ == backbuffer_.width && window_height_ == backbuffer_.height ? BGFX_SAMPLER_POINT : 0), uv);
+        draw_quad(view, backbuffer_.handle, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | (fit.width == backbuffer_.width && fit.height == backbuffer_.height ? BGFX_SAMPLER_POINT : 0), uv);
     }
     const uint64_t t_frame = now_ns();
     bgfx::frame();

@@ -137,6 +137,7 @@ public:
     virtual void end_pass() = 0;
     virtual Status present(uint32_t swap_interval) = 0;
     virtual Status resize(uint32_t width, uint32_t height) = 0;
+    virtual void   set_visible_area(int32_t x, int32_t y, uint32_t width, uint32_t height) { (void)x; (void)y; (void)width; (void)height; }   // the part of the window that is really on screen (client coordinates): present() fits the picture into it
     virtual void   set_backbuffer_samples(uint32_t samples) { (void)samples; }   // multisampling of the game's back buffer; takes effect at the next resize()
     // Copies the colour contents of a texture (or the last presented frame for `backbuffer`) as 32-bit BGRA; waits for the GPU (rare, slow).
     virtual Status read_back(Texture, uint32_t& width, uint32_t& height, std::vector<std::byte>& bgra) = 0;

@@ -62,6 +62,8 @@ struct TextureObject {
     gpu::Texture gpu;
     struct Lock { bool active = false; std::vector<std::byte> staging; uint32_t pitch = 0, rect[4] = {}, flags = 0; };
     std::vector<Lock> locks;           // levels * faces
+    uint32_t uploaded_levels = 0;      // bit per level of face 0 (any face for cubes) that has received data; render targets count as uploaded
+    bool warned_empty = false;
     uint32_t surface_ids[1] = {0};
 };
 
@@ -120,6 +122,8 @@ public:
     std::string report() const override;
     void flush() override { end_pass(); }
     std::string profile_report() const override;
+    std::string audit() const override;
+    void note_create_failure(const char* what, uint32_t width, uint32_t height, uint32_t levels, uint32_t format);
     SurfaceId auto_depth_stencil() override { return SurfaceId{auto_depth_surface_}; }
     void reset_profile() override { for (auto& p : prof_) p = 0; }
     std::string recent_draws() const override { std::string s; for (const auto& d : recent_) s += d + char(10); return s; }

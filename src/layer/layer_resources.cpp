@@ -35,6 +35,53 @@ void LayerImpl::note_unsupported_literal(const char* what) {
     if (options_.log_unsupported) log(std::string("unsupported: ") + what);
 }
 
+void LayerImpl::note_create_failure(const char* what, uint32_t width, uint32_t height, uint32_t levels, uint32_t format) {
+    const uint64_t n = stats_.texture_create_failures + stats_.buffer_create_failures;
+    if (n <= 20 || n % 200 == 0) log(std::string("FAILED to create a ") + what + " " + std::to_string(width) + "x" + std::to_string(height) + " levels " + std::to_string(levels) + " d3d format " + std::to_string(format) +
+                                     " (failure " + std::to_string(n) + "; the object will be missing in the picture)");
+}
+
+// Textures alive by format and size, how many have received data, and the ones sampled before any data arrived. Called from the game thread.
+std::string LayerImpl::audit() const {
+    struct Group { uint32_t format, width, height, levels; uint32_t count = 0, uploaded = 0, partial = 0, empty = 0; };
+    std::vector<Group> groups;
+    uint32_t alive = 0, in_gpu = 0, sysmem = 0, rts = 0, cubes = 0, empty = 0, partial = 0, locked = 0;
+    for (const TextureObject& t : textures_.items) {
+        if (!t.alive) continue;
+        ++alive;
+        if (!t.gpu) { ++sysmem; continue; }
+        ++in_gpu;
+        if (t.cube) ++cubes;
+        if (t.render_target) { ++rts; continue; }
+        for (const auto& l : t.locks) if (l.active) { ++locked; break; }
+        const uint32_t all = t.levels >= 32 ? ~0u : ((1u << t.levels) - 1u);
+        const bool none = (t.uploaded_levels & all) == 0, full = (t.uploaded_levels & all) == all;
+        if (none) ++empty; else if (!full) ++partial;
+        Group* g = nullptr;
+        for (Group& x : groups) if (x.format == t.format && x.width == t.width && x.height == t.height && x.levels == t.levels) { g = &x; break; }
+        if (!g) { groups.push_back(Group{t.format, t.width, t.height, t.levels}); g = &groups.back(); }
+        ++g->count; if (none) ++g->empty; else if (full) ++g->uploaded; else ++g->partial;
+    }
+    std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.count > b.count; });
+    char head[512];
+    std::snprintf(head, sizeof head,
+                  "textures: %u alive (%u on the GPU: %u render targets, %u cube; %u system-memory only), created %llu, failed %llu; sampled-before-upload %llu textures; never uploaded %u, partly uploaded (some mip levels missing) %u, locked now %u; "
+                  "buffer failures %llu; uploads %llu (%.1f MB), draws skipped %llu",
+                  alive, in_gpu, rts, cubes, sysmem, (unsigned long long)stats_.textures_created, (unsigned long long)stats_.texture_create_failures, (unsigned long long)stats_.sampled_before_upload, empty, partial, locked,
+                  (unsigned long long)stats_.buffer_create_failures, (unsigned long long)stats_.texture_uploads, double(stats_.texture_upload_bytes) / 1048576.0, (unsigned long long)stats_.draws_skipped);
+    std::string text = head;
+    for (size_t i = 0; i < groups.size() && i < 8; ++i) {
+        const Group& g = groups[i];
+        char line[200];
+        char name[16];
+        if (g.format > 0xFFFF) std::snprintf(name, sizeof name, "%c%c%c%c", char(g.format & 0xFF), char((g.format >> 8) & 0xFF), char((g.format >> 16) & 0xFF), char((g.format >> 24) & 0xFF));   // FourCC (DXT1...)
+        else std::snprintf(name, sizeof name, "%u", g.format);
+        std::snprintf(line, sizeof line, "\n    format %s %ux%u levels %u: %u alive (%u complete, %u partial, %u empty)", name, g.width, g.height, g.levels, g.count, g.uploaded, g.partial, g.empty);
+        text += line;
+    }
+    return text;
+}
+
 std::string LayerImpl::report() const {
     std::string text;
     for (const auto& e : unsupported_literals_) text += "  " + std::string(e.first) + ": " + std::to_string(e.second) + "\n";
@@ -181,7 +228,9 @@ Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uin
     }
     t.gpu_format = t.render_target ? render_target_format(info) : gpu_format_for(info, gpu_.caps());
     auto r = gpu_.create_texture(width, height, t.render_target ? 1 : t.levels, t.gpu_format, t.render_target, false);
-    if (!r) return {r.status, {}};
+    if (!r) { ++stats_.texture_create_failures; note_create_failure("texture", width, height, t.levels, format); return {r.status, {}}; }
+    ++stats_.textures_created;
+    if (t.render_target) t.uploaded_levels = ~0u;
     t.gpu = r.value;
     t.locks.resize(t.levels);
     return {Status::ok, TextureId{textures_.add(std::move(t))}};
@@ -196,7 +245,9 @@ Result<TextureId> LayerImpl::create_cube_texture(uint32_t edge, uint32_t levels,
     t.levels = levels ? levels : mip_count(edge, edge);
     t.gpu_format = t.render_target ? render_target_format(info) : gpu_format_for(info, gpu_.caps());
     auto r = gpu_.create_texture(edge, edge, t.levels, t.gpu_format, t.render_target, true);
-    if (!r) return {r.status, {}};
+    if (!r) { ++stats_.texture_create_failures; note_create_failure("cube texture", edge, edge, t.levels, format); return {r.status, {}}; }
+    ++stats_.textures_created;
+    if (t.render_target) t.uploaded_levels = ~0u;
     t.gpu = r.value;
     t.locks.resize(size_t(t.levels) * 6);
     return {Status::ok, TextureId{textures_.add(std::move(t))}};
@@ -370,6 +421,7 @@ Status LayerImpl::unlock_texture(TextureId id, uint32_t level, uint32_t face) {
         stats_.texture_converted_bytes += scratch_.size();
     }
     ++stats_.texture_uploads;
+    t->uploaded_levels |= level < 32 ? (1u << level) : 0u;
     if (!options_.keep_texture_copies) { lock.staging.clear(); lock.staging.shrink_to_fit(); }
     return Status::ok;
 }
@@ -460,6 +512,7 @@ Status LayerImpl::stretch_rect(SurfaceId from, const int32_t* fr, SurfaceId to, 
     if (tr) rect(tr, dr);
     if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "copy: surface %u (gpu %u) -> surface %u (gpu %u)", from.value, src.value, to.value, dst.value); log(t); }
     gpu_.copy_texture(dst, tr ? dr : nullptr, src, fr ? sr : nullptr, filter == texf_linear);
+    if (SurfaceObject* to_surface = surfaces_.get(to.value); to_surface && to_surface->kind == SurfaceObject::Kind::texture_level) if (auto* t = textures_.get(to_surface->texture)) t->uploaded_levels |= 1u;
     return Status::ok;
 }
 
