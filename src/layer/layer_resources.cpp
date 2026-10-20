@@ -10,7 +10,7 @@ using namespace k;
 
 std::unique_ptr<Layer> create_layer(gpu::Gpu& gpu, const LayerOptions& options) { return std::make_unique<LayerImpl>(gpu, options); }
 
-LayerImpl::LayerImpl(gpu::Gpu& gpu, const LayerOptions& options) : gpu_(gpu), options_(options) { init_state(state_); }
+LayerImpl::LayerImpl(gpu::Gpu& gpu, const LayerOptions& options) : gpu_(gpu), options_(options) { init_state(state_); mark_missing_ = options.mark_missing_textures; }
 
 LayerImpl::~LayerImpl() {
     end_pass();
@@ -33,6 +33,60 @@ void LayerImpl::note_unsupported_literal(const char* what) {
     for (auto& e : unsupported_literals_) if (e.first == what) { ++e.second; return; }
     unsupported_literals_.emplace_back(what, 1);
     if (options_.log_unsupported) log(std::string("unsupported: ") + what);
+}
+
+gpu::Texture LayerImpl::checker_texture(bool cube) {
+    gpu::Texture& slot = cube ? checker_cube_ : checker_2d_;
+    if (slot) return slot;
+    auto r = gpu_.create_texture(8, 8, 1, gpu::Format::rgba8, false, cube);
+    if (!r) return dummy_texture(cube);
+    slot = r.value;
+    uint8_t texels[8 * 8 * 4];
+    for (uint32_t y = 0; y < 8; ++y) for (uint32_t x = 0; x < 8; ++x) {
+        const bool on = ((x >> 2) ^ (y >> 2)) & 1;
+        uint8_t* p = texels + (y * 8 + x) * 4;
+        p[0] = on ? 255 : 0; p[1] = 0; p[2] = on ? 255 : 0; p[3] = 255;   // magenta and black
+    }
+    for (uint32_t face = 0; face < (cube ? 6u : 1u); ++face) gpu_.update_texture(slot, 0, face, nullptr, Bytes(reinterpret_cast<const std::byte*>(texels), sizeof texels), 32);
+    return slot;
+}
+
+void LayerImpl::note_texture_use(uint32_t id, uint32_t stage, uint32_t pixel_shader, bool stale) {
+    for (TextureUse& u : uses_) if (u.texture == id) { ++u.draws; u.stage_mask |= 1u << stage; u.stale |= stale; return; }
+    uses_.push_back(TextureUse{id, 1u << stage, 1, uint32_t(stats_.draws - capture_first_draw_), stage, pixel_shader, stale});
+}
+
+// One line per texture the draws of one frame sampled: what it is, whether it has data, a hash of level 0 to tell textures (and a texture that changed) apart, and the first draw that used it.
+std::string LayerImpl::build_texture_report() {
+    std::sort(uses_.begin(), uses_.end(), [](const TextureUse& a, const TextureUse& b) { return a.first_draw < b.first_draw; });
+    uint32_t no_data = 0, zero = 0, stale = 0, sysmem = 0, partial = 0;
+    std::string lines;
+    for (const TextureUse& u : uses_) {
+        const TextureObject* t = textures_.get(u.texture);
+        if (!t) continue;
+        const uint32_t all = t->levels >= 32 ? ~0u : ((1u << t->levels) - 1u);
+        const uint32_t up = t->uploaded_levels & all;
+        const bool empty = !t->render_target && !(up & 1u);
+        if (!t->gpu) ++sysmem; else if (empty) ++no_data;
+        if (!t->render_target && t->zero0 && (up & 1u)) ++zero;
+        if (u.stale) ++stale;
+        if (!t->render_target && up && up != all) ++partial;
+        const FormatInfo& info = *t->info;
+        char fourcc[16];
+        if (info.d3d > 0xFFFF) std::snprintf(fourcc, sizeof fourcc, "%c%c%c%c", char(info.d3d & 0xFF), char((info.d3d >> 8) & 0xFF), char((info.d3d >> 16) & 0xFF), char((info.d3d >> 24) & 0xFF));
+        else std::snprintf(fourcc, sizeof fourcc, "%s", info.name ? info.name : "?");
+        char line[600];
+        std::snprintf(line, sizeof line,
+                      "tex#%u %ux%u%s %s levels %u (data in mask %x of %x) pool %u usage %x gpu fmt %d%s%s%s | uploads %u (last frame %u, after first use %u, relocks %u) hash0 %016llx%s partial writes %u%s%s | first draw %u stage %u pixel shader #%u, %u draws, stages %x\n",
+                      u.texture, t->width, t->height, t->cube ? " cube" : "", fourcc, t->levels, up, all, t->pool, t->usage, int(t->gpu_format), t->render_target ? " RENDER-TARGET" : "", t->gpu ? "" : " SYSTEM-MEMORY-ONLY",
+                      empty ? " NO-DATA" : "", t->uploads, t->last_upload_frame, t->updates_after_use, t->relocks, (unsigned long long)t->hash0, t->zero0 && (up & 1u) ? " ALL-ZERO" : "", t->partial_writes0,
+                      u.stale ? (t->written_frame == 0xFFFFFFFFu ? " SAMPLED-BUT-NEVER-RENDERED" : " SAMPLED-BEFORE-RENDERED-THIS-FRAME") : "", up && up != all && !t->render_target ? " MIPS-MISSING" : "", u.first_draw, u.first_stage, u.first_ps, u.draws, u.stage_mask);
+        lines += line;
+    }
+    char head[400];
+    std::snprintf(head, sizeof head, "texture report of frame %u: %zu textures sampled by %llu draws; without data %u, all-zero level 0 %u, system-memory only %u, mip levels missing %u, render targets sampled before rendered %u\n",
+                  frame_, uses_.size(), (unsigned long long)(stats_.draws - capture_first_draw_), no_data, zero, sysmem, partial, stale);
+    return std::string(head) + lines;
 }
 
 void LayerImpl::note_create_failure(const char* what, uint32_t width, uint32_t height, uint32_t levels, uint32_t format) {
@@ -63,12 +117,15 @@ std::string LayerImpl::audit() const {
         ++g->count; if (none) ++g->empty; else if (full) ++g->uploaded; else ++g->partial;
     }
     std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.count > b.count; });
-    char head[512];
+    char head[900];
     std::snprintf(head, sizeof head,
                   "textures: %u alive (%u on the GPU: %u render targets, %u cube; %u system-memory only), created %llu, failed %llu; sampled-before-upload %llu textures; never uploaded %u, partly uploaded (some mip levels missing) %u, locked now %u; "
-                  "buffer failures %llu; uploads %llu (%.1f MB), draws skipped %llu",
+                  "buffer failures %llu; uploads %llu (%.1f MB), draws skipped %llu; levels locked again with data %llu (%llu without DISCARD), uploaded after first use %llu, render targets sampled before rendered %llu, "
+                  "UpdateTexture calls %llu, kept copies %.1f MB, draws with a missing texture shown as checker %llu",
                   alive, in_gpu, rts, cubes, sysmem, (unsigned long long)stats_.textures_created, (unsigned long long)stats_.texture_create_failures, (unsigned long long)stats_.sampled_before_upload, empty, partial, locked,
-                  (unsigned long long)stats_.buffer_create_failures, (unsigned long long)stats_.texture_uploads, double(stats_.texture_upload_bytes) / 1048576.0, (unsigned long long)stats_.draws_skipped);
+                  (unsigned long long)stats_.buffer_create_failures, (unsigned long long)stats_.texture_uploads, double(stats_.texture_upload_bytes) / 1048576.0, (unsigned long long)stats_.draws_skipped,
+                  (unsigned long long)stats_.relocks_with_data, (unsigned long long)stats_.relocks_without_discard, (unsigned long long)stats_.texture_updates_after_use, (unsigned long long)stats_.rt_sampled_stale,
+                  (unsigned long long)stats_.texture_update_calls, double(copy_bytes_) / 1048576.0, (unsigned long long)stats_.missing_texture_draws);
     std::string text = head;
     for (size_t i = 0; i < groups.size() && i < 8; ++i) {
         const Group& g = groups[i];
@@ -184,6 +241,8 @@ Status LayerImpl::reset(const DeviceParams& p) {
 
 Status LayerImpl::present() {
     end_pass();
+    if (capturing_) { texture_report_ = build_texture_report(); report_ready_ = true; capturing_ = false; }   // the frame that just ended is the one that was asked for
+    if (capture_request_) { capture_request_ = false; capturing_ = true; uses_.clear(); capture_first_draw_ = stats_.draws; }
     gpu_.present(params_.present_interval);
     ++stats_.frames;
     ++frame_;
@@ -224,6 +283,7 @@ Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uin
     if (usage & usage_autogenmipmap) t.levels = std::max(t.levels, 1u);
     if (pool == pool_systemmem || pool == pool_scratch) {
         t.locks.resize(t.levels);
+        t.contents.resize(t.locks.size());
         return {Status::ok, TextureId{textures_.add(std::move(t))}};
     }
     t.gpu_format = t.render_target ? render_target_format(info) : gpu_format_for(info, gpu_.caps());
@@ -233,6 +293,7 @@ Result<TextureId> LayerImpl::create_texture(uint32_t width, uint32_t height, uin
     if (t.render_target) t.uploaded_levels = ~0u;
     t.gpu = r.value;
     t.locks.resize(t.levels);
+    t.contents.resize(t.locks.size());
     return {Status::ok, TextureId{textures_.add(std::move(t))}};
 }
 
@@ -250,6 +311,7 @@ Result<TextureId> LayerImpl::create_cube_texture(uint32_t edge, uint32_t levels,
     if (t.render_target) t.uploaded_levels = ~0u;
     t.gpu = r.value;
     t.locks.resize(size_t(t.levels) * 6);
+    t.contents.resize(t.locks.size());
     return {Status::ok, TextureId{textures_.add(std::move(t))}};
 }
 
@@ -297,6 +359,8 @@ void LayerImpl::destroy(TextureId id) {
     for (uint32_t s = 0; s < state_.textures.size(); ++s) if (state_.textures[s] == id.value) { state_.textures[s] = 0; if (s < 16) cube_mask_ &= ~(1u << s); }
     ++program_epoch_;
     if (t->gpu) pending_destroy_textures_.push_back(t->gpu);
+    for (const auto& c : t->contents) if (t->gpu) copy_bytes_ -= std::min<uint64_t>(copy_bytes_, c.size());
+    stats_.texture_copy_bytes = copy_bytes_;
     textures_.release(id.value);
 }
 
@@ -391,38 +455,118 @@ Result<LockedRegion> LayerImpl::lock_texture(TextureId id, uint32_t level, uint3
     lock.rect[0] = x; lock.rect[1] = y; lock.rect[2] = w; lock.rect[3] = h;
     lock.pitch = level_pitch(info, w);
     const size_t size = level_bytes(info, w, h);
-    if (lock.staging.size() != size) lock.staging.assign(size, std::byte{0});
+    lock.staging.assign(size, std::byte{0});
+    const size_t index = size_t(face) * t->levels + level;
+    const std::vector<std::byte>& copy = t->contents[index];
+    const bool has_data = !copy.empty() || (t->uploaded_levels & (1u << std::min(level, 31u)));
+    if (has_data) {
+        ++stats_.relocks_with_data; ++t->relocks;
+        if (!(flags & (k::lock_discard | lock_readonly))) ++stats_.relocks_without_discard;
+    }
+    if (!copy.empty() && !(flags & k::lock_discard)) {   // the lock shows what the texture holds: a game that changes a part of a level gets the rest as it was
+        const uint32_t full_pitch = level_pitch(info, lw), rows = (h + info.block_h - 1) / info.block_h, row_bytes = ((w + info.block_w - 1) / info.block_w) * info.block_bytes;
+        for (uint32_t r = 0; r < rows; ++r) {
+            const size_t from = size_t(y / info.block_h + r) * full_pitch + size_t(x / info.block_w) * info.block_bytes;
+            if (from + row_bytes <= copy.size()) std::memcpy(lock.staging.data() + size_t(r) * lock.pitch, copy.data() + from, row_bytes);
+        }
+    }
     return {Status::ok, LockedRegion{lock.staging.data(), lock.pitch, 0}};
+}
+
+static uint64_t hash_bytes(const std::byte* p, size_t n, bool& all_zero) {
+    uint64_t h = 1469598103934665603ull, acc = 0;
+    size_t i = 0;
+    for (; i + 8 <= n; i += 8) { uint64_t v; std::memcpy(&v, p + i, 8); acc |= v; h = (h ^ v) * 1099511628211ull; h ^= h >> 29; }
+    for (; i < n; ++i) { acc |= uint8_t(p[i]); h = (h ^ uint8_t(p[i])) * 1099511628211ull; }
+    all_zero = acc == 0;
+    return h;
+}
+
+void LayerImpl::upload_level_region(TextureObject& t, uint32_t level, uint32_t face, const uint32_t rect[4], bool whole, const std::byte* data, size_t bytes, uint32_t pitch, uint32_t w, uint32_t h) {
+    const FormatInfo& info = *t.info;
+    const bool same_layout = info.native == t.gpu_format && info.convert != Convert::x8_opaque;
+    if (same_layout) {
+        gpu_.update_texture(t.gpu, level, face, whole ? nullptr : rect, Bytes(data, bytes), pitch);
+        stats_.texture_upload_bytes += bytes;
+    } else {
+        uint32_t out_pitch = 0;
+        convert_pixels(info, t.gpu_format, reinterpret_cast<const uint8_t*>(data), pitch, w, h, scratch_, out_pitch);
+        gpu_.update_texture(t.gpu, level, face, whole ? nullptr : rect, Bytes(scratch_.data(), scratch_.size()), out_pitch);
+        stats_.texture_upload_bytes += scratch_.size();
+        stats_.texture_converted_bytes += scratch_.size();
+    }
+    ++stats_.texture_uploads;
+    t.uploaded_levels |= level < 32 ? (1u << level) : 0u;
+    ++t.uploads;
+    t.last_upload_frame = frame_;
+    if (t.used) { ++t.updates_after_use; ++stats_.texture_updates_after_use; }
+    if (level == 0 && face == 0) {
+        if (whole) t.hash0 = hash_bytes(data, bytes, t.zero0); else ++t.partial_writes0;
+    }
+}
+
+// Keeps what a level holds, in the game's own format, so that a later Lock can show it (the managed pool of the real runtime keeps a system copy of every texture).
+void LayerImpl::retain_copy(TextureObject& t, uint32_t index, uint32_t level, const uint32_t rect[4], bool whole, std::vector<std::byte>& staging, uint32_t pitch) {
+    const FormatInfo& info = *t.info;
+    auto& copy = t.contents[index];
+    const uint32_t lw = mip_dimension(t.width, level), lh = mip_dimension(t.height, level);
+    const uint32_t full_pitch = level_pitch(info, lw);
+    const size_t full = level_bytes(info, lw, lh);
+    if (copy.empty()) {
+        const uint64_t budget = uint64_t(options_.texture_copy_mb) << 20;
+        if (t.gpu && copy_bytes_ + full > budget) return;   // over the budget: this level cannot be read back
+        if (t.gpu) copy_bytes_ += full;
+        if (whole) { copy.swap(staging); stats_.texture_copy_bytes = copy_bytes_; return; }
+        copy.assign(full, std::byte{0});
+    }
+    if (whole && staging.size() == copy.size()) { copy.swap(staging); return; }
+    const uint32_t rows = (rect[3] + info.block_h - 1) / info.block_h, row_bytes = ((rect[2] + info.block_w - 1) / info.block_w) * info.block_bytes;
+    for (uint32_t r = 0; r < rows; ++r) {
+        const size_t to = size_t(rect[1] / info.block_h + r) * full_pitch + size_t(rect[0] / info.block_w) * info.block_bytes;
+        if (to + row_bytes <= copy.size() && size_t(r) * pitch + row_bytes <= staging.size()) std::memcpy(copy.data() + to, staging.data() + size_t(r) * pitch, row_bytes);
+    }
+    stats_.texture_copy_bytes = copy_bytes_;
 }
 
 Status LayerImpl::unlock_texture(TextureId id, uint32_t level, uint32_t face) {
     TextureObject* t = textures_.get(id.value);
     if (!t || level >= t->levels || face >= (t->cube ? 6u : 1u)) { bad_handle("unlock_texture"); return Status::invalid_argument; }
-    auto& lock = t->locks[size_t(face) * t->levels + level];
+    const size_t index = size_t(face) * t->levels + level;
+    auto& lock = t->locks[index];
     if (!lock.active) return Status::invalid_argument;
     lock.active = false;
-    if ((lock.flags & lock_readonly) || !t->gpu) return Status::ok;   // system-memory textures keep their staging as the contents
-    const FormatInfo& info = *t->info;
     const uint32_t w = lock.rect[2], h = lock.rect[3];
-    if (!w || !h) { lock.staging.clear(); return Status::ok; }
+    if ((lock.flags & lock_readonly) || !w || !h) { lock.staging.clear(); lock.staging.shrink_to_fit(); return Status::ok; }
     const uint32_t lw = mip_dimension(t->width, level), lh = mip_dimension(t->height, level);
     const bool whole = lock.rect[0] == 0 && lock.rect[1] == 0 && w == lw && h == lh;
     const uint32_t rect[4] = {lock.rect[0], lock.rect[1], w, h};
-    const uint8_t* src = reinterpret_cast<const uint8_t*>(lock.staging.data());
-    const bool same_layout = info.native == t->gpu_format && info.convert != Convert::x8_opaque;
-    if (same_layout) {
-        gpu_.update_texture(t->gpu, level, face, whole ? nullptr : rect, Bytes(lock.staging.data(), lock.staging.size()), lock.pitch);
-        stats_.texture_upload_bytes += lock.staging.size();
-    } else {
-        uint32_t out_pitch = 0;
-        convert_pixels(info, t->gpu_format, src, lock.pitch, w, h, scratch_, out_pitch);
-        gpu_.update_texture(t->gpu, level, face, whole ? nullptr : rect, Bytes(scratch_.data(), scratch_.size()), out_pitch);
-        stats_.texture_upload_bytes += scratch_.size();
-        stats_.texture_converted_bytes += scratch_.size();
+    if (t->gpu) upload_level_region(*t, level, face, rect, whole, lock.staging.data(), lock.staging.size(), lock.pitch, w, h);
+    else { t->uploaded_levels |= level < 32 ? (1u << level) : 0u; ++t->uploads; t->last_upload_frame = frame_; }
+    retain_copy(*t, uint32_t(index), level, rect, whole, lock.staging, lock.pitch);
+    lock.staging.clear(); lock.staging.shrink_to_fit();
+    return Status::ok;
+}
+
+// UpdateTexture: the levels of a system-memory (or managed) texture go to the default-pool texture that has the same top size.
+Status LayerImpl::update_texture(TextureId source, TextureId destination) {
+    ++stats_.texture_update_calls;
+    TextureObject* s = textures_.get(source.value);
+    TextureObject* d = textures_.get(destination.value);
+    if (!s || !d || !d->gpu || d->render_target || s->cube != d->cube || s->format != d->format) { bad_handle("update_texture"); return Status::invalid_argument; }
+    uint32_t skip = 0;   // levels of the source above the destination's top level
+    while (skip < s->levels && (mip_dimension(s->width, skip) != d->width || mip_dimension(s->height, skip) != d->height)) ++skip;
+    if (skip >= s->levels) skip = 0;
+    for (uint32_t face = 0; face < (d->cube ? 6u : 1u); ++face) {
+        for (uint32_t level = 0; level < d->levels && level + skip < s->levels; ++level) {
+            const auto& copy = s->contents[size_t(face) * s->levels + level + skip];
+            if (copy.empty()) continue;
+            const uint32_t lw = mip_dimension(d->width, level), lh = mip_dimension(d->height, level);
+            const uint32_t rect[4] = {0, 0, lw, lh};
+            upload_level_region(*d, level, face, rect, true, copy.data(), copy.size(), level_pitch(*d->info, lw), lw, lh);
+            std::vector<std::byte> again;
+            if (d->contents[size_t(face) * d->levels + level].empty()) { again = copy; retain_copy(*d, uint32_t(size_t(face) * d->levels + level), level, rect, true, again, level_pitch(*d->info, lw)); }
+        }
     }
-    ++stats_.texture_uploads;
-    t->uploaded_levels |= level < 32 ? (1u << level) : 0u;
-    if (!options_.keep_texture_copies) { lock.staging.clear(); lock.staging.shrink_to_fit(); }
     return Status::ok;
 }
 
@@ -512,7 +656,7 @@ Status LayerImpl::stretch_rect(SurfaceId from, const int32_t* fr, SurfaceId to, 
     if (tr) rect(tr, dr);
     if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "copy: surface %u (gpu %u) -> surface %u (gpu %u)", from.value, src.value, to.value, dst.value); log(t); }
     gpu_.copy_texture(dst, tr ? dr : nullptr, src, fr ? sr : nullptr, filter == texf_linear);
-    if (SurfaceObject* to_surface = surfaces_.get(to.value); to_surface && to_surface->kind == SurfaceObject::Kind::texture_level) if (auto* t = textures_.get(to_surface->texture)) t->uploaded_levels |= 1u;
+    if (SurfaceObject* to_surface = surfaces_.get(to.value); to_surface && to_surface->kind == SurfaceObject::Kind::texture_level) if (auto* t = textures_.get(to_surface->texture)) { t->uploaded_levels |= 1u; t->written_frame = frame_; }
     return Status::ok;
 }
 

@@ -135,6 +135,7 @@ void Device9::apply_window_size() {
         const LONG vw = std::max<LONG>(in_client.right - in_client.left, 0), vh = std::max<LONG>(in_client.bottom - in_client.top, 0);
         core_->gpu->set_visible_area(in_client.left, in_client.top, UINT(vw), UINT(vh));
         log("window %ux%u at %ld,%ld; visible on the monitor: %ldx%ld; back buffer %ux%u is fitted into it", w, h, origin.x, origin.y, vw, vh, pp_.BackBufferWidth, pp_.BackBufferHeight);
+        status_dirty_ = 3;
     }
 }
 
@@ -213,36 +214,70 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
         std::string report = core_->layer->report();
         if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }
     }
+    if (status_dirty_ > 0 && core_->gpu && --status_dirty_ == 0) {   // a few frames after a resize bgfx has applied it, so its back buffer size can be read
+        char text[700];
+        std::snprintf(text, sizeof text, "client %ux%u; visible area %ld,%ld %ldx%ld; game back buffer %ux%u; %s", window_w_, window_h_, visible_client_.left, visible_client_.top,
+                      visible_client_.right - visible_client_.left, visible_client_.bottom - visible_client_.top, pp_.BackBufferWidth, pp_.BackBufferHeight, core_->gpu->audit().c_str());
+        set_window_status(text);
+    }
     // resource audit: textures by format and size, which ones have data, creation failures, bgfx handles against its limits (first after ~2 s, then every ~10 s)
     if ((present_count_ == 120 || present_count_ % 600 == 0) && core_->layer) {
         log("audit: %s", core_->layer->audit().c_str());
         if (core_->gpu) log("audit: %s", core_->gpu->audit().c_str());
     }
-    // F12 saves the frame just presented (the game's back buffer, before scaling to the window) as nue_screenshot_N.bmp next to the dll
-    static bool f12_was_down = false;
-    const bool f12_down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
-    if (f12_down && !f12_was_down && core_->gpu) {
-        core_->layer->flush();
-        uint32_t w = 0, h = 0;
-        std::vector<std::byte> bgra;
-        static unsigned shot = 0;
-        if (core_->gpu->read_back(gpu::backbuffer, w, h, bgra) == Status::ok && w && h) {
+    // F12 saves the frame just presented (the game's back buffer, before scaling to the window) as nue_screenshot_N.bmp next to the dll.
+    // F11 asks for a report of every texture the next frame uses (nue_textures_N.txt, with a screenshot of that frame); F10 turns on / off the magenta checker for textures without data.
+    static bool f12_was_down = false, f11_was_down = false, f10_was_down = false, shot_with_report = false;
+    const bool f12_down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0, f11_down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0, f10_down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    if (config().texture_report_at && present_count_ == config().texture_report_at) core_->layer->request_texture_report();
+    if (f11_down && !f11_was_down) { core_->layer->request_texture_report(); log("F11: the textures used by the next frame will be written to nue_textures_N.txt"); }
+    if (f10_down && !f10_was_down) { core_->layer->set_mark_missing_textures(!core_->layer->mark_missing_textures()); log("F10: textures without data are %s", core_->layer->mark_missing_textures() ? "drawn as a magenta checker" : "drawn as the game's data"); }
+    f11_was_down = f11_down; f10_was_down = f10_down;
+    {
+        const std::string report = core_->layer->take_texture_report();
+        if (!report.empty()) {
+            static unsigned report_number = 0;
             char name[64];
-            std::snprintf(name, sizeof name, "\\nue_screenshot_%u.bmp", ++shot);
+            std::snprintf(name, sizeof name, "\\nue_textures_%u.txt", ++report_number);
             const std::string path = config().dll_directory + name;
-            if (FILE* f = std::fopen(path.c_str(), "wb")) {
-                uint8_t header[54] = {'B', 'M'};
-                const uint32_t size = 54 + w * h * 4;
-                std::memcpy(header + 2, &size, 4); header[10] = 54; header[14] = 40;
-                const int32_t bw = int32_t(w), bh = -int32_t(h);
-                std::memcpy(header + 18, &bw, 4); std::memcpy(header + 22, &bh, 4); header[26] = 1; header[28] = 32;
-                std::fwrite(header, 1, 54, f); std::fwrite(bgra.data(), 1, bgra.size(), f); std::fclose(f);
-                log("screenshot saved: %s (%ux%u)", path.c_str(), w, h);
+            if (FILE* f = std::fopen(path.c_str(), "wb")) { std::fwrite(report.data(), 1, report.size(), f); std::fclose(f); }
+            log("texture report saved: %s | %s", path.c_str(), report.substr(0, report.find('\n')).c_str());
+            shot_with_report = true;
+        }
+    }
+    if ((f12_down && !f12_was_down) || shot_with_report) {
+        shot_with_report = false;
+        if (core_->gpu) {
+            core_->layer->flush();
+            uint32_t w = 0, h = 0;
+            std::vector<std::byte> bgra;
+            static unsigned shot = 0;
+            if (core_->gpu->read_back(gpu::backbuffer, w, h, bgra) == Status::ok && w && h) {
+                char name[64];
+                std::snprintf(name, sizeof name, "\\nue_screenshot_%u.bmp", ++shot);
+                const std::string path = config().dll_directory + name;
+                if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                    uint8_t header[54] = {'B', 'M'};
+                    const uint32_t size = 54 + w * h * 4;
+                    std::memcpy(header + 2, &size, 4); header[10] = 54; header[14] = 40;
+                    const int32_t bw = int32_t(w), bh = -int32_t(h);
+                    std::memcpy(header + 18, &bw, 4); std::memcpy(header + 22, &bh, 4); header[26] = 1; header[28] = 32;
+                    std::fwrite(header, 1, 54, f); std::fwrite(bgra.data(), 1, bgra.size(), f); std::fclose(f);
+                    log("screenshot saved: %s (%ux%u)", path.c_str(), w, h);
+                }
             }
         }
     }
     f12_was_down = f12_down;
     return result;
+} catch (...) { return guard_failed(__func__); }
+
+HRESULT Device9::UpdateTexture(IDirect3DBaseTexture9* source, IDirect3DBaseTexture9* destination) try { NUE_CALL();
+    auto* dev = core_->dev();
+    if (!dev || !source || !destination) return trace_result(__func__, D3DERR_INVALIDCALL);
+    const Status status = dev->update_texture(texture_id_of(source), texture_id_of(destination));
+    if (status == Status::unsupported) return unsupported("UpdateTexture");
+    return status == Status::ok ? D3D_OK : trace_result(__func__, D3DERR_INVALIDCALL);
 } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::GetBackBuffer(UINT swap_chain, UINT index, D3DBACKBUFFER_TYPE, IDirect3DSurface9** out) try { NUE_CALL(); 

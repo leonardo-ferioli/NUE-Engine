@@ -157,6 +157,46 @@ static void test_dynamic_buffer_policy() {
     CHECK(s.layer->stats().transient_copies >= 1);
 }
 
+// A managed texture shows what it holds when it is locked again (a game that changes part of a level gets the rest as it was), a texture that is
+// written in two lock/unlock steps keeps both, and UpdateTexture copies a system-memory texture to a default-pool one.
+static void test_texture_contents() {
+    RecordingGpu g;
+    Scene s = make_scene(g);
+    auto& L = *s.layer;
+    const auto t = L.create_texture(8, 8, 1, 0, 21, 1).value;   // A8R8G8B8, managed
+    auto lock = L.lock_texture(t, 0, 0, nullptr, 0);
+    CHECK(bool(lock));
+    for (int i = 0; i < 8 * 8; ++i) { const uint32_t v = 0xFF000000u | uint32_t(i); std::memcpy(lock.value.data + i * 4, &v, 4); }
+    L.unlock_texture(t, 0, 0);
+    const int32_t rect[4] = {2, 2, 4, 4};
+    lock = L.lock_texture(t, 0, 0, rect, 0);   // a part, without DISCARD: the texels that are there come back
+    uint32_t first = 0;
+    std::memcpy(&first, lock.value.data, 4);
+    CHECK(first == (0xFF000000u | uint32_t(2 * 8 + 2)));
+    L.unlock_texture(t, 0, 0);
+    lock = L.lock_texture(t, 0, 0, nullptr, 0);   // the whole level again: the first write is still there outside the part
+    uint32_t last = 0;
+    std::memcpy(&last, lock.value.data + 63 * 4, 4);
+    CHECK(last == (0xFF000000u | 63u));
+    L.unlock_texture(t, 0, 0);
+    CHECK(L.stats().relocks_with_data == 2);
+    // system memory -> default pool
+    const auto sys = L.create_texture(8, 8, 1, 0, 21, 2).value;
+    const auto dst = L.create_texture(8, 8, 1, 0, 21, 0).value;
+    lock = L.lock_texture(sys, 0, 0, nullptr, 0);
+    std::memset(lock.value.data, 0x7F, 8 * 8 * 4);
+    L.unlock_texture(sys, 0, 0);
+    const uint64_t before = L.stats().texture_uploads;
+    CHECK(L.update_texture(sys, dst) == Status::ok);
+    CHECK(L.stats().texture_uploads == before + 1);
+    // the report lists what a frame used
+    L.request_texture_report();
+    L.present();
+    L.set_texture(0, t);
+    L.present();
+    CHECK(!L.take_texture_report().empty());
+}
+
 // A picture is fitted into the visible area without distortion, never larger than the area, centred, for the usual desktop shapes.
 static void test_window_fit() {
     struct Case { uint32_t cw, ch, aw, ah; uint32_t ew, eh; } cases[] = {
@@ -186,6 +226,7 @@ int main() {
     test_state_blocks();
     test_dynamic_buffer_policy();
     test_window_fit();
+    test_texture_contents();
     if (failures) { std::printf("%d check(s) failed\n", failures); return 1; }
     std::printf("PASS nue_d3d9 tests\n");
     return 0;

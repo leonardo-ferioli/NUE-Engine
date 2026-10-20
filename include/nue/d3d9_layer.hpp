@@ -21,6 +21,10 @@ struct LayerOptions {
     bool debug_record_draws = false;
     uint32_t msaa_override = 0;        // 0 = as the game asks; 1 = no multisampling; 2, 4, 8, 16 = that many samples for every multisampled target
     bool profile = false;              // time the phases of every draw (Layer::profile_report)
+    // Texture contents are kept in system memory after the upload (what a later Lock reads back, like the managed pool of the real runtime) up to this many MB;
+    // system-memory textures always keep theirs. 0 = never keep copies of textures that live on the GPU.
+    uint32_t texture_copy_mb = 160;
+    bool mark_missing_textures = false;   // a texture that is sampled without any data is drawn as a magenta checker (see Layer::set_mark_missing_textures)
     bool debug_log_passes = false;     // log every pass and copy as it is opened   // keep a description of the last draws (Layer::recent_draws)
 };
 
@@ -31,6 +35,7 @@ struct LayerStats {
     uint64_t texture_uploads = 0, texture_upload_bytes = 0, texture_converted_bytes = 0;
     uint64_t programs = 0, shader_translations = 0, shader_failures = 0, constants_bytes = 0;
     uint64_t texture_create_failures = 0, buffer_create_failures = 0, sampled_before_upload = 0, textures_created = 0;
+    uint64_t relocks_with_data = 0, relocks_without_discard = 0, texture_updates_after_use = 0, rt_sampled_stale = 0, missing_texture_draws = 0, texture_copy_bytes = 0, texture_update_calls = 0;
     uint64_t stretch_rects = 0, unsupported_calls = 0, bad_handles = 0;
     uint64_t draw_by_primitive[8] = {};
 };
@@ -40,7 +45,13 @@ public:
     virtual const LayerStats& stats() const = 0;
     virtual void flush() = 0;                 // closes the open pass so that everything drawn so far is submitted to the Gpu
     virtual std::string report() const = 0;
-    virtual std::string audit() const = 0;    // textures alive by format and size, uploaded or not, sampled before any data, creation failures
+    virtual std::string audit() const = 0;
+    // Debug aids for the live game: ask for a report of every texture the draws of the NEXT frame use (take_texture_report() returns it once it is ready, then empty),
+    // and draw textures that have no data as a magenta checker so that they are visible.
+    virtual void request_texture_report() = 0;
+    virtual std::string take_texture_report() = 0;
+    virtual void set_mark_missing_textures(bool on) = 0;
+    virtual bool mark_missing_textures() const = 0;    // textures alive by format and size, uploaded or not, sampled before any data, creation failures
     virtual void reset_profile() = 0;
     virtual std::string profile_report() const = 0;   // where the time of the draws went (needs LayerOptions::profile)
     virtual std::string recent_draws() const = 0;   // the last draws described (needs LayerOptions::debug_record_draws)   // human-readable summary of unsupported features met so far

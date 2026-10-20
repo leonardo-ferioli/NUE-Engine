@@ -220,7 +220,7 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
         switch (s->kind) {
         case SurfaceObject::Kind::backbuffer: tex = gpu::backbuffer; break;
         case SurfaceObject::Kind::render_target: tex = s->gpu; break;
-        case SurfaceObject::Kind::texture_level: if (auto* t = textures_.get(s->texture)) { tex = t->gpu; } break;
+        case SurfaceObject::Kind::texture_level: if (auto* t = textures_.get(s->texture)) { tex = t->gpu; t->written_frame = frame_; } break;
         default: break;
         }
         a.color[i] = tex;

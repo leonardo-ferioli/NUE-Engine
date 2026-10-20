@@ -87,6 +87,11 @@ if(WIN32 AND NUE_WITH_BGFX)
     target_link_libraries(nue_d3d9_dll PRIVATE nue_d3d9_bgfx user32 gdi32 dxguid)
     target_compile_definitions(nue_d3d9_dll PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_options(nue_d3d9_dll PRIVATE -Wno-microsoft-exception-spec)
+    # window behaviour of the dll with windows that are never shown: nue_window_test <path to d3d9.dll>
+    add_executable(nue_window_test tools/window_test.cpp)
+    target_link_libraries(nue_window_test PRIVATE user32)
+    target_include_directories(nue_window_test PRIVATE include)
+    target_compile_definitions(nue_window_test PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
 add_executable(nue_replay tools/replay.cpp)

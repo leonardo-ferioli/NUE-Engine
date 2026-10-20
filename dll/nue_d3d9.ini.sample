@@ -13,3 +13,7 @@ log=1
 log_unsupported=1
 ; compiled shaders are kept here between runs (default: nue_shader_cache next to the dll)
 ;shader_cache=
+; texture contents kept in system memory after the upload so that a later Lock shows them (MB; the real runtime does this for managed textures)
+texture_copy_mb=160
+; draw textures that have no data as a magenta checker (F10 toggles it while the game runs; F11 writes nue_textures_N.txt, F12 a screenshot)
+mark_missing_textures=0

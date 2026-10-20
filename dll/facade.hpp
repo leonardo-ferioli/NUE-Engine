@@ -60,12 +60,18 @@ private:
 #define NUE_CALL() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall nue_scope_(nue_slot_, __func__)
 void device_destroyed();                           // lets the factory create another device (bgfx is a singleton)
 
+void set_window_status(const std::string& text);
+std::string window_status_copy();   // the last window / swap chain description (NueD3D9_DescribeWindow)
+
 struct Config {
     std::string renderer = "d3d11";                // d3d11 | vulkan
     bool vsync = true;                             // honour the game's present interval (false: never wait for the display)
     bool render_thread = true;                     // bgfx runs its backend on its own thread
     bool log = true;
     bool log_unsupported = true;
+    uint32_t texture_copy_mb = 160;                // texture contents kept in system memory for later Locks (MB; 0 = none for textures on the GPU)
+    uint32_t texture_report_at = 0;                // present number at which a texture report is written without a key press (0 = never; tests and unattended runs)
+    bool mark_missing = false;                     // textures without data are drawn as a magenta checker (F10 toggles it while the game runs)
     uint32_t msaa = 0;                             // 0 = as the game asks (its multisample type and quality); 1 = off; 2, 4, 8 = force that many samples                   // one line per unsupported feature the game asks for (also summarised at exit)
     std::string shader_cache;                      // folder for compiled shaders (default: <dll folder>\nue_shader_cache)
     std::string dll_directory;
@@ -402,7 +408,7 @@ public:
     STDMETHOD(CreateRenderTarget)(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE multisample, DWORD quality, BOOL lockable, IDirect3DSurface9** out, HANDLE* shared) override;
     STDMETHOD(CreateDepthStencilSurface)(UINT width, UINT height, D3DFORMAT format, D3DMULTISAMPLE_TYPE multisample, DWORD quality, BOOL discard, IDirect3DSurface9** out, HANDLE* shared) override;
     STDMETHOD(UpdateSurface)(IDirect3DSurface9*, const RECT*, IDirect3DSurface9*, const POINT*) override { return unsupported("UpdateSurface"); }
-    STDMETHOD(UpdateTexture)(IDirect3DBaseTexture9*, IDirect3DBaseTexture9*) override { return unsupported("UpdateTexture"); }
+    STDMETHOD(UpdateTexture)(IDirect3DBaseTexture9* source, IDirect3DBaseTexture9* destination) override;
     STDMETHOD(GetRenderTargetData)(IDirect3DSurface9* render_target, IDirect3DSurface9* destination) override;
     STDMETHOD(GetFrontBufferData)(UINT, IDirect3DSurface9*) override { return unsupported("GetFrontBufferData"); }
     STDMETHOD(StretchRect)(IDirect3DSurface9* source, const RECT* source_rect, IDirect3DSurface9* destination, const RECT* destination_rect, D3DTEXTUREFILTERTYPE filter) override;
@@ -511,7 +517,7 @@ private:
     HWND window_;
     UINT window_w_ = 0, window_h_ = 0;
     RECT visible_client_{};
-    bool visible_known_ = false;
+    bool visible_known_ = false; int status_dirty_ = 0;
     BOOL cursor_ = FALSE;
     D3DGAMMARAMP gamma_{};
     D3DMATERIAL9 material_{};

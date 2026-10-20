@@ -62,6 +62,10 @@ struct TextureObject {
     gpu::Texture gpu;
     struct Lock { bool active = false; std::vector<std::byte> staging; uint32_t pitch = 0, rect[4] = {}, flags = 0; };
     std::vector<Lock> locks;           // levels * faces
+    std::vector<std::vector<std::byte>> contents;   // kept copy per face*levels+level (the whole level, in the game's format): what a Lock reads back; system-memory textures live only here
+    uint64_t hash0 = 0;                // hash of the last whole write of level 0 / face 0
+    bool zero0 = false, used = false;  // that write was all zero bytes; a draw has sampled this texture
+    uint32_t partial_writes0 = 0, uploads = 0, last_upload_frame = 0, updates_after_use = 0, relocks = 0, written_frame = 0xFFFFFFFFu, stale_frame = 0xFFFFFFFFu;
     uint32_t uploaded_levels = 0;      // bit per level of face 0 (any face for cubes) that has received data; render targets count as uploaded
     bool warned_empty = false;
     uint32_t surface_ids[1] = {0};
@@ -123,6 +127,11 @@ public:
     void flush() override { end_pass(); }
     std::string profile_report() const override;
     std::string audit() const override;
+    void request_texture_report() override { capture_request_ = true; }
+    std::string take_texture_report() override { std::string r; if (report_ready_) { r.swap(texture_report_); report_ready_ = false; } return r; }
+    void set_mark_missing_textures(bool on) override { mark_missing_ = on; }
+    bool mark_missing_textures() const override { return mark_missing_; }
+    Status update_texture(TextureId source, TextureId destination) override;
     void note_create_failure(const char* what, uint32_t width, uint32_t height, uint32_t levels, uint32_t format);
     SurfaceId auto_depth_stencil() override { return SurfaceId{auto_depth_surface_}; }
     void reset_profile() override { for (auto& p : prof_) p = 0; }
@@ -270,6 +279,18 @@ private:
     DeviceState state_;
     DeviceParams params_;
     uint32_t frame_ = 0;
+    // texture debugging
+    struct TextureUse { uint32_t texture, stage_mask, draws, first_draw, first_stage, first_ps; bool stale; };
+    std::vector<TextureUse> uses_;
+    std::string texture_report_;
+    bool mark_missing_ = false, capture_request_ = false, capturing_ = false, report_ready_ = false;
+    uint64_t capture_first_draw_ = 0, copy_bytes_ = 0;
+    gpu::Texture checker_2d_, checker_cube_;
+    gpu::Texture checker_texture(bool cube);
+    void note_texture_use(uint32_t id, uint32_t stage, uint32_t pixel_shader, bool stale);
+    std::string build_texture_report();
+    void upload_level_region(TextureObject& t, uint32_t level, uint32_t face, const uint32_t rect[4], bool whole, const std::byte* data, size_t bytes, uint32_t pitch, uint32_t w, uint32_t h);
+    void retain_copy(TextureObject& t, uint32_t index, uint32_t level, const uint32_t rect[4], bool whole, std::vector<std::byte>& staging, uint32_t pitch);
 
     Table<TextureObject> textures_;
     Table<BufferObject> buffers_;

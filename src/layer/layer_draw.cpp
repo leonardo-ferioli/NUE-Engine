@@ -528,7 +528,15 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
         if (!(program.pixel->sampler_mask & (1u << i))) continue;
         TextureObject* t = textures_.get(state_.textures[i]);
         const bool cube_expected = false;
-        d.textures[i] = t && t->gpu ? t->gpu : dummy_texture(t ? t->cube : cube_expected);
+        const bool no_data = t && (!t->gpu || (!t->render_target && !(t->uploaded_levels & 1u)));
+        bool stale = false;
+        if (t) {
+            t->used = true;
+            if (t->render_target && t->written_frame != frame_ && t->stale_frame != frame_) { t->stale_frame = frame_; stale = true; ++stats_.rt_sampled_stale; }
+            if (capturing_) note_texture_use(state_.textures[i], i, state_.pixel_shader, stale);
+        }
+        if (mark_missing_ && no_data) { d.textures[i] = checker_texture(t->cube); ++stats_.missing_texture_draws; }
+        else d.textures[i] = t && t->gpu ? t->gpu : dummy_texture(t ? t->cube : cube_expected);
         if (t && t->gpu && !t->render_target && !(t->uploaded_levels & 1u) && !t->warned_empty) {   // sampled with no data at all in its top level
             t->warned_empty = true; ++stats_.sampled_before_upload;
             if (stats_.sampled_before_upload <= 20) log("texture " + std::to_string(t->width) + "x" + std::to_string(t->height) + " d3d format " + std::to_string(t->format) + " levels " + std::to_string(t->levels) + " sampled by a draw before any data was uploaded to it");

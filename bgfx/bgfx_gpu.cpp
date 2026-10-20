@@ -257,11 +257,11 @@ std::string BgfxGpuImpl::audit() const {
     if (!st || !caps) return "bgfx not running";
     std::snprintf(text, sizeof text,
                   "bgfx handles in use / limit: textures %u/%u, vertex buffers %u/%u, index buffers %u/%u, frame buffers %u/%u, vertex layouts %zu/%u, programs %u/%u, shaders %u/%u, uniforms %u/%u; "
-                  "texture memory %.0f MB, render target memory %.0f MB; failed creations %llu",
+                  "texture memory %.0f MB, render target memory %.0f MB; failed creations %llu; window back buffer %ux%u",
                   unsigned(st->numTextures), caps->limits.maxTextures, unsigned(st->numVertexBuffers), caps->limits.maxVertexBuffers, unsigned(st->numIndexBuffers), caps->limits.maxIndexBuffers,
                   unsigned(st->numFrameBuffers), caps->limits.maxFrameBuffers, layouts_.size(), caps->limits.maxVertexLayouts, unsigned(st->numPrograms), caps->limits.maxPrograms,
                   unsigned(st->numShaders), caps->limits.maxShaders, unsigned(st->numUniforms), caps->limits.maxUniforms, double(st->textureMemoryUsed) / 1048576.0, double(st->rtMemoryUsed) / 1048576.0,
-                  (unsigned long long)stats_.failed_creates);
+                  (unsigned long long)stats_.failed_creates, unsigned(st->width), unsigned(st->height));
     return text;
 }
 

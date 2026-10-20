@@ -64,6 +64,11 @@ void load_config() {
     g_config.log_unsupported = truthy(ini_value(ini, "log_unsupported"), g_config.log_unsupported);
     g_config.shader_cache = ini_value(ini, "shader_cache");
     if (auto v = ini_value(ini, "msaa"); !v.empty()) g_config.msaa = v == "off" ? 1u : v == "auto" ? 0u : uint32_t(std::atoi(v.c_str()));
+    if (auto v = ini_value(ini, "texture_copy_mb"); !v.empty()) g_config.texture_copy_mb = uint32_t(std::atoi(v.c_str()));
+    if (auto v = ini_value(ini, "texture_report_at"); !v.empty()) g_config.texture_report_at = uint32_t(std::atoi(v.c_str()));
+    if (const char* e = std::getenv("NUE_TEXTURE_REPORT_AT")) g_config.texture_report_at = uint32_t(std::atoi(e));
+    g_config.mark_missing = truthy(ini_value(ini, "mark_missing_textures"), g_config.mark_missing);
+    if (const char* e = std::getenv("NUE_MARK_MISSING")) g_config.mark_missing = truthy(e, g_config.mark_missing);
     if (const char* e = std::getenv("NUE_RENDERER")) g_config.renderer = e;   // environment wins
     if (const char* e = std::getenv("NUE_VSYNC")) g_config.vsync = truthy(e, g_config.vsync);
     if (const char* e = std::getenv("NUE_RENDER_THREAD")) g_config.render_thread = truthy(e, g_config.render_thread);
@@ -75,6 +80,13 @@ void log_line(const char* message) { log("%s", message); }
 }  // namespace
 
 const Config& config() { load_config(); return g_config; }
+
+namespace {
+std::mutex g_status_mutex;
+std::string g_window_status;
+}
+void set_window_status(const std::string& text) { std::lock_guard<std::mutex> lock(g_status_mutex); g_window_status = text; }
+std::string window_status_copy() { std::lock_guard<std::mutex> lock(g_status_mutex); return g_window_status; }
 
 void log(const char* format, ...) {
     load_config();
@@ -326,6 +338,8 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     layer_options.log = log_line;
     layer_options.log_unsupported = cfg.log_unsupported;
     layer_options.msaa_override = cfg.msaa;
+    layer_options.texture_copy_mb = cfg.texture_copy_mb;
+    layer_options.mark_missing_textures = cfg.mark_missing;
     auto core = std::make_shared<Core>();
     core->gpu = std::move(gpu_owner);
     core->layer = d3d9::create_layer(*core->gpu, layer_options);
@@ -378,6 +392,12 @@ NUE_EXPORT(D3DPERF_SetOptions, "_D3DPERF_SetOptions@4")
 NUE_EXPORT(D3DPERF_GetStatus, "_D3DPERF_GetStatus@0")
 
 extern "C" {
+// Diagnostics for the window tests: how the last window size was taken (client area, visible part, swap chain size of bgfx). Returns the length written.
+__declspec(dllexport) int NueD3D9_DescribeWindow(char* buffer, int size) {
+    const std::string text = nue::facade::window_status_copy();
+    if (buffer && size > 0) { std::snprintf(buffer, size_t(size), "%s", text.c_str()); }
+    return int(text.size());
+}
 IDirect3D9* WINAPI Direct3DCreate9(UINT) { return new nue::facade::Direct3D9(); }
 HRESULT WINAPI Direct3DCreate9Ex(UINT, IDirect3D9Ex**) { return D3DERR_NOTAVAILABLE; }
 int WINAPI D3DPERF_BeginEvent(D3DCOLOR, LPCWSTR) { return 0; }
