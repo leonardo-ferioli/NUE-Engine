@@ -17,6 +17,7 @@ namespace nue::facade {
 HMODULE g_module = nullptr;
 const char* volatile g_last_call = "(none yet)";
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
+std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
 namespace {
 
@@ -162,6 +163,8 @@ void heartbeat() {
         Sleep(3000);
         const unsigned now = g_counter_calls.load();
         if (now != last) {
+            const unsigned frames = g_frame_count.exchange(0), sum = g_frame_sum_us.exchange(0), worst = g_frame_max_us.exchange(0), slow = g_frame_slow.exchange(0);
+            if (frames) log("frames: %.1f fps, mean %.2f ms, worst %.2f ms, %u of %u over 20 ms; last frame: GPU %.2f ms, backend CPU %.2f ms, Present %.2f ms", frames / 3.0, sum / 1000.0 / frames, worst / 1000.0, slow, frames, g_gpu_us.load() / 1000.0, g_render_cpu_us.load() / 1000.0, g_present_us.load() / 1000.0);
             log("alive: %u calls, %u presents, %u draws, %u resources created, in %s", now, g_counter_present.load(), g_counter_draw.load(), g_counter_create.load(), g_last_call);
             quiet = 0;
         } else if (++quiet == 1 || quiet % 10 == 0) log("no Direct3D 9 call for %d s (last: %s)", quiet * 3, g_last_call);

@@ -678,7 +678,8 @@ Status BgfxGpuImpl::present(uint32_t) {
     bgfx::frame();
     prof_frame_ns_ += now_ns() - t_frame; ++prof_frames_;
     if (const bgfx::Stats* st = bgfx::getStats()) {   // timings of the frame the backend finished last
-        if (st->gpuTimerFreq) prof_gpu_ms_ += 1000.0 * double(st->gpuTimeEnd - st->gpuTimeBegin) / double(st->gpuTimerFreq);
+        if (st->gpuTimerFreq) { stats_.gpu_ms = 1000.0 * double(st->gpuTimeEnd - st->gpuTimeBegin) / double(st->gpuTimerFreq); prof_gpu_ms_ += stats_.gpu_ms; }
+        if (st->cpuTimerFreq) stats_.render_cpu_ms = 1000.0 * double(st->cpuTimeEnd - st->cpuTimeBegin) / double(st->cpuTimerFreq);
         if (st->cpuTimerFreq) { prof_render_cpu_ms_ += 1000.0 * double(st->cpuTimeEnd - st->cpuTimeBegin) / double(st->cpuTimerFreq); prof_wait_render_ms_ += 1000.0 * double(st->waitRender) / double(st->cpuTimerFreq); prof_wait_submit_ms_ += 1000.0 * double(st->waitSubmit) / double(st->cpuTimerFreq); }
     }
     ++frame_;

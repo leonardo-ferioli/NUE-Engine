@@ -23,6 +23,7 @@ struct BgfxOptions {
 struct BgfxStats {
     uint64_t programs = 0, shader_builds = 0, views = 0, draws = 0;
     double cross_ms = 0, compile_ms = 0;     // SPIR-V -> HLSL/GLSL/MSL and the shader compiler, accumulated
+    double gpu_ms = 0, render_cpu_ms = 0;    // the last frame: GPU time and the CPU time of the backend (render thread), from bgfx's own counters
     const char* renderer_name = "";
 };
 

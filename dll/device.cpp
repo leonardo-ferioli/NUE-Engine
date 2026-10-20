@@ -179,7 +179,24 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     if (!dev) return trace_result(__func__, D3DERR_DEVICELOST);
     if (in_scene_) { dev->end_scene(); in_scene_ = false; }
     apply_window_size();
-    return to_hresult(dev->present());
+    LARGE_INTEGER frequency, begin, end;
+    QueryPerformanceFrequency(&frequency); QueryPerformanceCounter(&begin);
+    const HRESULT result = to_hresult(dev->present());
+    QueryPerformanceCounter(&end);
+    // frame pacing: time between two Presents (the game's own work included) and the time Present itself takes
+    if (last_present_ticks_) {
+        const unsigned frame_us = unsigned((begin.QuadPart - last_present_ticks_) * 1000000ull / static_cast<unsigned long long>(frequency.QuadPart));
+        g_frame_sum_us += frame_us; ++g_frame_count; if (frame_us > 20000) ++g_frame_slow;
+        unsigned seen = g_frame_max_us.load(); while (frame_us > seen && !g_frame_max_us.compare_exchange_weak(seen, frame_us)) {}
+    }
+    last_present_ticks_ = (unsigned long long)end.QuadPart;
+    g_present_us = unsigned((end.QuadPart - begin.QuadPart) * 1000000ull / static_cast<unsigned long long>(frequency.QuadPart));
+    if (core_->gpu) { g_gpu_us = unsigned(core_->gpu->stats().gpu_ms * 1000.0); g_render_cpu_us = unsigned(core_->gpu->stats().render_cpu_ms * 1000.0); }
+    if (++present_count_ % 180 == 0 && core_->layer) {   // what the translator could not do, as soon as the game asks for it
+        std::string report = core_->layer->report();
+        if (report != last_report_) { last_report_ = report; log("unsupported so far:\n%s", report.c_str()); }
+    }
+    return result;
 } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::GetBackBuffer(UINT swap_chain, UINT index, D3DBACKBUFFER_TYPE, IDirect3DSurface9** out) try { NUE_CALL(); 

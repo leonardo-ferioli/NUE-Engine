@@ -23,6 +23,8 @@ HRESULT to_hresult(Status status);
 void apply_d3d9_fpu_mode(DWORD behaviour_flags);
 extern const char* volatile g_last_call;           // the COM method the game thread is in (for crash reports and the heartbeat)
 extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create, g_counter_calls;
+// frame pacing as the game sees it (written by Present, read by the heartbeat)
+extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_frame_count, g_gpu_us, g_render_cpu_us, g_present_us;
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 #define NUE_CALL() (::nue::facade::g_last_call = __func__, ++::nue::facade::g_counter_calls)
@@ -507,6 +509,9 @@ private:
     bool recording_block_ = false;
     d3d9::StateBlockId recording_id_;
     std::map<std::string, int> unsupported_seen_;
+    unsigned long long last_present_ticks_ = 0;
+    unsigned present_count_ = 0;
+    std::string last_report_;
 };
 
 // ---- the factory -------------------------------------------------------------------------------------------------------------------------
