@@ -33,23 +33,42 @@ HRESULT Device9::unsupported(const char* what) try { NUE_CALL();
     return trace_result(__func__, D3DERR_NOTAVAILABLE);
 } catch (...) { return guard_failed(__func__); }
 
+// The state a Direct3D 9 device has after CreateDevice and again after Reset (values measured on the real runtime with nue_defaults_test).
+void Device9::reset_state_shadows(bool depth_buffer) {
+    static const DWORD render_defaults[][2] = {
+        {7, 1}, {8, 3}, {9, 2}, {14, 1}, {16, 1}, {19, 2}, {20, 1}, {22, 3}, {23, 4}, {25, 8}, {37, 0x3f800000}, {38, 0x3f800000}, {53, 1}, {54, 1}, {55, 1}, {56, 8}, {58, 0xffffffff}, {59, 0xffffffff}, {60, 0xffffffff},
+        {136, 1}, {137, 1}, {141, 1}, {142, 1}, {145, 1}, {146, 2}, {154, 0x3f800000}, {155, 0x3f800000}, {158, 0x3f800000}, {161, 1}, {162, 0xffffffff}, {166, 0x43800000}, {168, 0xf}, {171, 1}, {172, 3}, {173, 1},
+        {178, 0x3f800000}, {179, 0x3f800000}, {182, 0x3f800000}, {186, 1}, {187, 1}, {188, 1}, {189, 8}, {190, 0xf}, {191, 0xf}, {192, 0xf}, {193, 0xffffffff}, {207, 2}, {208, 1}, {209, 1},
+    };
+    std::memset(render_state_, 0, sizeof render_state_);
+    for (const auto& d : render_defaults) render_state_[d[0]] = d[1];
+    render_state_[D3DRS_ZENABLE] = depth_buffer ? D3DZB_TRUE : D3DZB_FALSE;
+    std::memset(sampler_state_, 0, sizeof sampler_state_);
+    for (auto& s : sampler_state_) { s[D3DSAMP_ADDRESSU] = s[D3DSAMP_ADDRESSV] = s[D3DSAMP_ADDRESSW] = D3DTADDRESS_WRAP; s[D3DSAMP_MAGFILTER] = s[D3DSAMP_MINFILTER] = D3DTEXF_POINT; s[D3DSAMP_MAXANISOTROPY] = 1; }
+    std::memset(stage_state_, 0, sizeof stage_state_);
+    for (DWORD i = 0; i < 8; ++i) {
+        auto& s = stage_state_[i];
+        s[D3DTSS_COLOROP] = i == 0 ? D3DTOP_MODULATE : D3DTOP_DISABLE; s[D3DTSS_COLORARG1] = D3DTA_TEXTURE; s[D3DTSS_COLORARG2] = D3DTA_CURRENT;
+        s[D3DTSS_ALPHAOP] = i == 0 ? D3DTOP_SELECTARG1 : D3DTOP_DISABLE; s[D3DTSS_ALPHAARG1] = D3DTA_TEXTURE; s[D3DTSS_ALPHAARG2] = D3DTA_CURRENT;
+        s[D3DTSS_TEXCOORDINDEX] = i; s[D3DTSS_COLORARG0] = s[D3DTSS_ALPHAARG0] = s[D3DTSS_RESULTARG] = D3DTA_CURRENT;
+    }
+    transforms_.clear();
+    lights_.clear();
+    material_ = D3DMATERIAL9{};
+    for (auto& t : textures_) assign<IDirect3DBaseTexture9>(t, nullptr);
+    for (auto& v : streams_) assign<IDirect3DVertexBuffer9>(v, nullptr);
+    std::memset(stream_offset_, 0, sizeof stream_offset_); std::memset(stream_stride_, 0, sizeof stream_stride_);
+    assign<IDirect3DIndexBuffer9>(indices_, nullptr);
+    assign<IDirect3DVertexDeclaration9>(declaration_, nullptr);
+    assign<IDirect3DVertexShader9>(vertex_shader_, nullptr);
+    assign<IDirect3DPixelShader9>(pixel_shader_, nullptr);
+    fvf_ = 0;
+}
+
 Device9::Device9(Direct3D9* d3d, std::shared_ptr<Core> core, const D3DDEVICE_CREATION_PARAMETERS& creation, const D3DPRESENT_PARAMETERS& pp, const D3DCAPS9& caps, HWND window)
     : d3d_(d3d), core_(std::move(core)), creation_(creation), pp_(pp), caps_(caps), window_(window) {
     d3d_->AddRef();
-    // Direct3D 9 defaults for the render states a game reads back most
-    render_state_[D3DRS_ZENABLE] = pp.EnableAutoDepthStencil ? D3DZB_TRUE : D3DZB_FALSE;
-    render_state_[D3DRS_ZWRITEENABLE] = TRUE; render_state_[D3DRS_FILLMODE] = D3DFILL_SOLID; render_state_[D3DRS_SHADEMODE] = D3DSHADE_GOURAUD;
-    render_state_[D3DRS_SRCBLEND] = D3DBLEND_ONE; render_state_[D3DRS_DESTBLEND] = D3DBLEND_ZERO; render_state_[D3DRS_CULLMODE] = D3DCULL_CCW;
-    render_state_[D3DRS_ZFUNC] = D3DCMP_LESSEQUAL; render_state_[D3DRS_ALPHAFUNC] = D3DCMP_ALWAYS; render_state_[D3DRS_STENCILFUNC] = D3DCMP_ALWAYS;
-    render_state_[D3DRS_STENCILFAIL] = render_state_[D3DRS_STENCILZFAIL] = render_state_[D3DRS_STENCILPASS] = D3DSTENCILOP_KEEP;
-    render_state_[D3DRS_STENCILMASK] = render_state_[D3DRS_STENCILWRITEMASK] = 0xFFFFFFFF; render_state_[D3DRS_COLORWRITEENABLE] = 0xF;
-    render_state_[D3DRS_LIGHTING] = TRUE; render_state_[D3DRS_CLIPPING] = TRUE; render_state_[D3DRS_BLENDOP] = D3DBLENDOP_ADD; render_state_[D3DRS_BLENDFACTOR] = 0xFFFFFFFF;
-    render_state_[D3DRS_TEXTUREFACTOR] = 0xFFFFFFFF;
-    const float one = 1.0f;
-    std::memcpy(&render_state_[D3DRS_FOGEND], &one, 4); std::memcpy(&render_state_[D3DRS_FOGDENSITY], &one, 4);
-    for (auto& s : sampler_state_) { s[D3DSAMP_ADDRESSU] = s[D3DSAMP_ADDRESSV] = s[D3DSAMP_ADDRESSW] = D3DTADDRESS_WRAP; s[D3DSAMP_MAGFILTER] = s[D3DSAMP_MINFILTER] = D3DTEXF_POINT; s[D3DSAMP_MAXANISOTROPY] = 1; }
-    for (auto& s : stage_state_) { s[D3DTSS_COLOROP] = D3DTOP_DISABLE; s[D3DTSS_ALPHAOP] = D3DTOP_DISABLE; s[D3DTSS_COLORARG1] = s[D3DTSS_ALPHAARG1] = D3DTA_TEXTURE; s[D3DTSS_COLORARG2] = s[D3DTSS_ALPHAARG2] = D3DTA_CURRENT; s[D3DTSS_RESULTARG] = D3DTA_CURRENT; }
-    stage_state_[0][D3DTSS_COLOROP] = D3DTOP_MODULATE; stage_state_[0][D3DTSS_ALPHAOP] = D3DTOP_SELECTARG1;
+    reset_state_shadows(pp.EnableAutoDepthStencil != FALSE);
     viewport_ = D3DVIEWPORT9{0, 0, pp.BackBufferWidth, pp.BackBufferHeight, 0.0f, 1.0f};
     window_w_ = pp.BackBufferWidth; window_h_ = pp.BackBufferHeight;
     assign<IDirect3DSurface9>(render_targets_[0], back_buffer_surface());
@@ -168,6 +187,7 @@ HRESULT Device9::Reset(D3DPRESENT_PARAMETERS* pp) try { NUE_CALL();
     const d3d9::DeviceParams params = params_from(*pp, w, h);
     const Status status = dev->reset(params);
     if (status != Status::ok) return to_hresult(status);
+    reset_state_shadows(pp->EnableAutoDepthStencil != FALSE);
     apply_d3d9_fpu_mode(creation_.BehaviorFlags);
     pp_ = *pp;
     pp_.BackBufferWidth = w; pp_.BackBufferHeight = h;

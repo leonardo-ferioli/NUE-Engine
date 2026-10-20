@@ -160,7 +160,7 @@ void LayerImpl::init_state(DeviceState& st) {
     rs[rs_colorwriteenable] = 0xF; rs[rs_colorwriteenable1] = rs[rs_colorwriteenable2] = rs[rs_colorwriteenable3] = 0xF;
     rs[rs_blendop] = blendop_add; rs[rs_blendfactor] = 0xFFFFFFFF; rs[rs_srgbwriteenable] = 0; rs[rs_depthbias] = 0; rs[rs_slopescaledepthbias] = 0;
     rs[rs_separatealphablendenable] = 0; rs[rs_srcblendalpha] = blend_one; rs[rs_destblendalpha] = blend_zero; rs[rs_blendopalpha] = blendop_add;
-    rs[rs_scissortestenable] = 0; rs[rs_multisamplemask] = 0xFFFFFFFF; rs[rs_pointsize] = 0x3F800000; rs[rs_pointsize_min] = 0x3F800000; rs[rs_pointsize_max] = 0x42800000;
+    rs[rs_scissortestenable] = 0; rs[rs_multisamplemask] = 0xFFFFFFFF; rs[rs_pointsize] = 0x3F800000; rs[rs_pointsize_min] = 0x3F800000; rs[rs_pointsize_max] = 0x43800000;
     rs[rs_pointscale_a] = 0x3F800000;
     for (auto& s : st.ss) { s[ss_addressu] = s[ss_addressv] = s[ss_addressw] = taddress_wrap; s[ss_magfilter] = s[ss_minfilter] = texf_point; s[ss_mipfilter] = texf_none; s[ss_maxanisotropy] = 1; }
     for (uint32_t stage = 0; stage < 8; ++stage) {
@@ -217,6 +217,8 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
 
 Status LayerImpl::reset(const DeviceParams& p) {
     end_pass();
+    init_state(state_);   // Reset and CreateDevice: every state is back at its default, nothing is bound
+    ++program_epoch_;
     const bool resized = p.back_width != params_.back_width || p.back_height != params_.back_height;
     params_ = p;
     { char text[200]; std::snprintf(text, sizeof text, "device parameters: back buffer %ux%u format %u, depth format %u, multisample type %u, %u buffers, %s, present interval %x", p.back_width, p.back_height, p.back_format, p.depth_format, p.multisample, p.buffers, p.windowed ? "windowed" : "fullscreen", p.present_interval); log(text); }
@@ -458,10 +460,11 @@ Result<LockedRegion> LayerImpl::lock_texture(TextureId id, uint32_t level, uint3
     lock.staging.assign(size, std::byte{0});
     const size_t index = size_t(face) * t->levels + level;
     const std::vector<std::byte>& copy = t->contents[index];
-    const bool has_data = !copy.empty() || (t->uploaded_levels & (1u << std::min(level, 31u)));
+    const bool has_data = !copy.empty() || (!t->cube && (t->uploaded_levels & (1u << std::min(level, 31u))));   // a cube's faces are told apart by their kept copy
     if (has_data) {
         ++stats_.relocks_with_data; ++t->relocks;
         if (!(flags & (k::lock_discard | lock_readonly))) ++stats_.relocks_without_discard;
+        if (stats_.relocks_with_data <= 12) log("texture " + std::to_string(t->width) + "x" + std::to_string(t->height) + (t->cube ? " cube face " + std::to_string(face) : std::string()) + " d3d format " + std::to_string(t->format) + " pool " + std::to_string(t->pool) + " level " + std::to_string(level) + " locked again (flags " + std::to_string(flags) + ", part " + std::to_string(w) + "x" + std::to_string(h) + " of the level): it keeps what it held");
     }
     if (!copy.empty() && !(flags & k::lock_discard)) {   // the lock shows what the texture holds: a game that changes a part of a level gets the rest as it was
         const uint32_t full_pitch = level_pitch(info, lw), rows = (h + info.block_h - 1) / info.block_h, row_bytes = ((w + info.block_w - 1) / info.block_w) * info.block_bytes;
@@ -540,6 +543,8 @@ Status LayerImpl::unlock_texture(TextureId id, uint32_t level, uint32_t face) {
     const uint32_t lw = mip_dimension(t->width, level), lh = mip_dimension(t->height, level);
     const bool whole = lock.rect[0] == 0 && lock.rect[1] == 0 && w == lw && h == lh;
     const uint32_t rect[4] = {lock.rect[0], lock.rect[1], w, h};
+    static const bool zero_cubes = std::getenv("NUE_DEBUG_ZERO_CUBES") != nullptr;   // debugging aid: what the picture looks like when the cube maps are empty
+    if (zero_cubes && t->cube) std::fill(lock.staging.begin(), lock.staging.end(), std::byte{0});
     if (t->gpu) upload_level_region(*t, level, face, rect, whole, lock.staging.data(), lock.staging.size(), lock.pitch, w, h);
     else { t->uploaded_levels |= level < 32 ? (1u << level) : 0u; ++t->uploads; t->last_upload_frame = frame_; }
     retain_copy(*t, uint32_t(index), level, rect, whole, lock.staging, lock.pitch);

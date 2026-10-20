@@ -29,6 +29,7 @@ const Format formats[] = {
 };
 
 uint32_t g_seed = 12345;
+bool g_readback_mismatch = false;
 uint32_t next_random() { g_seed = g_seed * 1664525u + 1013904223u; return g_seed >> 8; }
 
 struct Run { bool ok = false; std::vector<uint8_t> pixels; };   // BGRA 8x8 or 4x4 colour, then alpha-as-colour
@@ -117,6 +118,11 @@ bool run_format(Device& d, const Format& f, std::vector<uint8_t>& level0, std::v
         const UINT rows = f.block ? (size + 3) / 4 : size;
         for (UINT r = 0; r < rows; ++r) std::memcpy(static_cast<uint8_t*>(lr.pBits) + size_t(r) * lr.Pitch, data.data() + size_t(r) * row, row);
         texture->UnlockRect(level);
+        // a managed texture shows what it holds when it is locked again (the game builds a cube map from 2D textures this way): read it back and compare
+        D3DLOCKED_RECT again;
+        if (FAILED(texture->LockRect(level, &again, nullptr, D3DLOCK_READONLY))) { texture->Release(); return false; }
+        for (UINT r = 0; r < rows; ++r) if (std::memcmp(static_cast<uint8_t*>(again.pBits) + size_t(r) * again.Pitch, data.data() + size_t(r) * row, row) != 0) { g_readback_mismatch = true; break; }
+        texture->UnlockRect(level);
     }
     std::vector<uint8_t> color, alpha;
     bool ok = draw_quad(d.device, texture, 8, 0, false, color) && draw_quad(d.device, texture, 8, 0, true, alpha);
@@ -158,7 +164,9 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> r0, r1, o0, o1;
         const bool real_ok = run_format(a, f, r0, r1);
         if (!real_ok) { std::printf("SKIP %-12s (the system runtime cannot do it)\n", f.name); continue; }
+        g_readback_mismatch = false;
         const bool ours_ok = run_format(b, f, o0, o1);
+        if (ours_ok && g_readback_mismatch) { std::printf("FAIL %-12s Lock after Unlock does not return what was written\n", f.name); ++failed; continue; }
         if (!ours_ok) { std::printf("FAIL %-12s our dll cannot create / fill / draw it\n", f.name); ++failed; continue; }
         double m0, m1;
         const double w0 = max_difference(r0, o0, m0), w1 = max_difference(r1, o1, m1);

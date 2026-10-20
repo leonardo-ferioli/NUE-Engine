@@ -506,6 +506,7 @@ private:
     friend class SwapChain9;
     d3d9::DeviceParams params_from(const D3DPRESENT_PARAMETERS& pp, UINT& width, UINT& height) const;
     void apply_window_size();
+    void reset_state_shadows(bool depth_buffer);
     Surface9* back_buffer_surface();
     template <class T> static void assign(T*& slot, T* value) { if (value) value->AddRef(); if (slot) slot->Release(); slot = value; }
 

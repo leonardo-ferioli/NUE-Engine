@@ -100,6 +100,10 @@ if(WIN32 AND NUE_WITH_BGFX)
     add_executable(nue_state_test tools/state_test.cpp)
     target_link_libraries(nue_state_test PRIVATE user32)
     target_compile_definitions(nue_state_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+    # device state right after CreateDevice / Reset, real runtime against the dll: nue_defaults_test <path to d3d9.dll>
+    add_executable(nue_defaults_test tools/defaults_test.cpp)
+    target_link_libraries(nue_defaults_test PRIVATE user32)
+    target_compile_definitions(nue_defaults_test PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
 add_executable(nue_replay tools/replay.cpp)
