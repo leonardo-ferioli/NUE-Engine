@@ -127,6 +127,12 @@ void LayerImpl::set_pixel_shader(ShaderId id) {
 }
 
 void LayerImpl::set_vertex_shader_constants_f(uint32_t start, std::span<const Float4> values) {
+    if (!recording_) {   // the usual case: one copy, and the version moves only when a value really changes (games set the same constants again and again)
+        if (start >= state_.vs_constants.size()) return;
+        const size_t n = std::min(values.size(), state_.vs_constants.size() - start);
+        if (std::memcmp(&state_.vs_constants[start], values.data(), n * sizeof(Float4)) != 0) { std::memcpy(&state_.vs_constants[start], values.data(), n * sizeof(Float4)); ++vs_version_; }
+        return;
+    }
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < values.size() && start + i < st.vs_constants.size(); ++i) {
         st.vs_constants[start + i] = values[i];
@@ -135,6 +141,12 @@ void LayerImpl::set_vertex_shader_constants_f(uint32_t start, std::span<const Fl
 }
 
 void LayerImpl::set_pixel_shader_constants_f(uint32_t start, std::span<const Float4> values) {
+    if (!recording_) {   // the usual case: one copy, and the version moves only when a value really changes (games set the same constants again and again)
+        if (start >= state_.ps_constants.size()) return;
+        const size_t n = std::min(values.size(), state_.ps_constants.size() - start);
+        if (std::memcmp(&state_.ps_constants[start], values.data(), n * sizeof(Float4)) != 0) { std::memcpy(&state_.ps_constants[start], values.data(), n * sizeof(Float4)); ++ps_version_; }
+        return;
+    }
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < values.size() && start + i < st.ps_constants.size(); ++i) {
         st.ps_constants[start + i] = values[i];
@@ -143,18 +155,22 @@ void LayerImpl::set_pixel_shader_constants_f(uint32_t start, std::span<const Flo
 }
 
 void LayerImpl::set_vertex_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    if (!recording_) ++vs_version_;
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_int[start + i] = v[i]; if (recording_) recording_->vs_int.set(start + i); }
 }
 void LayerImpl::set_pixel_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    if (!recording_) ++ps_version_;
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_int[start + i] = v[i]; if (recording_) recording_->ps_int.set(start + i); }
 }
 void LayerImpl::set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    if (!recording_) ++vs_version_;
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->vs_bool.set(start + i); }
 }
 void LayerImpl::set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    if (!recording_) ++ps_version_;
     DeviceState& st = recording_ ? recording_->values : state_;
     for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->ps_bool.set(start + i); }
 }
@@ -204,6 +220,7 @@ void LayerImpl::apply(StateBlockId id) {
     auto* slot = blocks_.get(id.value);
     if (!slot) { bad_handle("apply"); return; }
     ++program_epoch_;
+    ++vs_version_; ++ps_version_;
     const StateBlock& b = **slot;
     if (b.compiled.ready) {
         const StateBlock::Compiled& c = b.compiled;
@@ -370,4 +387,23 @@ void LayerImpl::clear(std::span<const int32_t> rects, uint32_t flags, uint32_t a
     }
 }
 
+}  // namespace nue::d3d9
+
+namespace nue::d3d9 {
+bool LayerImpl::get_shader_constants_f(bool pixel, uint32_t start, Float4* out, uint32_t count) const {
+    const size_t size = pixel ? state_.ps_constants.size() : state_.vs_constants.size();
+    if (size_t(start) + count > size) return false;
+    std::memcpy(out, (pixel ? state_.ps_constants.data() : state_.vs_constants.data()) + start, size_t(count) * sizeof(Float4));
+    return true;
+}
+bool LayerImpl::get_shader_constants_i(bool pixel, uint32_t start, Int4* out, uint32_t count) const {
+    if (size_t(start) + count > 16) return false;
+    std::memcpy(out, (pixel ? state_.ps_int.data() : state_.vs_int.data()) + start, size_t(count) * sizeof(Int4));
+    return true;
+}
+bool LayerImpl::get_shader_constants_b(bool pixel, uint32_t start, uint32_t* out, uint32_t count) const {
+    if (size_t(start) + count > 16) return false;
+    std::memcpy(out, (pixel ? state_.ps_bool.data() : state_.vs_bool.data()) + start, size_t(count) * sizeof(uint32_t));
+    return true;
+}
 }  // namespace nue::d3d9

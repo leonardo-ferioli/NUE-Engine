@@ -218,6 +218,7 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
 Status LayerImpl::reset(const DeviceParams& p) {
     ++surface_generation_;
     end_pass();
+    ++vs_version_; ++ps_version_;
     init_state(state_);   // Reset and CreateDevice: every state is back at its default, nothing is bound
     ++program_epoch_;
     const bool resized = p.back_width != params_.back_width || p.back_height != params_.back_height;

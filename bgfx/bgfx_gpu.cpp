@@ -640,8 +640,8 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
             else bgfx::setIndexBuffer(e->ib, d.first_index, d.index_count);
         }
     }
-    set_constants(u_vs_, d.vertex_constants, last_vs_);
-    set_constants(u_ps_, d.pixel_constants, last_ps_);
+    if (d.vertex_constants_same && !last_vs_.empty()) ++uniform_skips_; else set_constants(u_vs_, d.vertex_constants, last_vs_);
+    if (d.pixel_constants_same && !last_ps_.empty()) ++uniform_skips_; else set_constants(u_ps_, d.pixel_constants, last_ps_);
     for (uint32_t i = 0; i < 16; ++i) {
         if (!d.textures[i]) continue;
         TextureEntry* t = textures_.get(d.textures[i].value);

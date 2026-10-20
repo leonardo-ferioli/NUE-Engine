@@ -551,7 +551,6 @@ private:
     DWORD stage_state_[8][33] = {};
     std::map<DWORD, D3DMATRIX> transforms_;
     std::map<DWORD, std::pair<D3DLIGHT9, BOOL>> lights_;
-    std::vector<float> vs_f_ = std::vector<float>(256 * 4), ps_f_ = std::vector<float>(224 * 4);
     int vs_i_[16][4] = {}, ps_i_[16][4] = {};
     BOOL vs_b_[16] = {}, ps_b_[16] = {};
     // what the device keeps referenced while it is bound

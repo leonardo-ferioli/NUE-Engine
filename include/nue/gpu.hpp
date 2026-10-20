@@ -88,6 +88,7 @@ struct DrawDesc {
     // Contents of the uniform block of each stage: `fixup` registers (viewport/depth/half-pixel for vertex shaders; alpha test and fog for pixel
     // shaders) followed by the float constant registers the program reads; packed float4.
     Bytes vertex_constants, pixel_constants;
+    bool vertex_constants_same = false, pixel_constants_same = false;   // the same bytes as the previous draw's (the backend may skip setting them)
     BlendState blend;
     DepthStencilState depth_stencil;
     RasterState raster;

@@ -201,7 +201,7 @@ struct Sampler {
     std::thread worker;
     std::vector<Sample> samples;   // preallocated: the sampler must not allocate while the sampled thread is suspended (it could hold the heap lock)
     uint32_t total = 0;
-    uint64_t code_begin = 0, code_end = 0;
+    uint64_t code_begin = 0, code_end = 0, dll_begin = 0, dll_end = 0;   // this program and the dll under test (NUE_D3D9_DLL)
     void start() {
         samples.reserve(1u << 20);
         timeBeginPeriod(1);   // 1 ms sleeps: a sample per millisecond
@@ -209,6 +209,10 @@ struct Sampler {
         const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
         const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
         code_begin = uint64_t(uintptr_t(base)); code_end = code_begin + nt->OptionalHeader.SizeOfImage;
+        if (const char* path = std::getenv("NUE_D3D9_DLL")) if (const auto* dll = reinterpret_cast<const uint8_t*>(GetModuleHandleA(path))) {
+            const auto* dnt = reinterpret_cast<const IMAGE_NT_HEADERS*>(dll + reinterpret_cast<const IMAGE_DOS_HEADER*>(dll)->e_lfanew);
+            dll_begin = uint64_t(uintptr_t(dll)); dll_end = dll_begin + dnt->OptionalHeader.SizeOfImage;
+        }
         HANDLE target = nullptr;
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &target, 0, FALSE, DUPLICATE_SAME_ACCESS);
         worker = std::thread([this, target] {
@@ -223,11 +227,12 @@ struct Sampler {
                     const uint64_t ip = ctx.Eip, sp = ctx.Esp;
 #endif
                     uint64_t caller = 0;
-                    if (ip < code_begin || ip >= code_end) {
+                    auto ours = [&](uint64_t a) { return (a > code_begin + 0x1000 && a < code_end) || (a > dll_begin + 0x1000 && a < dll_end); };
+                    if (!ours(ip)) {
                         const auto* stack = reinterpret_cast<const uintptr_t*>(uintptr_t(sp));
                         for (int i = 0; i < 512 && !caller; ++i) {   // the thread is suspended: its stack does not move under us
                             const uint64_t v = stack[i];
-                            if (v > code_begin + 0x1000 && v < code_end) caller = v;
+                            if (ours(v)) caller = v;
                         }
                     }
                     samples.push_back({ip, caller});
@@ -366,8 +371,18 @@ static int run_bench(int argc, char** argv) {
     Sampler sampler;
     const bool sample = [&] { for (int i = 2; i < argc; ++i) if (!std::strcmp(argv[i], "--sample")) return true; return false; }();
 #endif
+    unsigned long long cpu_begin = 0;   // CPU time of this thread over the timed loops: what the work costs, whatever the waits
+    auto thread_cpu = [] {
+        unsigned long long t = 0;
+#ifdef _WIN32
+        FILETIME c, e, k, u;
+        if (GetThreadTimes(GetCurrentThread(), &c, &e, &k, &u)) t = ((unsigned long long)k.dwHighDateTime << 32 | k.dwLowDateTime) + ((unsigned long long)u.dwHighDateTime << 32 | u.dwLowDateTime);
+#endif
+        return t;
+    };
     for (unsigned loop = 0; loop <= loops; ++loop) {
         timing = loop > 0;
+        if (loop == 1) cpu_begin = thread_cpu();
         if (loop == 1) { if (layer) layer->reset_profile(); if (bgfx_gpu) bgfx_gpu->reset_profile(); }
 #ifdef _WIN32
         if (loop == 1 && sample) sampler.start();
@@ -378,7 +393,9 @@ static int run_bench(int argc, char** argv) {
 #ifdef _WIN32
     if (sample) sampler.report(45);
 #endif
+    const double cpu_ms = double(thread_cpu() - cpu_begin) / 1e4;
     if (frame_ms.empty()) { std::printf("no frames measured\n"); return 1; }
+    std::printf("replaying thread CPU: %.2f ms per frame\n", cpu_ms / double(frame_ms.size()));
     if (std::getenv("NUE_BENCH_FRAMES")) for (size_t i = 0; i < frame_ms.size(); ++i) std::printf("frame %zu: %.2f ms\n", i % 120, frame_ms[i]);
     std::vector<double> v = frame_ms;
     std::sort(v.begin(), v.end());

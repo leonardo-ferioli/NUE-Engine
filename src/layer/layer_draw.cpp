@@ -551,10 +551,22 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
     const bool robust_equal = ff_vertex && state_.rs[rs_zfunc] == cmp_equal;
     if (robust_equal) vfix[5] -= 1e-5f;   // see below: a fixed-function redraw cannot reproduce the depth of a shader pass bit for bit
     fill_pixel_fixup(pfix);
-    if (ff_vertex) { fill_ff_vertex_constants(ff_constants_); collect_constants(vs_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.vertex, vfix); }
-    else collect_constants(vs_constants_scratch_, state_.vs_constants.data(), uint32_t(state_.vs_constants.size()), *program.vertex, vfix, state_.vs_int.data(), state_.vs_bool.data());
-    if (ff_pixel) { fill_ff_pixel_constants(ff_constants_); collect_constants(ps_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.pixel, pfix); }
-    else collect_constants(ps_constants_scratch_, state_.ps_constants.data(), uint32_t(state_.ps_constants.size()), *program.pixel, pfix, state_.ps_int.data(), state_.ps_bool.data());
+    // A draw with the same program, the same constants (version) and the same fix-ups as the previous one reuses what that draw collected, and tells the
+    // backend so (no copy, no compare, no upload). The fixed-function constants come from many states: they are always collected.
+    ConstantsKey vs_key{program.vertex, ff_vertex ? 0 : vs_version_, {}}, ps_key{program.pixel, ff_pixel ? 0 : ps_version_, {}};
+    std::memcpy(vs_key.fix, vfix, sizeof vfix); std::memcpy(ps_key.fix, pfix, sizeof pfix);
+    d.vertex_constants_same = !ff_vertex && vs_key == last_vs_key_;
+    d.pixel_constants_same = !ff_pixel && ps_key == last_ps_key_;
+    if (!d.vertex_constants_same) {
+        if (ff_vertex) { fill_ff_vertex_constants(ff_constants_); collect_constants(vs_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.vertex, vfix); }
+        else collect_constants(vs_constants_scratch_, state_.vs_constants.data(), uint32_t(state_.vs_constants.size()), *program.vertex, vfix, state_.vs_int.data(), state_.vs_bool.data());
+        last_vs_key_ = ff_vertex ? ConstantsKey{} : vs_key;
+    }
+    if (!d.pixel_constants_same) {
+        if (ff_pixel) { fill_ff_pixel_constants(ff_constants_); collect_constants(ps_constants_scratch_, ff_constants_.data(), uint32_t(ff_constants_.size()), *program.pixel, pfix); }
+        else collect_constants(ps_constants_scratch_, state_.ps_constants.data(), uint32_t(state_.ps_constants.size()), *program.pixel, pfix, state_.ps_int.data(), state_.ps_bool.data());
+        last_ps_key_ = ff_pixel ? ConstantsKey{} : ps_key;
+    }
     d.vertex_constants = Bytes(vs_constants_scratch_.data(), vs_constants_scratch_.size());
     d.pixel_constants = Bytes(ps_constants_scratch_.data(), ps_constants_scratch_.size());
 

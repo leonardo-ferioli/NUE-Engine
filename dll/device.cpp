@@ -709,11 +709,10 @@ HRESULT Device9::GetPixelShader(IDirect3DPixelShader9** out) try { NUE_CALL_FAST
 HRESULT Device9::SetVertexShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL);
-    if (!recording_block_) std::memcpy(&vs_f_[size_t(start) * 4], data, size_t(count) * 16);
     dev->set_vertex_shader_constants_f(start, std::span<const d3d9::Float4>(reinterpret_cast<const d3d9::Float4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetVertexShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &vs_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetVertexShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 256) return trace_result(__func__, D3DERR_INVALIDCALL); auto* dev = core_->dev(); if (!dev || !dev->get_shader_constants_f(false, start, reinterpret_cast<d3d9::Float4*>(data), count)) return trace_result(__func__, D3DERR_INVALIDCALL); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::SetVertexShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
@@ -737,11 +736,10 @@ HRESULT Device9::GetVertexShaderConstantB(UINT start, BOOL* data, UINT count) tr
 HRESULT Device9::SetPixelShaderConstantF(UINT start, const float* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();
     if (!dev || !data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL);
-    if (!recording_block_) std::memcpy(&ps_f_[size_t(start) * 4], data, size_t(count) * 16);
     dev->set_pixel_shader_constants_f(start, std::span<const d3d9::Float4>(reinterpret_cast<const d3d9::Float4*>(data), count));
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
-HRESULT Device9::GetPixelShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL); std::memcpy(data, &ps_f_[size_t(start) * 4], size_t(count) * 16); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::GetPixelShaderConstantF(UINT start, float* data, UINT count) try { NUE_CALL_FAST(); if (!data || start + count > 224) return trace_result(__func__, D3DERR_INVALIDCALL); auto* dev = core_->dev(); if (!dev || !dev->get_shader_constants_f(true, start, reinterpret_cast<d3d9::Float4*>(data), count)) return trace_result(__func__, D3DERR_INVALIDCALL); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 HRESULT Device9::SetPixelShaderConstantI(UINT start, const int* data, UINT count) try { NUE_CALL_FAST(); 
     auto* dev = core_->dev();

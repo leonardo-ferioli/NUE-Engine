@@ -79,6 +79,10 @@ public:
     virtual void set_transform(uint32_t type, const float* matrix16) = 0;
     virtual void light_enable(uint32_t index, bool enable) = 0;
     virtual void set_light(uint32_t index, const LightDesc&) { (void)index; }
+    // the shader constants the device holds (GetVertexShaderConstantF and friends); false when the device cannot tell
+    virtual bool get_shader_constants_f(bool pixel, uint32_t start, Float4* out, uint32_t count) const { (void)pixel; (void)start; (void)out; (void)count; return false; }
+    virtual bool get_shader_constants_i(bool pixel, uint32_t start, Int4* out, uint32_t count) const { (void)pixel; (void)start; (void)out; (void)count; return false; }
+    virtual bool get_shader_constants_b(bool pixel, uint32_t start, uint32_t* out, uint32_t count) const { (void)pixel; (void)start; (void)out; (void)count; return false; }
     virtual void set_material(const MaterialDesc&) {}
     virtual void set_viewport(const uint32_t* x_y_w_h, float min_z, float max_z) = 0;
     virtual void set_texture(uint32_t sampler, TextureId) = 0;

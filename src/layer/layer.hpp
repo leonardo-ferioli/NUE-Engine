@@ -183,6 +183,9 @@ public:
     void light_enable(uint32_t index, bool enable) override;
     void set_light(uint32_t index, const LightDesc&) override;
     void set_material(const MaterialDesc&) override;
+    bool get_shader_constants_f(bool pixel, uint32_t start, Float4* out, uint32_t count) const override;
+    bool get_shader_constants_i(bool pixel, uint32_t start, Int4* out, uint32_t count) const override;
+    bool get_shader_constants_b(bool pixel, uint32_t start, uint32_t* out, uint32_t count) const override;
     void set_viewport(const uint32_t* x_y_w_h, float min_z, float max_z) override;
     void set_texture(uint32_t sampler, TextureId) override;
     void set_render_target(uint32_t index, SurfaceId) override;
@@ -326,7 +329,11 @@ private:
     // what the open pass was resolved from: while the bound targets and the surfaces are the same, a draw does not resolve the attachments again
     struct PassKey { std::array<uint32_t, 4> targets{}; uint32_t depth = 0; uint64_t generation = 0; bool operator==(const PassKey&) const = default; };
     PassKey pass_key_;
-    uint64_t surface_generation_ = 1;   // bumped whenever a surface or texture is created, destroyed or the device is reset
+    uint64_t surface_generation_ = 1;
+    // shader constants: a version bumped by every change, and what the last draw collected (a draw with the same program, version and fix-ups reuses it)
+    uint64_t vs_version_ = 1, ps_version_ = 1;
+    struct ConstantsKey { const void* program = nullptr; uint64_t version = 0; float fix[8] = {}; bool operator==(const ConstantsKey&) const = default; };
+    ConstantsKey last_vs_key_, last_ps_key_;   // bumped whenever a surface or texture is created, destroyed or the device is reset
 
     // programs
     struct TranslationKey { uint64_t shader; uint64_t options; bool operator==(const TranslationKey&) const = default; };
