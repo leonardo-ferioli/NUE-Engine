@@ -598,7 +598,8 @@ bgfx::VertexLayoutHandle BgfxGpuImpl::layout_handle(const DrawDesc& d, uint32_t 
 
 void BgfxGpuImpl::draw(const DrawDesc& d) {
     if (!pass_open_) return;
-    const uint64_t t0 = now_ns();
+    const bool timed = options_.profile_draws;
+    const uint64_t t0 = timed ? now_ns() : 0;
     ProgramEntry* program = programs_.get(d.program.value);
     if (!program) return;
     uint32_t blend_factor = 0;
@@ -634,10 +635,9 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
         if (!t) continue;
         bgfx::setTexture(uint8_t(i), u_tex_[i], t->handle, sampler_flags(d.samplers[i]));
     }
-    const uint64_t t3 = now_ns();
+    const uint64_t t3 = timed ? now_ns() : 0;
     bgfx::submit(uint16_t(current_view_), program->handle);
-    const uint64_t t4 = now_ns();
-    prof_submit_ns_ += t4 - t3; prof_draw_ns_ += t4 - t0; ++prof_draws_;
+    if (timed) { const uint64_t t4 = now_ns(); prof_submit_ns_ += t4 - t3; prof_draw_ns_ += t4 - t0; ++prof_draws_; }
     ++pass_draws_;
     ++stats_.draws;
 }
@@ -736,7 +736,9 @@ Status BgfxGpuImpl::present(uint32_t) {
     }
     const uint64_t t_frame = now_ns();
     bgfx::frame();
-    prof_frame_ns_ += now_ns() - t_frame; ++prof_frames_;
+    const uint64_t frame_ns = now_ns() - t_frame;
+    prof_frame_ns_ += frame_ns; ++prof_frames_;
+    stats_.frame_call_ms = double(frame_ns) * 1e-6;
     if (const bgfx::Stats* st = bgfx::getStats()) {   // timings of the frame the backend finished last
         if (st->gpuTimerFreq) { stats_.gpu_ms = 1000.0 * double(st->gpuTimeEnd - st->gpuTimeBegin) / double(st->gpuTimerFreq); prof_gpu_ms_ += stats_.gpu_ms; }
         if (st->cpuTimerFreq) { stats_.render_cpu_ms = 1000.0 * double(st->cpuTimeEnd - st->cpuTimeBegin) / double(st->cpuTimerFreq); stats_.wait_render_ms = 1000.0 * double(st->waitRender) / double(st->cpuTimerFreq); stats_.wait_submit_ms = 1000.0 * double(st->waitSubmit) / double(st->cpuTimerFreq); }

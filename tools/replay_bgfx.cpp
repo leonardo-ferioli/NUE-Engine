@@ -271,6 +271,7 @@ static int run_bench(int argc, char** argv) {
         options.renderer = mode == "vulkan" ? gpu::Renderer::vulkan : mode == "opengl" ? gpu::Renderer::opengl : mode == "noop" ? gpu::Renderer::noop : gpu::Renderer::d3d11;
         options.window_width = 1280; options.window_height = 720;
         options.single_threaded = !multithreaded;
+        options.profile_draws = true;
         options.shader_cache_dir = cache_dir;
         options.window = make_window(1280, 720, false);
         auto g = gpu::create_bgfx_gpu(options, error);
@@ -310,6 +311,8 @@ static int run_bench(int argc, char** argv) {
     d3d9::ReplayHooks hooks;
     bool timing = false;
     hooks.presented = [&](uint64_t) {
+        static const double pace_ms = std::getenv("NUE_BENCH_PACE_MS") ? std::atof(std::getenv("NUE_BENCH_PACE_MS")) : 0.0;   // pretend the game is the bottleneck: one frame every pace_ms
+        if (pace_ms > 0) { const auto until = last + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(pace_ms)); while (std::chrono::steady_clock::now() < until) std::this_thread::sleep_for(std::chrono::microseconds(200)); }
         const auto now = std::chrono::steady_clock::now();
         if (timing) frame_ms.push_back(std::chrono::duration<double, std::milli>(now - last).count());
         last = now;

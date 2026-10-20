@@ -28,7 +28,7 @@ extern std::atomic<unsigned> g_counter_present, g_counter_draw, g_counter_create
 extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_frame_count, g_gpu_us, g_render_cpu_us, g_present_us;
 // running totals for the timeline line (written by Present on the game thread): microseconds spent in Present, GPU, backend CPU, game thread waiting for the render thread, render thread waiting for the game thread;
 // CPU time (100 ns units) and CPU cycles consumed by the game thread so far
-extern std::atomic<unsigned long long> g_present_total_us, g_gpu_total_us, g_render_total_us, g_wait_render_total_us, g_wait_submit_total_us, g_thread_cpu_100ns, g_thread_cycles;
+extern std::atomic<unsigned long long> g_present_total_us, g_gpu_total_us, g_render_total_us, g_wait_render_total_us, g_wait_submit_total_us, g_thread_cpu_100ns, g_thread_cycles, g_frame_call_total_us;
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from

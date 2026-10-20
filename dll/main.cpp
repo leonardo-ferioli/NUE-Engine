@@ -4,6 +4,8 @@
 // decisions it takes with the real driver. The device, and everything the game draws, is ours.
 #include "facade.hpp"
 #include <tlhelp32.h>
+#include <pdh.h>
+#include <pdhmsg.h>
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -23,7 +25,7 @@ DWORD g_main_thread = 0;
 std::atomic<bool> g_multithreaded{false};
 CRITICAL_SECTION g_call_lock;
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0}, g_counter_calls{0};
-std::atomic<unsigned long long> g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
+std::atomic<unsigned long long> g_frame_call_total_us{0}, g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
 namespace {
@@ -72,6 +74,8 @@ void load_config() {
     g_config.mark_missing = truthy(ini_value(ini, "mark_missing_textures"), g_config.mark_missing);
     if (auto v = ini_value(ini, "render_thread_priority"); !v.empty()) g_config.render_thread_priority = v;
     if (auto v = ini_value(ini, "render_thread_cpu"); !v.empty()) g_config.render_thread_cpu = std::atoi(v.c_str());
+    if (const char* e = std::getenv("NUE_RENDER_THREAD_PRIORITY")) g_config.render_thread_priority = e;
+    if (const char* e = std::getenv("NUE_RENDER_THREAD_CPU")) g_config.render_thread_cpu = std::atoi(e);
     if (const char* e = std::getenv("NUE_MARK_MISSING")) g_config.mark_missing = truthy(e, g_config.mark_missing);
     if (const char* e = std::getenv("NUE_RENDERER")) g_config.renderer = e;   // environment wins
     if (const char* e = std::getenv("NUE_VSYNC")) g_config.vsync = truthy(e, g_config.vsync);
@@ -227,10 +231,55 @@ void profile_report(ProfileSnapshot& previous, unsigned frames) {
 
 // The frame as the game thread lives it: where the wall time of a frame goes, and whether the game thread is CPU bound (busy ~100 %) or waiting.
 struct TimelineSnapshot {
-    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0;
+    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0, frame_call_us = 0;
 };
 
 unsigned long long filetime_value(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
+
+// How busy the GPU really is: the operating system's own "GPU Engine" performance counters for this process (what the Task Manager shows). bgfx's timestamp
+// queries span from the start to the end of a frame on the GPU's timeline, so they include the time the GPU sits idle or slowed between commands; these counters are the share of
+// the wall time an engine of the GPU ran work of this process. Returns -1 when the counters are not available.
+double gpu_busy_percent() {
+    struct Pdh {
+        HMODULE module = nullptr;
+        PDH_HQUERY query = nullptr;
+        PDH_HCOUNTER counter = nullptr;
+        bool ok = false;
+        decltype(&PdhCollectQueryData) collect = nullptr;
+        decltype(&PdhGetFormattedCounterArrayW) get_array = nullptr;
+        Pdh() {
+            module = LoadLibraryA("pdh.dll");
+            if (!module) return;
+            auto open = reinterpret_cast<decltype(&PdhOpenQueryW)>(GetProcAddress(module, "PdhOpenQueryW"));
+            auto add = reinterpret_cast<decltype(&PdhAddEnglishCounterW)>(GetProcAddress(module, "PdhAddEnglishCounterW"));
+            collect = reinterpret_cast<decltype(&PdhCollectQueryData)>(GetProcAddress(module, "PdhCollectQueryData"));
+            get_array = reinterpret_cast<decltype(&PdhGetFormattedCounterArrayW)>(GetProcAddress(module, "PdhGetFormattedCounterArrayW"));
+            if (!open || !add || !collect || !get_array) return;
+            if (open(nullptr, 0, &query) != ERROR_SUCCESS) return;
+            wchar_t path[128];
+            std::swprintf(path, 128, L"\\GPU Engine(*)\\Utilization Percentage");
+            if (add(query, path, 0, &counter) != ERROR_SUCCESS) return;
+            collect(query);
+            ok = true;
+        }
+    };
+    static Pdh pdh;
+    if (!pdh.ok) return -1;
+    if (pdh.collect(pdh.query) != ERROR_SUCCESS) return -1;
+    DWORD bytes = 0, items = 0;
+    PDH_STATUS status = pdh.get_array(pdh.counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &bytes, &items, nullptr);
+    if (status != PDH_MORE_DATA || !bytes) return -1;
+    std::vector<unsigned char> buffer(bytes);
+    auto* values = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(buffer.data());
+    if (pdh.get_array(pdh.counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &bytes, &items, values) != ERROR_SUCCESS) return -1;
+    double busiest = 0;
+    wchar_t mine[32];
+    std::swprintf(mine, 32, L"pid_%lu_", static_cast<unsigned long>(GetCurrentProcessId()));
+    for (DWORD i = 0; i < items; ++i) if (values[i].szName && std::wcsstr(values[i].szName, mine) && std::wcsstr(values[i].szName, L"engtype_3D")) busiest = std::max(busiest, values[i].FmtValue.doubleValue);   // this process's 3D engines: the busiest one
+    static int debug_left = std::getenv("NUE_PDH_DEBUG") ? 3 : 0;
+    if (debug_left > 0) { --debug_left; int mine_count = 0; for (DWORD i = 0; i < items; ++i) if (values[i].szName && std::wcsstr(values[i].szName, mine)) ++mine_count; log("pdh: %lu GPU engine instances, %d of this process, busiest 3D %.1f%%", static_cast<unsigned long>(items), mine_count, busiest); for (DWORD i = 0; i < items; ++i) if (values[i].szName && std::wcsstr(values[i].szName, mine)) log("pdh:   %ls = %.2f (status %lx)", values[i].szName, values[i].FmtValue.doubleValue, static_cast<unsigned long>(values[i].FmtValue.CStatus)); }
+    return busiest;
+}
 
 // How fast a core runs right now, measured: a short chain of dependent integer operations timed three times (the fastest counts, so a busy core does not skew it). The operating system
 // does not report the real clock of this machine (it says the rated 2000 MHz all the time), but the speed of a core under a load that shares the chip with the GPU does change:
@@ -262,6 +311,7 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
     FILETIME c, e, k, u;
     if (GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) now.process_cpu = filetime_value(k) + filetime_value(u);
     now.thread_cpu = g_thread_cpu_100ns.load(); now.thread_cycles = g_thread_cycles.load();
+    now.frame_call_us = g_frame_call_total_us.load();
     now.present_us = g_present_total_us.load(); now.gpu_us = g_gpu_total_us.load(); now.render_us = g_render_total_us.load(); now.wait_render_us = g_wait_render_total_us.load(); now.wait_submit_us = g_wait_submit_total_us.load();
     for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks.load();
     if (previous.qpc && frames && now.qpc > previous.qpc) {
@@ -270,7 +320,8 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
         const double f = double(frames);
         const double wall = seconds * 1000.0 / f;
         const double in_dll = double(now.dll_ticks - previous.dll_ticks) * ms_per_tick / f;
-        const double waiting = double(now.wait_render_us - previous.wait_render_us) / 1000.0 / f;
+        const double waiting = double(now.present_us - previous.present_us) / 1000.0 / f;   // time inside Present: the game thread waits there for the render thread
+        const double in_frame_call = double(now.frame_call_us - previous.frame_call_us) / 1000.0 / f;
         const double thread_s = double(now.thread_cpu - previous.thread_cpu) * 1e-7;
         const double busy = 100.0 * thread_s / seconds;
         const double process_cores = double(now.process_cpu - previous.process_cpu) * 1e-7 / seconds;
@@ -278,9 +329,12 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
         const double idle = double(now.wait_submit_us - previous.wait_submit_us) / 1000.0 / f;
         const double gpu = double(now.gpu_us - previous.gpu_us) / 1000.0 / f;
         const double core_speed = core_speed_probe();
-        log("timeline: %u frames in %.1f s, per frame: wall %.2f ms = game code outside the dll %.2f + inside the dll %.2f (of which waiting for the render thread %.2f); game thread CPU busy %.0f%% (%s); "
-            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU %.2f ms; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start",
-            frames, seconds, wall, wall - in_dll, in_dll, waiting, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, process_cores, core_speed);
+        const double gpu_busy = gpu_busy_percent();
+        char gpu_text[64];
+        if (gpu_busy >= 0) std::snprintf(gpu_text, sizeof gpu_text, "%.0f%% of the time (%.2f ms per frame)", gpu_busy, gpu_busy * 0.01 * wall); else std::snprintf(gpu_text, sizeof gpu_text, "(counters not available)");
+        log("timeline: %u frames in %.1f s, per frame: wall %.2f ms = game code outside the dll %.2f + inside the dll %.2f (of which in Present %.2f, bgfx::frame() %.2f: sorting the frame and waiting for the render thread if it is behind); game thread CPU busy %.0f%% (%s); "
+            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU frame span %.2f ms (first to last timestamp of a frame, idle gaps included), GPU 3D engine really busy %s; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start",
+            frames, seconds, wall, wall - in_dll, in_dll, waiting, in_frame_call, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, gpu_text, process_cores, core_speed);
     }
     previous = now;
 }

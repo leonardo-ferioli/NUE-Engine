@@ -184,6 +184,18 @@ StateBlockId LayerImpl::begin_state_block() {
 }
 
 void LayerImpl::end_state_block(StateBlockId) {
+    if (recording_) {
+        StateBlock& b = *recording_;
+        StateBlock::Compiled& c = b.compiled;
+        for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) c.rs.emplace_back(uint16_t(i), b.values.rs[i]);
+        for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) c.ss.emplace_back(uint8_t(s), uint8_t(t), b.values.ss[s][t]);
+        for (uint32_t s = 0; s < 8; ++s) for (uint32_t t = 0; t < tss_count; ++t) if (b.tss.test(s * tss_count + t)) c.tss.emplace_back(uint8_t(s), uint8_t(t), b.values.tss[s][t]);
+        for (uint32_t s = 0; s < sampler_slots; ++s) if (b.textures.test(s)) c.textures.emplace_back(uint8_t(s), b.values.textures[s]);
+        for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) c.streams.emplace_back(uint8_t(s), b.values.streams[s]);
+        for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) c.vs_constants.emplace_back(uint16_t(i), b.values.vs_constants[i]);
+        for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) c.ps_constants.emplace_back(uint16_t(i), b.values.ps_constants[i]);
+        c.ready = true;
+    }
     recording_ = nullptr;
     recording_id_ = 0;
 }
@@ -193,13 +205,24 @@ void LayerImpl::apply(StateBlockId id) {
     if (!slot) { bad_handle("apply"); return; }
     ++program_epoch_;
     const StateBlock& b = **slot;
-    for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) state_.rs[i] = b.values.rs[i];
-    for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) state_.ss[s][t] = b.values.ss[s][t];
-    for (uint32_t s = 0; s < 8; ++s) for (uint32_t t = 0; t < tss_count; ++t) if (b.tss.test(s * tss_count + t)) state_.tss[s][t] = b.values.tss[s][t];
-    for (uint32_t s = 0; s < sampler_slots; ++s) if (b.textures.test(s)) state_.textures[s] = b.values.textures[s];
-    for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) state_.streams[s] = b.values.streams[s];
-    for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) state_.vs_constants[i] = b.values.vs_constants[i];
-    for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) state_.ps_constants[i] = b.values.ps_constants[i];
+    if (b.compiled.ready) {
+        const StateBlock::Compiled& c = b.compiled;
+        for (const auto& e : c.rs) state_.rs[e.first] = e.second;
+        for (const auto& e : c.ss) state_.ss[std::get<0>(e)][std::get<1>(e)] = std::get<2>(e);
+        for (const auto& e : c.tss) state_.tss[std::get<0>(e)][std::get<1>(e)] = std::get<2>(e);
+        for (const auto& e : c.textures) state_.textures[e.first] = e.second;
+        for (const auto& e : c.streams) state_.streams[e.first] = e.second;
+        for (const auto& e : c.vs_constants) state_.vs_constants[e.first] = e.second;
+        for (const auto& e : c.ps_constants) state_.ps_constants[e.first] = e.second;
+    } else {
+        for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) state_.rs[i] = b.values.rs[i];
+        for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) state_.ss[s][t] = b.values.ss[s][t];
+        for (uint32_t s = 0; s < 8; ++s) for (uint32_t t = 0; t < tss_count; ++t) if (b.tss.test(s * tss_count + t)) state_.tss[s][t] = b.values.tss[s][t];
+        for (uint32_t s = 0; s < sampler_slots; ++s) if (b.textures.test(s)) state_.textures[s] = b.values.textures[s];
+        for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) state_.streams[s] = b.values.streams[s];
+        for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) state_.vs_constants[i] = b.values.vs_constants[i];
+        for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) state_.ps_constants[i] = b.values.ps_constants[i];
+    }
     for (uint32_t i = 0; i < 16; ++i) {
         if (b.vs_int.test(i)) state_.vs_int[i] = b.values.vs_int[i];
         if (b.ps_int.test(i)) state_.ps_int[i] = b.values.ps_int[i];

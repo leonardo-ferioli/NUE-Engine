@@ -288,7 +288,7 @@ HRESULT PixelShader9::GetFunction(void* data, UINT* size) try {
 
 StateBlock9::~StateBlock9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
 HRESULT StateBlock9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
-HRESULT StateBlock9::Apply() try { auto* dev = info.core->dev(); if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL); dev->apply(id_); return D3D_OK; } catch (...) { return guard_failed(__func__); }
+HRESULT StateBlock9::Apply() try { NUE_CALL(); auto* dev = info.core->dev(); if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL); dev->apply(id_); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 
 // ---- swap chain --------------------------------------------------------------------------------------------------------------------------
 

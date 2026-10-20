@@ -117,6 +117,16 @@ struct StateBlock {
     std::bitset<8> texture_transforms;
     bool index_buffer = false, declaration = false, fvf = false, vertex_shader = false, pixel_shader = false, viewport = false, view = false, projection = false, world = false;
     uint32_t lights_mask = 0, lights_value = 0;
+    // what the block holds as short lists, built when recording ends: applying a block (the game does it hundreds of times per frame) then touches only these entries instead of
+    // testing every bit of every set
+    struct Compiled {
+        bool ready = false;
+        std::vector<std::pair<uint16_t, uint32_t>> rs;
+        std::vector<std::tuple<uint8_t, uint8_t, uint32_t>> ss, tss;
+        std::vector<std::pair<uint8_t, uint32_t>> textures;
+        std::vector<std::pair<uint8_t, StreamBinding>> streams;
+        std::vector<std::pair<uint16_t, Float4>> vs_constants, ps_constants;
+    } compiled;
 };
 
 void finalize_declaration(Declaration&);

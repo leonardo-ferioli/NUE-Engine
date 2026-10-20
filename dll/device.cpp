@@ -232,6 +232,7 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     if (core_->gpu) {
         const auto& st = core_->gpu->stats();
         g_gpu_us = unsigned(st.gpu_ms * 1000.0); g_render_cpu_us = unsigned(st.render_cpu_ms * 1000.0);
+        g_frame_call_total_us += (unsigned long long)(st.frame_call_ms * 1000.0);
         g_present_total_us += g_present_us.load(); g_gpu_total_us += (unsigned long long)(st.gpu_ms * 1000.0); g_render_total_us += (unsigned long long)(st.render_cpu_ms * 1000.0);
         g_wait_render_total_us += (unsigned long long)(st.wait_render_ms * 1000.0); g_wait_submit_total_us += (unsigned long long)(st.wait_submit_ms * 1000.0);
     }

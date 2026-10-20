@@ -14,6 +14,7 @@ struct BgfxOptions {
     uint32_t window_width = 1280, window_height = 720;
     Renderer renderer = Renderer::automatic;
     bool vsync = false;
+    bool profile_draws = false;              // time every draw (four clock reads each: about 4 % of a draw); off in the dll, on in the replay tool's benchmark
     bool single_threaded = true;             // call bgfx::renderFrame() before init: no render thread (deterministic, easy to debug)
     uint32_t transient_vertex_mb = 64, transient_index_mb = 16;
     void (*log)(const char* message) = nullptr;   // bgfx's own messages: fatal errors and backend warnings (Direct3D errors), one string each
@@ -24,6 +25,7 @@ struct BgfxStats {
     uint64_t programs = 0, shader_builds = 0, views = 0, draws = 0;
     double cross_ms = 0, compile_ms = 0;     // SPIR-V -> HLSL/GLSL/MSL and the shader compiler, accumulated
     uint64_t failed_creates = 0;             // bgfx handles that could not be made (limits, memory): the object is missing in the picture
+    double frame_call_ms = 0;                // the last frame: time the game thread spent inside bgfx::frame() (sorting and handing over the frame, and waiting for the render thread if it is behind)
     double wait_render_ms = 0, wait_submit_ms = 0;   // the last frame: the game thread waited for the render thread / the render thread waited for the game thread
     double gpu_ms = 0, render_cpu_ms = 0;    // the last frame: GPU time and the CPU time of the backend (render thread), from bgfx's own counters
     const char* renderer_name = "";

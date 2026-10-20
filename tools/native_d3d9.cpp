@@ -66,6 +66,14 @@ public:
     Status test_cooperative_level() override { return SUCCEEDED(device_->TestCooperativeLevel()) ? Status::ok : Status::device_lost; }
     Status present() override {
         device_->EndScene(); in_scene_ = false;
+        static const double pace_ms = std::getenv("NUE_BENCH_PACE_MS") ? std::atof(std::getenv("NUE_BENCH_PACE_MS")) : 0.0;   // pretend the game is the bottleneck: one frame every pace_ms
+        if (pace_ms > 0) {
+            static LARGE_INTEGER last{}, frequency{};
+            if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+            LARGE_INTEGER now;
+            for (;;) { QueryPerformanceCounter(&now); if (!last.QuadPart || double(now.QuadPart - last.QuadPart) * 1000.0 / double(frequency.QuadPart) >= pace_ms) break; Sleep(0); }
+            last = now;
+        }
         const HRESULT hr = device_->Present(nullptr, nullptr, nullptr, nullptr);
         static unsigned frames = 0;
         if (std::getenv("NUE_FPU_REPORT") && (++frames == 1 || frames == 2 || frames == 30 || frames == 100)) std::fprintf(stderr, "FPU after present %u: x87 control %04x, MXCSR %08x\n", frames, _control87(0, 0) & 0xFFFF, _mm_getcsr());
