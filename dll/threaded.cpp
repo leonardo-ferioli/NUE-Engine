@@ -15,6 +15,8 @@ namespace {
 constexpr uint32_t kBlockBytes = 1u << 20;     // the queue is a chain of 1 MB blocks, reused
 constexpr uint32_t kInlineLimit = 64u << 10;   // larger payloads travel as a heap block the worker frees
 constexpr uint32_t kPublishEvery = 32;         // the worker sees new commands every 32 calls (and at once at Present and when the game waits)
+constexpr uint32_t kWakeEvery = 2048;          // a sleeping worker is woken every 2048 calls (and at Present, when the game waits, at a new block):
+                                               // waking it is a system call, and the worker usually drains a batch faster than the game records it
 
 enum class Op : uint16_t {
     fn, sync, stop, present, reset,
@@ -140,10 +142,12 @@ struct ThreadedLayer::Impl {
         all_blocks.push_back(std::make_unique<Block>());
         return all_blocks.back().get();
     }
-    void publish() {
+    uint32_t since_wake = 0;   // calls published since the worker was last woken
+    void publish(bool wake) {
         write_block->published.store(write_pos, std::memory_order_seq_cst);
+        since_wake += unpublished;
         unpublished = 0;
-        if (worker_sleeping.load(std::memory_order_seq_cst)) SetEvent(work_event);
+        if ((wake || since_wake >= kWakeEvery) && worker_sleeping.load(std::memory_order_seq_cst)) { SetEvent(work_event); since_wake = 0; }
     }
     // room for one command: the payload pointer; commit() ends it
     std::byte* begin(Op op, uint32_t payload) {
@@ -153,7 +157,7 @@ struct ThreadedLayer::Impl {
             write_block->published.store(write_pos, std::memory_order_seq_cst);
             write_block->next.store(next, std::memory_order_seq_cst);
             if (worker_sleeping.load(std::memory_order_seq_cst)) SetEvent(work_event);
-            write_block = next; write_pos = 0; unpublished = 0;
+            write_block = next; write_pos = 0; unpublished = 0; since_wake = 0;
         }
         std::byte* at = write_block->data.get() + write_pos;
         const Header h{op, 0, need - uint32_t(sizeof(Header))};
@@ -161,7 +165,7 @@ struct ThreadedLayer::Impl {
         write_pos += need;
         return at + sizeof(Header);
     }
-    void commit(bool now = false) { if (now || ++unpublished >= kPublishEvery) publish(); }
+    void commit(bool now = false) { ++unpublished; if (now || unpublished >= kPublishEvery) publish(now); }
     template <class T> void put(Op op, const T& value, bool now = false) { std::memcpy(begin(op, sizeof(T)), &value, sizeof(T)); commit(now); }
     template <class T> void put_with(Op op, const T& value, const void* data, uint32_t bytes) {
         std::byte* p = begin(op, uint32_t(sizeof(T)) + bytes);
