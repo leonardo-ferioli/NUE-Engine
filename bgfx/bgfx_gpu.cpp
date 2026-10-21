@@ -186,6 +186,9 @@ public:
     void set_visible_area(int32_t x, int32_t y, uint32_t width, uint32_t height) override { visible_[0] = x; visible_[1] = y; visible_[2] = int32_t(width); visible_[3] = int32_t(height); visible_set_ = width && height; }
     void update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<Program> create_program(const ProgramDesc&) override;
+    // the reset flags of bgfx, the same at init and at every later reset: a reset without BGFX_RESET_MAXANISOTROPY turns every anisotropic sampler
+    // into 1x (distant textures blurred, the game asks for 16x on most draws)
+    uint32_t reset_flags() const { return (options_.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_MAXANISOTROPY; }
     void copy_texture(Texture dst, const int32_t* dst_rect4, Texture src, const int32_t* src_rect4, bool linear) override;
     void begin_pass(const PassDesc&) override;
     void draw(const DrawDesc&) override;
@@ -333,7 +336,7 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     init.swapChain.nwh = options.window;
     init.swapChain.width = options.window_width;
     init.swapChain.height = options.window_height;
-    init.reset = (options.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_MAXANISOTROPY;
+    init.reset = reset_flags();
     init.limits.maxTransientVbSize = options.transient_vertex_mb << 20;
     init.limits.maxTransientIbSize = options.transient_index_mb << 20;
     init.limits.numDrawCalls = 1 << 15;
@@ -676,10 +679,10 @@ Status BgfxGpuImpl::resize(uint32_t width, uint32_t height) {
 
 void BgfxGpuImpl::set_window_size(uint32_t width, uint32_t height) {
     window_width_ = width; window_height_ = height;
-    bgfx::reset(options_.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE);
+    bgfx::reset(reset_flags());
     // bgfx 's swap chain follows the reset size given at init: a resized window needs a new swap chain description
     bgfx::SwapChain sc; sc.nwh = options_.window; sc.width = width; sc.height = height;
-    bgfx::reset(options_.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE, &sc);
+    bgfx::reset(reset_flags(), &sc);
 }
 
 void BgfxGpuImpl::draw_quad(uint32_t view, bgfx::TextureHandle source, uint32_t sampler, const float uv[4]) {
