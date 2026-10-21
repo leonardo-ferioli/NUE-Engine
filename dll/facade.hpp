@@ -32,6 +32,9 @@ extern std::atomic<unsigned> g_frame_sum_us, g_frame_max_us, g_frame_slow, g_fra
 // CPU time (100 ns units) and CPU cycles consumed by the game thread so far
 extern std::atomic<unsigned long long> g_present_total_us, g_gpu_total_us, g_render_total_us, g_wait_render_total_us, g_wait_submit_total_us, g_thread_cpu_100ns, g_thread_cycles, g_frame_call_total_us;
 extern std::atomic<unsigned long long> g_worker_busy_total_us;   // worker mode: microseconds the worker thread spent running the calls
+// worker mode: times the game thread waited for the worker outside Present, the microseconds it waited, and why (buffer copies for locks that read,
+// texture locks of levels that hold data; the rest: Get*, Reset, back buffer and depth surfaces, read-backs, audits)
+extern std::atomic<unsigned long long> g_worker_waits, g_worker_wait_us, g_worker_buffer_copies, g_worker_texture_reads;
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from

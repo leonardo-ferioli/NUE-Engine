@@ -27,7 +27,7 @@ CRITICAL_SECTION g_call_lock;
 std::atomic<unsigned> g_counter_present{0}, g_counter_draw{0}, g_counter_create{0};
 volatile unsigned g_counter_calls = 0;
 std::atomic<unsigned long long> g_frame_call_total_us{0}, g_present_total_us{0}, g_gpu_total_us{0}, g_render_total_us{0}, g_wait_render_total_us{0}, g_wait_submit_total_us{0}, g_thread_cpu_100ns{0}, g_thread_cycles{0};
-std::atomic<unsigned long long> g_worker_busy_total_us{0};
+std::atomic<unsigned long long> g_worker_busy_total_us{0}, g_worker_waits{0}, g_worker_wait_us{0}, g_worker_buffer_copies{0}, g_worker_texture_reads{0};
 std::atomic<unsigned> g_frame_sum_us{0}, g_frame_max_us{0}, g_frame_slow{0}, g_frame_count{0}, g_gpu_us{0}, g_render_cpu_us{0}, g_present_us{0};
 
 namespace {
@@ -236,7 +236,7 @@ void profile_report(ProfileSnapshot& previous, unsigned frames) {
 
 // The frame as the game thread lives it: where the wall time of a frame goes, and whether the game thread is CPU bound (busy ~100 %) or waiting.
 struct TimelineSnapshot {
-    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0, frame_call_us = 0, worker_us = 0;
+    unsigned long long qpc = 0, tsc = 0, thread_cpu = 0, thread_cycles = 0, process_cpu = 0, present_us = 0, gpu_us = 0, render_us = 0, wait_render_us = 0, wait_submit_us = 0, dll_ticks = 0, frame_call_us = 0, worker_us = 0, worker_waits = 0, worker_wait_us = 0, worker_copies = 0, worker_texture_reads = 0;
 };
 
 unsigned long long filetime_value(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
@@ -318,6 +318,7 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
     now.thread_cpu = g_thread_cpu_100ns.load(); now.thread_cycles = g_thread_cycles.load();
     now.frame_call_us = g_frame_call_total_us.load();
     now.worker_us = g_worker_busy_total_us.load();
+    now.worker_waits = g_worker_waits.load(); now.worker_wait_us = g_worker_wait_us.load(); now.worker_copies = g_worker_buffer_copies.load(); now.worker_texture_reads = g_worker_texture_reads.load();
     now.present_us = g_present_total_us.load(); now.gpu_us = g_gpu_total_us.load(); now.render_us = g_render_total_us.load(); now.wait_render_us = g_wait_render_total_us.load(); now.wait_submit_us = g_wait_submit_total_us.load();
     for (unsigned i = 0; i < kMaxMethods; ++i) now.dll_ticks += g_methods[i].ticks;
     if (previous.qpc && frames && now.qpc > previous.qpc) {
@@ -337,13 +338,17 @@ void timeline_report(TimelineSnapshot& previous, unsigned frames) {
         const double core_speed = core_speed_probe();
         const double gpu_busy = gpu_busy_percent();
         const double worker = double(now.worker_us - previous.worker_us) / 1000.0 / f;
-        char worker_text[160] = "";
-        if (worker > 0) std::snprintf(worker_text, sizeof worker_text, "; worker thread (translator + bgfx calls) %.2f ms busy per frame, the game thread waits for it in Present", worker);
         char gpu_text[64];
         if (gpu_busy >= 0) std::snprintf(gpu_text, sizeof gpu_text, "%.0f%% of the time (%.2f ms per frame)", gpu_busy, gpu_busy * 0.01 * wall); else std::snprintf(gpu_text, sizeof gpu_text, "(counters not available)");
         log("timeline: %u frames in %.1f s, per frame: wall %.2f ms = game code outside the dll %.2f + inside the dll %.2f (of which in Present %.2f, bgfx::frame() %.2f: sorting the frame and waiting for the render thread if it is behind); game thread CPU busy %.0f%% (%s); "
-            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU frame span %.2f ms (first to last timestamp of a frame, idle gaps included), GPU 3D engine really busy %s; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start%s",
-            frames, seconds, wall, wall - in_dll, in_dll, waiting, in_frame_call, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, gpu_text, process_cores, core_speed, worker_text);
+            "render thread %.2f ms busy, %.2f ms waiting for the game thread; GPU frame span %.2f ms (first to last timestamp of a frame, idle gaps included), GPU 3D engine really busy %s; whole process %.2f cores busy; core speed %.0f%% of the best measured since the start",
+            frames, seconds, wall, wall - in_dll, in_dll, waiting, in_frame_call, busy, busy > 85 ? "CPU bound: the game thread never waits" : busy > 60 ? "mostly CPU bound" : "the game thread waits for something", render, idle, gpu, gpu_text, process_cores, core_speed);
+        if (config().worker_thread) {
+            const unsigned long long waits = now.worker_waits - previous.worker_waits, copies = now.worker_copies - previous.worker_copies, reads = now.worker_texture_reads - previous.worker_texture_reads;
+            log("worker thread: %.2f ms busy per frame (translator + bgfx calls); the game thread waited for it in Present %.2f ms per frame (it may run one frame ahead) and outside Present %llu times in %.1f s (%.2f ms per frame): "
+                "%llu buffer copies for locks that read, %llu texture locks of levels that hold data, %llu other (Get*, Reset, surfaces, read-backs, audits)",
+                worker, waiting, waits, seconds, double(now.worker_wait_us - previous.worker_wait_us) / 1000.0 / f, copies, reads, waits >= copies + reads ? waits - copies - reads : 0ull);
+        }
     }
     previous = now;
 }

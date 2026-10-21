@@ -69,6 +69,16 @@ template <class F> void wait_game_thread(HANDLE event, F done) {
     }
 }
 
+// a wait outside Present: counted for the log
+template <class F> void timed_wait(HANDLE event, F done) {
+    LARGE_INTEGER frequency, begin, end;
+    QueryPerformanceFrequency(&frequency); QueryPerformanceCounter(&begin);
+    wait_game_thread(event, done);
+    QueryPerformanceCounter(&end);
+    ++g_worker_waits;
+    g_worker_wait_us += uint64_t((end.QuadPart - begin.QuadPart) * 1000000 / frequency.QuadPart);
+}
+
 }  // namespace
 
 struct ThreadedLayer::Impl {
@@ -416,7 +426,7 @@ void ThreadedLayer::sync(const std::function<void()>& fn) {
     if (impl_->stopped) { fn(); return; }
     const uint64_t ticket = ++impl_->syncs_sent;
     impl_->put(Op::sync, SyncCmd{&fn, ticket}, true);
-    wait_game_thread(impl_->done_event, [&] { return impl_->syncs_done.load(std::memory_order_acquire) >= ticket; });
+    timed_wait(impl_->done_event, [&] { return impl_->syncs_done.load(std::memory_order_acquire) >= ticket; });
 }
 
 void ThreadedLayer::post(std::function<void()> fn) {
@@ -452,7 +462,7 @@ Status ThreadedLayer::reset(const d3d9::DeviceParams& params) {
     Status result = Status::ok;
     const uint64_t ticket = ++impl_->syncs_sent;
     impl_->put(Op::reset, ResetCmd{params, &result, ticket}, true);
-    wait_game_thread(impl_->done_event, [&] { return impl_->syncs_done.load(std::memory_order_acquire) >= ticket; });
+    timed_wait(impl_->done_event, [&] { return impl_->syncs_done.load(std::memory_order_acquire) >= ticket; });
     return result;
 }
 
@@ -586,7 +596,7 @@ Result<d3d9::LockedRegion> ThreadedLayer::lock_buffer(BufferId id, uint32_t offs
     if (b.mirror.empty() && needs_contents) {
         // what the buffer holds, as the worker has it once everything queued before is done; kept from now on (within the budget)
         std::vector<std::byte> copy(b.bytes);
-        ++impl_->buffer_copies;
+        ++impl_->buffer_copies; ++g_worker_buffer_copies;
         sync([&] {
             const BufferId real_id{impl_->real(k_buffer, id.value)};
             auto lock = real_->lock_buffer(real_id, 0, 0, lock_readonly);
@@ -634,7 +644,7 @@ Result<d3d9::LockedRegion> ThreadedLayer::lock_texture(TextureId id, uint32_t le
     if (t.has_data[index] && !(flags & lock_discard)) {
         // the level holds data the lock must show: lock it on the worker once the queue is drained; the game then writes into the layer's own staging
         Result<d3d9::LockedRegion> r{Status::invalid_argument, {}};
-        ++impl_->texture_reads;
+        ++impl_->texture_reads; ++g_worker_texture_reads;
         sync([&] { r = real_->lock_texture(TextureId{impl_->real(k_texture, id.value)}, level, face, rect4, flags); });
         if (!r) return r;
         lock = TextureLock{}; lock.active = true; lock.direct = true; lock.flags = flags;
