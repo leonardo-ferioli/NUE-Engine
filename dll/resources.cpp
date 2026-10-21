@@ -55,7 +55,7 @@ Texture9::Texture9(ChildInfo i, d3d9::TextureId id, UINT w, UINT h, UINT levels,
 
 Texture9::~Texture9() {
     for (IDirect3DSurface9* s : surfaces_) delete static_cast<Surface9*>(s);
-    if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_);
+    if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); }
 }
 
 HRESULT Texture9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
@@ -108,7 +108,7 @@ CubeTexture9::CubeTexture9(ChildInfo i, d3d9::TextureId id, UINT edge, UINT leve
 
 CubeTexture9::~CubeTexture9() {
     for (IDirect3DSurface9* s : surfaces_) delete static_cast<Surface9*>(s);
-    if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_);
+    if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); }
 }
 
 HRESULT CubeTexture9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
@@ -161,7 +161,7 @@ Surface9::Surface9(ChildInfo i, Kind kind, d3d9::SurfaceId id, UINT w, UINT h, D
 
 Surface9::~Surface9() {
     if (kind_ == Kind::back_buffer) return;   // the layer owns it
-    if (id_) if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_);
+    if (id_) if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); }
 }
 
 ULONG Surface9::release() {
@@ -223,7 +223,7 @@ HRESULT Surface9::UnlockRect() try {
 
 // ---- buffers -----------------------------------------------------------------------------------------------------------------------------
 
-VertexBuffer9::~VertexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+VertexBuffer9::~VertexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT VertexBuffer9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT VertexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) try {
     auto* dev = info.core->dev();
@@ -240,7 +240,7 @@ HRESULT VertexBuffer9::GetDesc(D3DVERTEXBUFFER_DESC* d) try {
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-IndexBuffer9::~IndexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+IndexBuffer9::~IndexBuffer9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT IndexBuffer9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT IndexBuffer9::Lock(UINT offset, UINT size, void** data, DWORD flags) try {
     auto* dev = info.core->dev();
@@ -259,7 +259,7 @@ HRESULT IndexBuffer9::GetDesc(D3DINDEXBUFFER_DESC* d) try {
 
 // ---- declarations, shaders, state blocks -------------------------------------------------------------------------------------------------
 
-VertexDeclaration9::~VertexDeclaration9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+VertexDeclaration9::~VertexDeclaration9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT VertexDeclaration9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT VertexDeclaration9::GetDeclaration(D3DVERTEXELEMENT9* elements, UINT* count) try {
     if (!count) return trace_result(__func__, D3DERR_INVALIDCALL);
@@ -268,7 +268,7 @@ HRESULT VertexDeclaration9::GetDeclaration(D3DVERTEXELEMENT9* elements, UINT* co
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-VertexShader9::~VertexShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+VertexShader9::~VertexShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT VertexShader9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT VertexShader9::GetFunction(void* data, UINT* size) try {
     if (!size) return trace_result(__func__, D3DERR_INVALIDCALL);
@@ -277,7 +277,7 @@ HRESULT VertexShader9::GetFunction(void* data, UINT* size) try {
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-PixelShader9::~PixelShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+PixelShader9::~PixelShader9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT PixelShader9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT PixelShader9::GetFunction(void* data, UINT* size) try {
     if (!size) return trace_result(__func__, D3DERR_INVALIDCALL);
@@ -286,7 +286,7 @@ HRESULT PixelShader9::GetFunction(void* data, UINT* size) try {
     return D3D_OK;
 } catch (...) { return guard_failed(__func__); }
 
-StateBlock9::~StateBlock9() { if (auto* dev = info.core ? info.core->dev() : nullptr) dev->destroy(id_); }
+StateBlock9::~StateBlock9() { if (auto* dev = info.core ? info.core->dev() : nullptr) { ++g_counter_destroy; dev->destroy(id_); } }
 HRESULT StateBlock9::GetDevice(IDirect3DDevice9** out) try { if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = reinterpret_cast<IDirect3DDevice9*>(info.device); (*out)->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT StateBlock9::Apply() try { NUE_CALL(); auto* dev = info.core->dev(); if (!dev) return trace_result(__func__, D3DERR_INVALIDCALL); dev->apply(id_); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 

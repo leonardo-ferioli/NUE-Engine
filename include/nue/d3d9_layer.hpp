@@ -25,6 +25,10 @@ struct LayerOptions {
     // system-memory textures always keep theirs. 0 = never keep copies of textures that live on the GPU.
     uint32_t texture_copy_mb = 160;
     bool mark_missing_textures = false;   // a texture that is sampled without any data is drawn as a magenta checker (see Layer::set_mark_missing_textures)
+    // A text file listing the shader programs made in earlier runs (pairs of game shaders and the options they were translated with). When both shaders
+    // of a listed program exist, the program is made at once (the game creates its shaders while loading) instead of at its first draw, which may be in
+    // the middle of a race; programs made at a draw are added to the file. Empty = no list.
+    std::string program_list;
     bool debug_log_passes = false;     // log every pass and copy as it is opened   // keep a description of the last draws (Layer::recent_draws)
 };
 
@@ -34,6 +38,8 @@ struct LayerStats {
     uint64_t static_buffer_uploads = 0, static_buffer_bytes = 0, transient_copies = 0, transient_bytes = 0, transient_dedupe_hits = 0, index_rewrites = 0, fan_conversions = 0;
     uint64_t texture_uploads = 0, texture_upload_bytes = 0, texture_converted_bytes = 0;
     uint64_t programs = 0, shader_translations = 0, shader_failures = 0, constants_bytes = 0;
+    double program_ms = 0;   // time spent making new programs (shader translation + the adapter's program creation), accumulated
+    uint64_t programs_ahead = 0;   // programs made ahead from LayerOptions::program_list (included in programs and program_ms)
     uint64_t texture_create_failures = 0, buffer_create_failures = 0, sampled_before_upload = 0, textures_created = 0;
     uint64_t relocks_with_data = 0, relocks_without_discard = 0, texture_updates_after_use = 0, rt_sampled_stale = 0, missing_texture_draws = 0, texture_copy_bytes = 0, texture_update_calls = 0;
     uint64_t stretch_rects = 0, unsupported_calls = 0, bad_handles = 0;

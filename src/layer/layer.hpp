@@ -274,6 +274,9 @@ private:
     // shaders and programs
     struct DrawProgram { gpu::Program program; const shader::TranslateResult* vertex = nullptr; const shader::TranslateResult* pixel = nullptr; bool ok = false; };
     DrawProgram select_program(const Declaration* declaration, const DeviceState& st, ShaderObject* vs, ShaderObject* ps, bool vertex_fog_from_fixed_function);
+    DrawProgram program_for(ShaderObject& vs, ShaderObject& ps, const shader::TranslateOptions& vo, const shader::TranslateOptions& po, uint64_t po_key, bool ahead);
+    void load_program_list();
+    void make_listed_programs(const ShaderObject& created);
     ShaderObject* fixed_function_vertex(const Declaration&);
     ShaderObject* fixed_function_pixel();
     void fill_ff_vertex_constants(std::array<Float4, 128>&) const;
@@ -297,6 +300,7 @@ private:
     DeviceState state_;
     DeviceParams params_;
     uint32_t frame_ = 0;
+    double pending_translate_ms_ = 0;   // shader translations done for the program being made
     // texture debugging
     struct TextureUse { uint32_t texture, stage_mask, draws, first_draw, first_stage, first_ps; bool stale; };
     std::vector<TextureUse> uses_;
@@ -340,6 +344,13 @@ private:
     struct TranslationKeyHash { size_t operator()(const TranslationKey& k) const { return size_t((k.options * 0x9E3779B97F4A7C15ull) ^ (k.shader * 0xC2B2AE3D27D4EB4Full)); } };
     std::unordered_map<TranslationKey, std::unique_ptr<shader::TranslateResult>, TranslationKeyHash> translations_;
     std::unordered_map<uint64_t, gpu::Program> programs_;
+    // the program list of earlier runs (LayerOptions::program_list): vertex shader hash, pixel shader hash, vertex attribute masks, pixel options key
+    struct ListedProgram { uint64_t vs, ps; uint32_t bgra, uints, sints; uint64_t po_key; };
+    std::vector<ListedProgram> listed_programs_;
+    std::unordered_map<uint64_t, bool> listed_keys_;            // program keys in the file
+    std::unordered_map<uint64_t, uint32_t> game_vs_, game_ps_;   // hash -> id of the game's shaders alive now
+    uint64_t ahead_logged_ = 0;
+    double ahead_ms_logged_ = 0;
     std::map<std::string, uint64_t> unsupported_;
 
     // per-frame transient dedupe: (buffer, version, offset, bytes) -> transient buffer

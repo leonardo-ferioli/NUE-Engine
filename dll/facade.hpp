@@ -35,6 +35,9 @@ extern std::atomic<unsigned long long> g_worker_busy_total_us;   // worker mode:
 // worker mode: times the game thread waited for the worker outside Present, the microseconds it waited, and why (buffer copies for locks that read,
 // texture locks of levels that hold data; the rest: Get*, Reset, back buffer and depth surfaces, read-backs, audits)
 extern std::atomic<unsigned long long> g_worker_waits, g_worker_wait_us, g_worker_buffer_copies, g_worker_texture_reads;
+extern std::atomic<unsigned long long> g_counter_destroy;   // resources the game destroyed (spikes.cpp)
+// one frame's numbers, from Present (game thread): a slow frame gets a "spike:" line in the log (spikes.cpp)
+void note_frame(double frame_ms, double present_ms, const d3d9::LayerStats& layer, const gpu::BgfxStats& bgfx);
 HRESULT trace_result(const char* method, HRESULT hr);
 HRESULT guard_failed(const char* method);              // a C++ exception escaped a COM method: logged, the call fails instead of killing the game   // logs a failing result (a few times per method) and returns it
 // Every COM method of the device starts with NUE_CALL(): it records the method (crash reports, heartbeat), times it (profile in the log), notices calls from

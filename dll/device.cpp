@@ -222,8 +222,10 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
     const HRESULT result = to_hresult(dev->present());
     QueryPerformanceCounter(&end);
     // frame pacing: time between two Presents (the game's own work included) and the time Present itself takes
+    double between_ms = 0;   // from the end of the previous Present to the start of this one
     if (last_present_ticks_) {
         const unsigned frame_us = unsigned((begin.QuadPart - last_present_ticks_) * 1000000ull / static_cast<unsigned long long>(frequency.QuadPart));
+        between_ms = frame_us / 1000.0;
         g_frame_sum_us += frame_us; ++g_frame_count; if (frame_us > 20000) ++g_frame_slow;
         unsigned seen = g_frame_max_us.load(); while (frame_us > seen && !g_frame_max_us.compare_exchange_weak(seen, frame_us)) {}
     }
@@ -235,6 +237,7 @@ HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { N
         g_frame_call_total_us += (unsigned long long)(st.frame_call_ms * 1000.0);
         g_present_total_us += g_present_us.load(); g_gpu_total_us += (unsigned long long)(st.gpu_ms * 1000.0); g_render_total_us += (unsigned long long)(st.render_cpu_ms * 1000.0);
         g_wait_render_total_us += (unsigned long long)(st.wait_render_ms * 1000.0); g_wait_submit_total_us += (unsigned long long)(st.wait_submit_ms * 1000.0);
+        if (between_ms > 0) note_frame(between_ms + g_present_us / 1000.0, g_present_us / 1000.0, core_->front()->stats(), st);   // "spike:" lines for slow frames
     }
     {   // CPU the game thread has used (the busy share of the frame) and the cycles it took: the effective clock
         FILETIME created, exited, kernel, user;

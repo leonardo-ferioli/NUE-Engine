@@ -8,8 +8,9 @@
 //  - buffer locks: a lock returns memory of the queue's side (a copy of the buffer kept here, or a fresh block); unlock sends the written range to the
 //    worker. A lock that must show what the buffer holds (no DISCARD, the buffer already has data, no copy kept yet) drains the queue once and keeps
 //    a copy from then on (up to a memory budget).
-//  - texture locks: a level that has no data yet, or a DISCARD lock, gets a fresh block here; a level that has data is locked on the worker after the
-//    queue is drained, and the game writes into the layer's own staging (the worker does not touch a locked level).
+//  - texture locks: a level that has no data yet, or a DISCARD lock, gets a fresh block here; a level that has data is read once from the worker
+//    (after the queue is drained) into a copy kept here, and later locks are served from that copy; unlock sends the locked part. Over the budget, or
+//    for automatic mipmaps, the level is locked on the worker and the game writes into the layer's own staging (the worker does not touch a locked level).
 //  - Get* of shader constants, Reset, back buffer and depth surfaces, the audit, read-backs, the texture report and the release of the device.
 // Back-pressure: Present waits until the worker has finished the previous frame (the game runs at most one frame ahead).
 // While the game thread waits it still handles messages sent to its windows: DXGI may send them from the worker and would otherwise wait for ever.

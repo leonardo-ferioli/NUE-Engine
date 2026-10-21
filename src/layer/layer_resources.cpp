@@ -10,7 +10,7 @@ using namespace k;
 
 std::unique_ptr<Layer> create_layer(gpu::Gpu& gpu, const LayerOptions& options) { return std::make_unique<LayerImpl>(gpu, options); }
 
-LayerImpl::LayerImpl(gpu::Gpu& gpu, const LayerOptions& options) : gpu_(gpu), options_(options) { init_state(state_); mark_missing_ = options.mark_missing_textures; }
+LayerImpl::LayerImpl(gpu::Gpu& gpu, const LayerOptions& options) : gpu_(gpu), options_(options) { init_state(state_); mark_missing_ = options.mark_missing_textures; load_program_list(); }
 
 LayerImpl::~LayerImpl() {
     end_pass();
@@ -249,6 +249,13 @@ Status LayerImpl::present() {
     if (capture_request_) { capture_request_ = false; capturing_ = true; uses_.clear(); capture_first_draw_ = stats_.draws; }
     gpu_.present(params_.present_interval);
     ++stats_.frames;
+    if (stats_.programs_ahead != ahead_logged_) {   // programs made ahead since the last frame (the game created shaders)
+        char text[160];
+        std::snprintf(text, sizeof text, "shader programs made ahead from the list of earlier runs: %llu (%.1f ms), %llu in total", static_cast<unsigned long long>(stats_.programs_ahead - ahead_logged_), stats_.program_ms - ahead_ms_logged_, static_cast<unsigned long long>(stats_.programs_ahead));
+        log(text);
+        ahead_logged_ = stats_.programs_ahead;
+    }
+    ahead_ms_logged_ = stats_.program_ms;
     ++frame_;
     for (auto& b : retired_buffers_) gpu_.destroy(b);
     retired_buffers_.clear();
@@ -400,6 +407,10 @@ void LayerImpl::destroy(DeclarationId id) {
 }
 void LayerImpl::destroy(ShaderId id) {
     ++program_epoch_;
+    if (const ShaderObject* s = shaders_.get(id.value)) {
+        auto& live = s->vertex ? game_vs_ : game_ps_;
+        if (auto it = live.find(s->hash); it != live.end() && it->second == id.value) live.erase(it);
+    }
     if (state_.vertex_shader == id.value) state_.vertex_shader = 0;
     if (state_.pixel_shader == id.value) state_.pixel_shader = 0;
     shaders_.release(id.value);
@@ -630,7 +641,9 @@ Result<ShaderId> LayerImpl::create_vertex_shader(std::span<const uint32_t> bytec
     s.valid = shader::decode(bytecode, s.program, s.error) && s.program.stage == shader::Stage::vertex;
     if (!s.valid) { ++stats_.shader_failures; log("vertex shader rejected: " + s.error); }
     ++program_epoch_;
-    return {Status::ok, ShaderId{shaders_.add(std::move(s))}};
+    const uint32_t id = shaders_.add(std::move(s));
+    if (ShaderObject* made = shaders_.get(id); made && made->valid) { game_vs_[made->hash] = id; make_listed_programs(*made); }
+    return {Status::ok, ShaderId{id}};
 }
 
 Result<ShaderId> LayerImpl::create_pixel_shader(std::span<const uint32_t> bytecode) {
@@ -639,7 +652,9 @@ Result<ShaderId> LayerImpl::create_pixel_shader(std::span<const uint32_t> byteco
     s.valid = shader::decode(bytecode, s.program, s.error) && s.program.stage == shader::Stage::pixel;
     if (!s.valid) { ++stats_.shader_failures; log("pixel shader rejected: " + s.error); }
     ++program_epoch_;
-    return {Status::ok, ShaderId{shaders_.add(std::move(s))}};
+    const uint32_t id = shaders_.add(std::move(s));
+    if (ShaderObject* made = shaders_.get(id); made && made->valid) { game_ps_[made->hash] = id; make_listed_programs(*made); }
+    return {Status::ok, ShaderId{id}};
 }
 
 Status LayerImpl::stretch_rect(SurfaceId from, const int32_t* fr, SurfaceId to, const int32_t* tr, uint32_t filter) {

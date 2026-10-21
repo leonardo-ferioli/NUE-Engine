@@ -50,14 +50,27 @@ struct BufferInfo {
     std::vector<std::byte> mirror;               // the buffer as the game sees it (kept once a lock had to show the contents)
     std::unique_ptr<std::byte[]> staging;        // a lock without a mirror: the written range, sent to the worker at unlock
 };
-struct TextureLock { bool active = false, direct = false, has_rect = false; std::unique_ptr<std::byte[]> staging; uint32_t size = 0, pitch = 0, flags = 0; int32_t rect[4] = {}; };
+// x, y, w, h: the locked part of the level, clamped as the layer clamps it
+struct TextureLock { bool active = false, direct = false, mirrored = false, has_rect = false; std::unique_ptr<std::byte[]> staging; uint32_t size = 0, pitch = 0, flags = 0, x = 0, y = 0, w = 0, h = 0; int32_t rect[4] = {}; };
 struct TextureInfo {
     bool alive = false, cube = false, render_target = false;
-    uint32_t width = 0, height = 0, levels = 1, format = 0, pool = 0;
+    uint32_t width = 0, height = 0, levels = 1, format = 0, pool = 0, usage = 0;
     const d3d9::FormatInfo* info = nullptr;
     std::vector<uint8_t> has_data;               // per face * levels + level
     std::vector<TextureLock> locks;
+    // per face * levels + level: the level as the game sees it (the game's format, rows of the whole level), kept once a lock had to show what the
+    // level holds; later locks of that level are served from it without waiting for the worker, and every write goes to it and to the worker
+    std::vector<std::vector<std::byte>> mirror;
 };
+// copies rows of a part of a level between a whole-level image (full_pitch) and a part-sized one (part_pitch)
+inline void copy_part(const d3d9::FormatInfo& info, uint32_t full_pitch, uint32_t x, uint32_t y, uint32_t w, uint32_t h, std::byte* whole, std::byte* part, uint32_t part_pitch, bool into_whole) {
+    const uint32_t rows = (h + info.block_h - 1) / info.block_h, row_bytes = ((w + info.block_w - 1) / info.block_w) * info.block_bytes;
+    for (uint32_t r = 0; r < rows; ++r) {
+        std::byte* at = whole + size_t(y / info.block_h + r) * full_pitch + size_t(x / info.block_w) * info.block_bytes;
+        std::byte* other = part + size_t(r) * part_pitch;
+        if (into_whole) std::memcpy(at, other, row_bytes); else std::memcpy(other, at, row_bytes);
+    }
+}
 struct SurfaceInfo { uint32_t texture = 0, level = 0, face = 0; };
 
 template <class T> T& slot(std::vector<T>& v, uint32_t id) { if (id >= v.size()) v.resize(size_t(id) + 1); return v[id]; }
@@ -123,6 +136,7 @@ struct ThreadedLayer::Impl {
         return false;
     }
     void forget_states() { ++epoch; }
+    void forget_mirror(std::vector<std::byte>& m) { copies_bytes -= std::min<uint64_t>(copies_bytes, m.size()); std::vector<std::byte>().swap(m); }
 
     // ---- the worker's side
     std::vector<uint32_t> map[k_count];
@@ -491,11 +505,12 @@ Result<TextureId> ThreadedLayer::create_texture(uint32_t width, uint32_t height,
     const uint32_t proxy = impl_->ids[k_texture].take();
     TextureInfo& t = slot(impl_->textures, proxy);
     t = TextureInfo{};
-    t.alive = true; t.width = width; t.height = height; t.format = format; t.pool = pool; t.info = &info;
+    t.alive = true; t.width = width; t.height = height; t.format = format; t.pool = pool; t.info = &info; t.usage = usage;
     t.render_target = (usage & (usage_rendertarget | usage_depthstencil)) != 0;
     t.levels = levels ? levels : d3d9::mip_count(width, height);
     t.has_data.assign(t.levels, t.render_target ? 1 : 0);
     t.locks.resize(t.levels);
+    t.mirror.resize(t.levels);
     impl_->put(Op::create_texture, CreateTextureCmd{proxy, width, height, levels, usage, format, pool});
     return {Status::ok, TextureId{proxy}};
 }
@@ -510,11 +525,12 @@ Result<TextureId> ThreadedLayer::create_cube_texture(uint32_t edge, uint32_t lev
     const uint32_t proxy = impl_->ids[k_texture].take();
     TextureInfo& t = slot(impl_->textures, proxy);
     t = TextureInfo{};
-    t.alive = true; t.cube = true; t.width = t.height = edge; t.format = format; t.pool = pool; t.info = &info;
+    t.alive = true; t.cube = true; t.width = t.height = edge; t.format = format; t.pool = pool; t.info = &info; t.usage = usage;
     t.render_target = (usage & usage_rendertarget) != 0;
     t.levels = levels ? levels : d3d9::mip_count(edge, edge);
     t.has_data.assign(size_t(t.levels) * 6, t.render_target ? 1 : 0);
     t.locks.resize(size_t(t.levels) * 6);
+    t.mirror.resize(size_t(t.levels) * 6);
     impl_->put(Op::create_cube, CreateCubeCmd{proxy, edge, levels, usage, format, pool});
     return {Status::ok, TextureId{proxy}};
 }
@@ -569,7 +585,10 @@ Result<ShaderId> ThreadedLayer::create_pixel_shader(std::span<const uint32_t> by
 
 void ThreadedLayer::destroy(TextureId id) {
     if (!id.value) return;
-    if (id.value < impl_->textures.size()) impl_->textures[id.value] = TextureInfo{};
+    if (id.value < impl_->textures.size()) {
+        for (auto& m : impl_->textures[id.value].mirror) impl_->copies_bytes -= std::min<uint64_t>(impl_->copies_bytes, m.size());
+        impl_->textures[id.value] = TextureInfo{};
+    }
     impl_->put(Op::destroy, DestroyCmd{k_texture, id.value});
     impl_->ids[k_texture].give(id.value);
 }
@@ -645,15 +664,7 @@ Result<d3d9::LockedRegion> ThreadedLayer::lock_texture(TextureId id, uint32_t le
     const size_t index = size_t(face) * t.levels + level;
     TextureLock& lock = t.locks[index];
     if (lock.active) return {Status::invalid_argument, {}};
-    if (t.has_data[index] && !(flags & lock_discard)) {
-        // the level holds data the lock must show: lock it on the worker once the queue is drained; the game then writes into the layer's own staging
-        Result<d3d9::LockedRegion> r{Status::invalid_argument, {}};
-        ++impl_->texture_reads; ++g_worker_texture_reads;
-        sync([&] { r = real_->lock_texture(TextureId{impl_->real(k_texture, id.value)}, level, face, rect4, flags); });
-        if (!r) return r;
-        lock = TextureLock{}; lock.active = true; lock.direct = true; lock.flags = flags;
-        return r;
-    }
+    const d3d9::FormatInfo& info = *t.info;
     const uint32_t lw = d3d9::mip_dimension(t.width, level), lh = d3d9::mip_dimension(t.height, level);
     uint32_t x = 0, y = 0, w = lw, h = lh;
     if (rect4) {   // as the layer clamps it
@@ -662,11 +673,52 @@ Result<d3d9::LockedRegion> ThreadedLayer::lock_texture(TextureId id, uint32_t le
         if (x + w > lw) w = lw - std::min(x, lw);
         if (y + h > lh) h = lh - std::min(y, lh);
     }
+    const uint32_t full_pitch = d3d9::level_pitch(info, lw);
+    std::vector<std::byte>& mirror = t.mirror[index];
+    if (t.has_data[index] && !(flags & lock_discard)) {
+        // the lock must show what the level holds. The first time, the level is read once from the worker (after the queue is drained) and kept here;
+        // automatic mipmaps are generated by the layer, so such textures are not kept
+        if (mirror.empty() && !(t.usage & usage_autogenmipmap)) {
+            const size_t full = d3d9::level_bytes(info, lw, lh);
+            if (full && impl_->copies_bytes + full <= impl_->copy_budget) {
+                std::vector<std::byte> copy(full);
+                bool read = false;
+                ++impl_->texture_reads; ++g_worker_texture_reads;
+                sync([&] {
+                    const TextureId real_id{impl_->real(k_texture, id.value)};
+                    auto r = real_->lock_texture(real_id, level, face, nullptr, lock_readonly);
+                    if (!r) return;
+                    const uint32_t rows = (lh + info.block_h - 1) / info.block_h, row = std::min(r.value.pitch, full_pitch);
+                    for (uint32_t i = 0; i < rows; ++i) std::memcpy(copy.data() + size_t(i) * full_pitch, r.value.data + size_t(i) * r.value.pitch, row);
+                    real_->unlock_texture(real_id, level, face);
+                    read = true;
+                });
+                if (read) { impl_->copies_bytes += full; mirror = std::move(copy); }
+            }
+        }
+        if (mirror.empty()) {
+            // no copy (over the budget): lock it on the worker once the queue is drained; the game then writes into the layer's own staging
+            Result<d3d9::LockedRegion> r{Status::invalid_argument, {}};
+            ++impl_->texture_reads; ++g_worker_texture_reads;
+            sync([&] { r = real_->lock_texture(TextureId{impl_->real(k_texture, id.value)}, level, face, rect4, flags); });
+            if (!r) return r;
+            lock = TextureLock{}; lock.active = true; lock.direct = true; lock.flags = flags;
+            return r;
+        }
+        // served from the copy, with the pitch of the whole level (as the real runtime does)
+        lock = TextureLock{};
+        lock.active = true; lock.mirrored = true; lock.flags = flags; lock.has_rect = rect4 != nullptr;
+        if (rect4) std::memcpy(lock.rect, rect4, sizeof lock.rect);
+        lock.x = x; lock.y = y; lock.w = w; lock.h = h;
+        std::byte* data = mirror.data() + size_t(y / info.block_h) * full_pitch + size_t(x / info.block_w) * info.block_bytes;
+        return {Status::ok, d3d9::LockedRegion{data, full_pitch, 0}};
+    }
     lock = TextureLock{};
     lock.active = true; lock.flags = flags; lock.has_rect = rect4 != nullptr;
     if (rect4) std::memcpy(lock.rect, rect4, sizeof lock.rect);
-    lock.pitch = d3d9::level_pitch(*t.info, w);
-    lock.size = d3d9::level_bytes(*t.info, w, h);
+    lock.x = x; lock.y = y; lock.w = w; lock.h = h;
+    lock.pitch = d3d9::level_pitch(info, w);
+    lock.size = d3d9::level_bytes(info, w, h);
     lock.staging.reset(new std::byte[lock.size]);
     std::memset(lock.staging.get(), 0, lock.size);
     return {Status::ok, d3d9::LockedRegion{lock.staging.get(), lock.pitch, 0}};
@@ -680,14 +732,25 @@ Status ThreadedLayer::unlock_texture(TextureId id, uint32_t level, uint32_t face
     TextureLock& lock = t.locks[index];
     if (!lock.active) return Status::invalid_argument;
     lock.active = false;
+    const bool writes = !(lock.flags & lock_readonly);
     if (lock.direct) { impl_->put(Op::texture_unlock_direct, TextureUnlockCmd{id.value, level, face}); }
-    else if (!(lock.flags & lock_readonly)) {
-        TextureWriteCmd c{id.value, level, face, lock.flags, lock.pitch, lock.size, lock.has_rect, {}, nullptr};
+    else if (writes && lock.w && lock.h) {
+        const d3d9::FormatInfo& info = *t.info;
+        const uint32_t full_pitch = d3d9::level_pitch(info, d3d9::mip_dimension(t.width, level));
+        std::vector<std::byte>& mirror = t.mirror[index];
+        if (lock.mirrored) {   // the part the game could write, out of the copy, in the layout of a lock of that part
+            lock.pitch = d3d9::level_pitch(info, lock.w);
+            lock.size = d3d9::level_bytes(info, lock.w, lock.h);
+            lock.staging.reset(new std::byte[lock.size]);
+            copy_part(info, full_pitch, lock.x, lock.y, lock.w, lock.h, mirror.data(), lock.staging.get(), lock.pitch, false);
+        } else if (!mirror.empty()) copy_part(info, full_pitch, lock.x, lock.y, lock.w, lock.h, mirror.data(), lock.staging.get(), lock.pitch, true);
+        // the whole part is sent, so the worker's lock does not need to show what the level held (DISCARD)
+        TextureWriteCmd c{id.value, level, face, lock.mirrored ? (lock.flags | uint32_t(lock_discard)) : lock.flags, lock.pitch, lock.size, lock.has_rect, {}, nullptr};
         std::memcpy(c.rect, lock.rect, sizeof c.rect);
         if (lock.size > kInlineLimit) { c.heap = lock.staging.release(); impl_->put(Op::texture_write, c); }
         else impl_->put_with(Op::texture_write, c, lock.staging.get(), lock.size);
     }
-    if (!(lock.flags & lock_readonly)) t.has_data[index] = 1;
+    if (writes) t.has_data[index] = 1;
     lock.staging.reset();
     return Status::ok;
 }
@@ -727,14 +790,23 @@ Status ThreadedLayer::stretch_rect(SurfaceId from, const int32_t* from_rect4, Su
     impl_->put(Op::stretch_rect, c);
     if (to.value < impl_->surfaces.size()) {   // a texture level that is drawn into has data
         const SurfaceInfo& s = impl_->surfaces[to.value];
-        if (s.texture && s.texture < impl_->textures.size()) { TextureInfo& t = impl_->textures[s.texture]; const size_t i = size_t(s.face) * t.levels + s.level; if (i < t.has_data.size()) t.has_data[i] = 1; }
+        if (s.texture && s.texture < impl_->textures.size()) {
+            TextureInfo& t = impl_->textures[s.texture];
+            const size_t i = size_t(s.face) * t.levels + s.level;
+            if (i < t.has_data.size()) t.has_data[i] = 1;
+            if (i < t.mirror.size()) impl_->forget_mirror(t.mirror[i]);
+        }
     }
     return Status::ok;
 }
 
 Status ThreadedLayer::update_texture(TextureId source, TextureId destination) {
     impl_->put(Op::update_texture, PairCmd{source.value, destination.value});
-    if (destination.value < impl_->textures.size()) for (auto& h : impl_->textures[destination.value].has_data) h = 1;
+    if (destination.value < impl_->textures.size()) {
+        TextureInfo& t = impl_->textures[destination.value];
+        for (auto& h : t.has_data) h = 1;
+        for (auto& m : t.mirror) impl_->forget_mirror(m);
+    }
     return Status::ok;
 }
 

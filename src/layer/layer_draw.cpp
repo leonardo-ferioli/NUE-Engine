@@ -143,7 +143,11 @@ const shader::TranslateResult* LayerImpl::translate(ShaderObject& s, uint32_t, c
     if (it != translations_.end()) return it->second.get();
     auto result = std::make_unique<shader::TranslateResult>();
     ++stats_.shader_translations;
-    if (!shader::translate_to_spirv(s.program, options, *result)) {
+    const auto start = std::chrono::steady_clock::now();
+    const bool translated = shader::translate_to_spirv(s.program, options, *result);
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    pending_translate_ms_ += ms; stats_.program_ms += ms;
+    if (!translated) {
         ++stats_.shader_failures;
         log(std::string(s.vertex ? "vertex" : "pixel") + " shader translation failed: " + result->error);
         result.reset();
@@ -179,17 +183,47 @@ LayerImpl::DrawProgram LayerImpl::select_program(const Declaration* declaration,
         else note_unsupported_literal("table fog with a pixel shader");
     }
     po_key |= uint64_t(po.alpha_func) << 32 | uint64_t(po.fog_mode) << 36;
-    out.vertex = translate(*vs, st.vertex_shader, vo, (uint64_t(vo.bgra_attributes) + 1) * 0x9E3779B97F4A7C15ull ^ (uint64_t(vo.uint_attributes) + 3) * 0xC2B2AE3D27D4EB4Full ^ (uint64_t(vo.sint_attributes) + 7) * 0x165667B19E3779F9ull);
-    out.pixel = translate(*ps, st.pixel_shader, po, po_key | (1ull << 41));
-    if (!out.vertex || !out.pixel) return out;
+    return program_for(*vs, *ps, vo, po, po_key, false);
+}
+
+// The program of two shaders translated with these options, made when it is new. `ahead`: made from the program list, not for a draw.
+LayerImpl::DrawProgram LayerImpl::program_for(ShaderObject& vs_object, ShaderObject& ps_object, const shader::TranslateOptions& vo, const shader::TranslateOptions& po, uint64_t po_key, bool ahead) {
+    DrawProgram out;
+    ShaderObject* vs = &vs_object;
+    ShaderObject* ps = &ps_object;
+    out.vertex = translate(*vs, 0, vo, (uint64_t(vo.bgra_attributes) + 1) * 0x9E3779B97F4A7C15ull ^ (uint64_t(vo.uint_attributes) + 3) * 0xC2B2AE3D27D4EB4Full ^ (uint64_t(vo.sint_attributes) + 7) * 0x165667B19E3779F9ull);
+    out.pixel = translate(*ps, 0, po, po_key | (1ull << 41));
+    if (!out.vertex || !out.pixel) { pending_translate_ms_ = 0; return out; }
     const uint64_t key = (vs->hash * 0x9E3779B97F4A7C15ull) ^ (ps->hash + 0x7F4A7C15ull + (vs->hash << 6)) ^ (uint64_t(vo.bgra_attributes) << 7) ^ (uint64_t(vo.uint_attributes) * 0x2545F4914F6CDD1Dull) ^ (uint64_t(vo.sint_attributes) * 0x9E3779B97F4A7C15ull) ^ (po_key * 0xC2B2AE3D27D4EB4Full);
     auto found = programs_.find(key);
     if (found == programs_.end()) {
         gpu::ProgramDesc desc{key, out.vertex, out.pixel};
+        const auto start = std::chrono::steady_clock::now();
         auto r = gpu_.create_program(desc);
+        const double create_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        stats_.program_ms += create_ms;
+        // a program made in the middle of a scene is a hitch: the slow ones are logged (the adapter's part includes the shader compiler when the
+        // disk cache does not have it; the driver's own shader creation happens later, on the render thread)
+        if (!ahead && pending_translate_ms_ + create_ms >= 2.0) {
+            char text[200];
+            std::snprintf(text, sizeof text, "new shader program %016llx in frame %u: %.1f ms (shader translation %.1f ms, adapter %.1f ms)", static_cast<unsigned long long>(key), frame_, pending_translate_ms_ + create_ms, pending_translate_ms_, create_ms);
+            log(text);
+        }
+        pending_translate_ms_ = 0;
         if (!r) return out;
         found = programs_.emplace(key, r.value).first;
         ++stats_.programs;
+        if (ahead) ++stats_.programs_ahead;
+        // a program of two game shaders made at a draw goes to the list, so that the next run makes it ahead
+        const auto v = game_vs_.find(vs->hash), p = game_ps_.find(ps->hash);
+        if (!ahead && !options_.program_list.empty() && v != game_vs_.end() && p != game_ps_.end() && !listed_keys_.count(key)) {
+            listed_keys_[key] = true;
+            listed_programs_.push_back(ListedProgram{vs->hash, ps->hash, vo.bgra_attributes, vo.uint_attributes, vo.sint_attributes, po_key});
+            if (FILE* f = std::fopen(options_.program_list.c_str(), "ab")) {
+                std::fprintf(f, "%016llx %016llx %x %x %x %016llx\n", static_cast<unsigned long long>(vs->hash), static_cast<unsigned long long>(ps->hash), vo.bgra_attributes, vo.uint_attributes, vo.sint_attributes, static_cast<unsigned long long>(po_key));
+                std::fclose(f);
+            }
+        }
     }
     out.program = found->second;
     out.ok = true;
@@ -615,4 +649,52 @@ std::string LayerImpl::profile_report() const {
                   double(prof_[2]) / n, double(prof_[3]) / n, double(prof_[4]) / n, double(prof_[5]) / n, (unsigned long long)prof_[7], 100.0 * double(prof_[6]) / n);
     return text;
 }
+}  // namespace nue::d3d9
+
+namespace nue::d3d9 {
+
+// ---- programs made ahead (LayerOptions::program_list) ------------------------------------------------------------------------------------------
+
+static uint64_t program_key_of(uint64_t vs_hash, uint64_t ps_hash, uint32_t bgra, uint32_t uints, uint32_t sints, uint64_t po_key) {
+    return (vs_hash * 0x9E3779B97F4A7C15ull) ^ (ps_hash + 0x7F4A7C15ull + (vs_hash << 6)) ^ (uint64_t(bgra) << 7) ^ (uint64_t(uints) * 0x2545F4914F6CDD1Dull) ^ (uint64_t(sints) * 0x9E3779B97F4A7C15ull) ^ (po_key * 0xC2B2AE3D27D4EB4Full);
+}
+
+void LayerImpl::load_program_list() {
+    if (options_.program_list.empty()) return;
+    FILE* f = std::fopen(options_.program_list.c_str(), "rb");
+    if (!f) return;
+    char line[256];
+    while (std::fgets(line, sizeof line, f)) {
+        unsigned long long vs = 0, ps = 0, po_key = 0;
+        unsigned bgra = 0, uints = 0, sints = 0;
+        if (std::sscanf(line, "%llx %llx %x %x %x %llx", &vs, &ps, &bgra, &uints, &sints, &po_key) != 6) continue;
+        const uint64_t key = program_key_of(vs, ps, bgra, uints, sints, po_key);
+        if (listed_keys_.count(key)) continue;
+        listed_keys_[key] = true;
+        listed_programs_.push_back(ListedProgram{vs, ps, bgra, uints, sints, po_key});
+    }
+    std::fclose(f);
+    log("shader program list: " + std::to_string(listed_programs_.size()) + " programs of earlier runs (" + options_.program_list + ")");
+}
+
+// a game shader was created: the listed programs whose two shaders now exist are made
+void LayerImpl::make_listed_programs(const ShaderObject& created) {
+    for (const ListedProgram& l : listed_programs_) {
+        if ((created.vertex ? l.vs : l.ps) != created.hash) continue;
+        const auto v = game_vs_.find(l.vs), p = game_ps_.find(l.ps);
+        if (v == game_vs_.end() || p == game_ps_.end()) continue;
+        if (programs_.count(program_key_of(l.vs, l.ps, l.bgra, l.uints, l.sints, l.po_key))) continue;
+        ShaderObject* vs = shaders_.get(v->second);
+        ShaderObject* ps = shaders_.get(p->second);
+        if (!vs || !ps || !vs->valid || !ps->valid) continue;
+        shader::TranslateOptions vo, po;
+        vo.bgra_attributes = l.bgra; vo.uint_attributes = l.uints; vo.sint_attributes = l.sints;
+        for (uint32_t i = 0; i < 16; ++i) po.sampler_dim[i] = (l.po_key >> i) & 1 ? 3 : 1;
+        for (uint32_t i = 0; i < 8; ++i) { const uint32_t code = uint32_t(l.po_key >> (16 + 2 * i)) & 3; po.projected[i] = code == 2 ? 4 : code == 1 ? 3 : 0; }
+        po.alpha_func = uint8_t((l.po_key >> 32) & 0xF);
+        po.fog_mode = uint8_t((l.po_key >> 36) & 1);
+        program_for(*vs, *ps, vo, po, l.po_key, true);
+    }
+}
+
 }  // namespace nue::d3d9

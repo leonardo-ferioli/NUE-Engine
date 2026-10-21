@@ -517,6 +517,7 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     layer_options.msaa_override = cfg.msaa;
     layer_options.texture_copy_mb = cfg.texture_copy_mb;
     layer_options.mark_missing_textures = cfg.mark_missing;
+    layer_options.program_list = cfg.shader_cache + "\\nue_programs.txt";   // programs of earlier runs are made while the game loads, not at their first draw
     auto core = std::make_shared<Core>();
     std::string error;
     // bgfx is used from the thread that started it: in worker mode the adapter and the layer are made (and later destroyed) on the worker
