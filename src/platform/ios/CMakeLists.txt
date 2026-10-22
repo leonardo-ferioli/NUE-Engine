@@ -30,12 +30,15 @@ target_include_directories(nue_platform_obj PRIVATE
     ${NUE_IOS_DIR}/logic      # lifecycle.hpp, nue_map.hpp ...
     ${NUE_IOS_DIR}/include)   # nue_ext_ios.h
 
-set_source_files_properties(
+# ARC for the Objective-C++ sources. Source-file properties are directory scoped and nue_platform_obj lives in the parent directory, hence
+# TARGET_DIRECTORY (CMake >= 3.18). A COMPILE_LANGUAGE generator expression does not work with the Xcode generator.
+set_property(SOURCE
     ${NUE_IOS_DIR}/adapter/platform_ios.mm
     ${NUE_IOS_DIR}/apple/nue_ios_core.mm ${NUE_IOS_DIR}/apple/nue_ios_storage.mm ${NUE_IOS_DIR}/apple/nue_ios_audio.mm
     ${NUE_IOS_DIR}/apple/nue_ios_input.mm ${NUE_IOS_DIR}/apple/nue_ios_display.mm ${NUE_IOS_DIR}/apple/nue_ios_system.mm
     ${NUE_IOS_DIR}/apple/nue_ios_diag.mm
-    PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    TARGET_DIRECTORY nue_platform_obj
+    APPEND PROPERTY COMPILE_OPTIONS "-fobjc-arc")
 
 # Frameworks used by the glue (static library: the final app links them through the library's interface).
 target_link_libraries(nue_platform_obj PUBLIC

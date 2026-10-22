@@ -20,20 +20,21 @@ Step-by-step build instructions in Spanish: [PLATFORM_IOS.es.md](PLATFORM_IOS.es
 
 ## 1. Verification status (read this first)
 
-The author works on Windows. There is no macOS, Xcode or Apple SDK on that machine, so **no Apple code in this backend has ever been compiled
-or run**.
+The author works on Windows with no macOS, Xcode or Apple SDK. The only Apple toolchain used so far is **GitHub Actions on a macOS runner
+(Xcode 26.6)**: run 39737087582 of the `nue-ios` workflow (an earlier run, 39736369209, found two compile errors that were fixed).
+Nothing has ever run on a device or in the simulator.
 
 | Piece | Where | Status |
 |---|---|---|
-| NUE platform adapter (`nue_platform_ios_get_ops`), import source, QoS, crash handler, log sink, extension `nue.ios.v1` | `src/platform/ios/adapter/` | **Written, never compiled** (ops table type-checked against `platform_ops.h` on the host) |
-| Pure logic (lifecycle state machine, thermal/memory/frame-rate policy, Metal capability flags and the DXT texture policy, path/import/validation logic, CRC32, audio-session policy, gamepad conditioning, gyro steering math, last-used-device tracker) | `src/platform/ios/logic/` | **Compiled with clang on Windows and unit-tested** (`ctest`: 235 checks in `ios_logic_tests`, plus the NUE mapping tests) |
-| `Info.plist` required keys | `ios/sample/Info.plist`, `ios/tests/plist_check.cpp` | Text-level check passes on the host; whether iOS accepts the plist is **not** verified |
-| Objective-C++ glue (UIKit, AVFoundation, GameController, CoreHaptics, CoreMotion, Metal, MetricKit, os_log) | `src/platform/ios/apple/*.mm`, `nue_ios.h` | **Written, never compiled.** Expect compile errors on the first Mac/CI run (API spellings, nullability, ARC details) |
-| Sample app (SDL3 window + CAMetalLayer clear + status overlay) | `ios/sample/main.mm` | Written, never compiled, never run |
-| CMake iOS build, presets, toolchain file | `ios/CMakeLists.txt`, `ios/cmake/`, `ios/CMakePresets.json` | Host configure of the test part verified; the iOS branch **never configured** |
-| XcodeGen project | `ios/project.yml` | Never generated |
-| Scripts (build, xcframework, IPA) | `ios/scripts/*.sh` | Never run |
-| GitHub Actions workflow | `.github/workflows/nue-ios.yml` | Never run; its first run is the first compile of the glue |
+| Pure logic (lifecycle state machine, thermal/memory/frame-rate policy, Metal capability flags and the DXT texture policy, path/import/validation logic, CRC32, audio-session policy, gamepad conditioning, gyro steering math, NUE type mapping) | `src/platform/ios/logic/` | **Compiled and unit-tested** on Windows (clang) and on the macOS runner (`ctest`, 3 tests: logic, NUE mapping, plist) |
+| `Info.plist` required keys | `ios/sample/Info.plist`, `ios/tests/plist_check.cpp` | Text-level check passes; the real `xcodebuild` accepted the plist when building the app; whether iOS accepts every key at install time is **not** verified |
+| Objective-C++ glue (UIKit, AVFoundation, GameController, CoreHaptics, CoreMotion, Metal, MetricKit, os_log) | `src/platform/ios/apple/*.mm`, `nue_ios.h` | **Compiled and linked** by Xcode for device (arm64, iOS 16) and simulator in CI, as a static library plus the sample app. **Never run.** Compiler warnings were not reviewed |
+| Sample app (SDL3 window + CAMetalLayer clear + status overlay) | `ios/sample/main.mm` | **Built** (device and simulator) and packaged as an unsigned IPA in CI. **Never launched** |
+| CMake iOS build, presets, toolchain file | `ios/CMakeLists.txt`, `ios/cmake/`, `ios/CMakePresets.json` | **Configure + build verified in CI** (Xcode generator, SDL3 fetched and built from source) |
+| `NueIos.xcframework` packaging | `ios/scripts/package_xcframework.sh` | **Built in CI** (device + simulator slices); not consumed by anything yet |
+| Unsigned IPA script | `ios/scripts/make_ipa.sh` | Ran in CI; the IPA was not installed anywhere |
+| NUE platform adapter (`nue_platform_ios_get_ops`), import source, QoS, crash handler, log sink, extension `nue.ios.v1` | `src/platform/ios/adapter/`, `src/platform/ios/CMakeLists.txt` | Syntax-checked on Windows against the real NUE headers with stand-in Apple headers. **Not yet built by Xcode as part of `libnue`**: the CI job `nue-engine` failed on a missing ARC flag (fixed in the CMake, awaiting a re-run) |
+| XcodeGen project | `ios/project.yml` | The SwiftPM dependency on SDL cannot work (no `Package.swift`); now expects `external/SDL3.xcframework`. CI only runs `xcodegen generate`; the project has **not** been built |
 | Behaviour on a device (Game Mode effect, ProMotion pacing, audio interruptions, gyro signs in landscape, controller mapping, memory numbers) | | **Unverified**; every such claim below is a design intention |
 
 The glue is kept thin on purpose: decisions live in `logic/` (tested), the `.mm` files translate between UIKit/AV/GC notifications and
@@ -49,7 +50,7 @@ nue_engine/src/platform/ios/
 nue_engine/ios/
   CMakeLists.txt       host tests everywhere; glue + SDL3 + sample app when CMAKE_SYSTEM_NAME is iOS
   CMakePresets.json    host-tests, ios-device, ios-simulator
-  project.yml          XcodeGen alternative (SDL3 through Swift Package Manager)
+  project.yml          XcodeGen alternative (expects external/SDL3.xcframework)
   sample/              Info.plist, entitlements, main.mm
   scripts/             build_ios.sh, package_xcframework.sh, make_ipa.sh, run_host_tests.sh
   tests/               ios_logic_tests.cpp, plist_check.cpp
@@ -122,8 +123,7 @@ Verification: `platform_ios.mm` was syntax-checked with clang on Windows as Obje
 bug (a block cannot capture a C array) and proves the NUE-facing types, the ops table order and the C++ are consistent; it says nothing about
 whether the stand-ins match the real Apple SDK. The `apple/*.mm` glue files got a manual review only (that found a wrong `NSNotFound`
 comparison, a missing iOS 16.4 availability guard for `supportsBCTextureCompression` and the arm64 PC accessor). `nue_ext_ios.h` and `nue_ios.h`
-compile in C and C++; the mapping logic is unit-tested. The `.mm` bodies, the
-Objective-C++ CMake integration (`enable_language(OBJCXX)` inside `add_subdirectory`) and the `ios-arm64` preset have never run on an Apple toolchain.
+compile in C and C++; the mapping logic is unit-tested. The Objective-C++ CMake integration of the adapter (`enable_language(OBJCXX)` inside `add_subdirectory`, ARC through `TARGET_DIRECTORY`) and the `ios-arm64` preset were first exercised by the `nue-engine` CI job, which failed on ARC and is awaiting a re-run.
 
 ## 3. Build and packaging
 

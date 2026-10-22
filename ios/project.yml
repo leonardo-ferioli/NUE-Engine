@@ -1,6 +1,6 @@
 # XcodeGen description (https://github.com/yonaskolb/XcodeGen): an Xcode project without CMake, for people who prefer to work inside Xcode.
 #   brew install xcodegen && cd nue_engine/ios && xcodegen generate && open NueSample.xcodeproj
-# SDL3 comes from the Swift package below (SDL's own Package.swift, product "SDL3"); keep the version in sync with nue-core.
+# SDL3 comes from external/SDL3.xcframework (see the dependency below); keep its version in sync with third_party/SDL.
 # Never run: written without macOS/Xcode access (see nue_engine/docs/PLATFORM_IOS.md).
 name: NueSample
 options:
@@ -20,10 +20,6 @@ settings:
     ENABLE_BITCODE: NO
     # Signing: set DEVELOPMENT_TEAM in Xcode (Signing & Capabilities) or pass DEVELOPMENT_TEAM=XXXXXXXXXX to xcodebuild.
     CODE_SIGN_STYLE: Automatic
-packages:
-  SDL:
-    url: https://github.com/libsdl-org/SDL
-    exactVersion: 3.4.18
 targets:
   NueIosLogic:
     type: library.static
@@ -66,8 +62,10 @@ targets:
         buildPhase: none
     dependencies:
       - target: NueIosGlue
-      - package: SDL
-        product: SDL3
+      # SDL3 has no Package.swift at its root, so SwiftPM cannot fetch it. Build SDL3.xcframework from third_party/SDL
+      # (Xcode/SDL/SDL.xcodeproj, scheme SDL3, see docs/PLATFORM_IOS.md) and place it at external/SDL3.xcframework.
+      - framework: ../external/SDL3.xcframework
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.nue.sample

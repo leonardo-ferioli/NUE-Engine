@@ -21,10 +21,6 @@ uint32_t sysctl_u32(const char* name) {
     return v;
 }
 
-void copy(char* dst, size_t cap, NSString* s) {
-    if (!dst || cap == 0) return;
-    std::snprintf(dst, cap, "%s", s ? [s UTF8String] : "");
-}
 
 std::mutex g_haptic_mutex;
 CHHapticEngine* g_haptic_engine = nil;

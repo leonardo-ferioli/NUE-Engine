@@ -174,7 +174,7 @@ int nue_ios_configure_metal_layer(void* layer_ptr, int framebuffer_only, uint32_
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     layer.framebufferOnly = framebuffer_only ? YES : NO;   // NO is needed to read the drawable back (screenshots) or blit into it
     layer.maximumDrawableCount = 3;
-    layer.displaySyncEnabled = YES;
+    // CAMetalLayer.displaySyncEnabled is macOS-only: iOS always presents in sync with the display.
     layer.opaque = YES;
     layer.allowsNextDrawableTimeout = YES;
     UIScreen* screen = [UIScreen mainScreen];

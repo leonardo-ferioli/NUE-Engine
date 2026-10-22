@@ -1,9 +1,10 @@
 # NUE en iOS: cómo compilarlo en un Mac (o en CI)
 
-> **Aviso honesto.** Este código se escribió en Windows. Nadie lo ha compilado todavía con Xcode: la primera compilación en un Mac o en
-> GitHub Actions es la primera vez que el código Objective-C++ se compila de verdad, y es normal que aparezcan errores de sintaxis o de
-> nombres de API que hay que corregir. La lógica pura (ciclo de vida, políticas, rutas, importación, entrada) sí está compilada y probada en
-> Windows. Detalles técnicos en [PLATFORM_IOS.md](PLATFORM_IOS.md) (en inglés).
+> **Aviso honesto.** Este código se escribió en Windows. Lo único que lo ha compilado hasta ahora es **GitHub Actions** en un runner de macOS con
+> Xcode 26.6: la lógica, el glue Objective-C++, SDL3 y la app de ejemplo compilan y enlazan para dispositivo (arm64, iOS 16) y simulador, y el
+> xcframework se genera. **Nada se ha ejecutado**: ni en el simulador ni en un iPhone/iPad. El adaptador del motor completo (`libnue`) y el
+> proyecto XcodeGen aún no se han compilado con Xcode. Detalles técnicos en [PLATFORM_IOS.md](PLATFORM_IOS.md) (en inglés).
+> Esta guía está escrita para el repositorio `nue-engine`, donde la raíz es el antiguo `nue_engine/`.
 
 ## 0. Qué necesitas
 
@@ -16,14 +17,14 @@
 ## 1. Comprobar la lógica en el ordenador (sirve en cualquier sistema)
 
 ```bash
-cd nue_engine/ios
+cd ios
 bash scripts/run_host_tests.sh
 ```
 
 Debe terminar con `100% tests passed`. En Windows, desde la raíz del repositorio:
 
 ```powershell
-cmake -S nue_engine/ios -B build_ios_host -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang
+cmake -S ios -B build_ios_host -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang
 cmake --build build_ios_host
 ctest --test-dir build_ios_host --output-on-failure
 ```
@@ -31,7 +32,7 @@ ctest --test-dir build_ios_host --output-on-failure
 ## 2. Compilar la app de ejemplo para el simulador (sin firma)
 
 ```bash
-cd nue_engine/ios
+cd ios
 bash scripts/build_ios.sh simulator Debug
 ```
 
@@ -53,7 +54,7 @@ En el simulador `os_proc_available_memory` devuelve 0 y no hay giroscopio ni Gam
 3. Elige un identificador de bundle propio (con una cuenta gratuita el predeterminado `org.nue.sample` suele estar ya ocupado):
 
 ```bash
-cd nue_engine/ios
+cd ios
 NUE_IOS_TEAM_ID=ABCDE12345 NUE_IOS_BUNDLE_ID=com.tunombre.nuesample bash scripts/build_ios.sh device Release
 ```
 
@@ -65,10 +66,13 @@ NUE_IOS_TEAM_ID=ABCDE12345 NUE_IOS_BUNDLE_ID=com.tunombre.nuesample bash scripts
 
 ```bash
 brew install xcodegen
-cd nue_engine/ios
+cd ios
 xcodegen generate
 open NueSample.xcodeproj
 ```
+
+Este camino necesita `external/SDL3.xcframework` (SDL3 no tiene `Package.swift`, así que SwiftPM no sirve). Constrúyelo desde `third_party/SDL`
+(`Xcode/SDL/SDL.xcodeproj`, esquema SDL3). Es la ruta menos probada: el CI solo comprueba que `xcodegen generate` funciona.
 
 En Xcode: target `NueSample` → Signing & Capabilities → elige tu equipo y cambia el Bundle Identifier. Run.
 
@@ -86,8 +90,8 @@ La app expone su carpeta Documents (claves `UIFileSharingEnabled` y `LSSupportsO
 ## 5. Instalar como IPA (AltStore, Sideloadly)
 
 ```bash
-cd nue_engine/ios
-bash scripts/make_ipa.sh ../../build_ios_device/Release-iphoneos/nue_ios_sample.app nue_sample.ipa
+cd ios
+bash scripts/make_ipa.sh ../build_ios_device/Release-iphoneos/nue_ios_sample.app nue_sample.ipa
 ```
 
 El IPA sale **sin firmar**; AltStore o Sideloadly lo firman con tu Apple ID (con la cuenta gratuita caduca a los 7 días; AltStore lo renueva si el
@@ -95,16 +99,16 @@ ordenador está en la misma red). TestFlight/App Store no son una vía realista 
 
 ## 6. Compilar en GitHub Actions (sin Mac)
 
-El workflow `.github/workflows/nue-ios.yml` se ejecuta en `macos-latest` cuando cambian `nue_engine/ios/**` o `nue_engine/src/platform/ios/**`, y
+El workflow `.github/workflows/nue-ios.yml` se ejecuta en `macos-latest` cuando cambian `ios/**` o `src/platform/ios/**`, y
 también a mano (Actions → nue-ios → Run workflow). Hace: tests del host, compilación para simulador y para dispositivo **sin firma**, el
-xcframework y el proyecto XcodeGen. No usa secretos y no publica nada. Con "upload_ipa" marcado adjunta el IPA sin firmar a la ejecución (7 días,
+xcframework y la generación del proyecto XcodeGen. No usa secretos y no publica nada. Con "upload_ipa" marcado adjunta el IPA sin firmar a la ejecución (7 días,
 solo visible para quien tenga acceso al repositorio). Si falla, el log de la ejecución contiene los errores de compilación que hay que arreglar.
 
 ## 7. Empaquetar el backend como xcframework (para integrarlo en otro proyecto)
 
 ```bash
-cd nue_engine/ios
-bash scripts/package_xcframework.sh ../../build_xcf
+cd ios
+bash scripts/package_xcframework.sh ../build_xcf
 ```
 
 Genera `NueIos.xcframework` (dispositivo arm64 + simulador arm64) con la cabecera `nue_ios.h`.
@@ -128,4 +132,4 @@ La app de ejemplo pinta un texto sobre un fondo de color animado. Comprueba y an
 | Consola de macOS (Console.app, filtro `org.nue.engine`) | mensajes del motor |
 | Game Mode | `game mode: plist=1 category=1 os18=1`; que el sistema lo active de verdad no se puede consultar |
 
-Envíame (o apunta en `nue_engine/docs/REQUESTS_ios.md`) los errores de compilación y cualquier fila que no se cumpla.
+Envíame (o apunta en `docs/REQUESTS_ios.md`) los errores de compilación y cualquier fila que no se cumpla.

@@ -105,16 +105,14 @@ jobs:
         run: bash ios/scripts/package_xcframework.sh "$PWD/build_xcf"
 
   xcodegen:
-    # Checks that the XcodeGen description still produces a project that builds for the simulator.
+    # Checks that the XcodeGen description is valid and still generates a project. It does not build: that needs external/SDL3.xcframework
+    # (the CMake jobs above build the same sample against SDL3 built from source).
     runs-on: macos-latest
     needs: host-tests
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Generate and build
+      - name: Generate
         working-directory: ios
-        run: |
-          xcodegen generate
-          xcodebuild -project NueSample.xcodeproj -scheme NueSample -sdk iphonesimulator -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        run: xcodegen generate
