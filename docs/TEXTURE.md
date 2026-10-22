@@ -18,8 +18,7 @@ The recompiled games ship Direct3D 9 textures: DXT1/DXT3/DXT5 (BC1/BC2/BC3), som
 
 Today the Direct3D 9 layer (`formats.cpp`: `gpu_format_for`, `decode_dxt`) falls back to **RGBA8** when the GPU lacks BC. That multiplies texture memory
 by 8 (DXT1) or 4 (DXT3/5). With the audit numbers from the layer (800-1600 textures, **17-70 MB resident in menus, more in races**) a phone would need
-roughly 70 MB x 4..8 = **280-560 MB for the menus alone** instead of 70 MB, which is why a general transcoding layer is needed (the 2 GB process limit on
-Android includes everything else the game keeps). The layer's DXT decoder is also a private 3-format implementation; this module replaces it.
+roughly 70 MB x 4..8 = **280-560 MB for the menus alone** instead of 70 MB, which is why a general transcoding layer is needed (a phone's per-process memory limit is shared with everything else the game keeps). The layer's DXT decoder is also a private 3-format implementation; this module replaces it.
 
 ## 2. Architecture and justification
 
@@ -120,6 +119,17 @@ all textures are converted once into the cache (KTX2, hash keyed), later runs on
 OpenGL(ES) internal formats and bgfx::TextureFormat (105 ids, order verified against `bgfx.h` in `third_party/bgfx.cmake` and bimg) are specified in the
 header; the numeric tables were written from the public headers and **must be cross-checked against the SDK headers on first use on each platform**
 (Metal and GL numbers especially, until a platform session verifies them in its own build).
+
+## 5b. Memory budget and legacy mapping data
+
+* **No built-in memory limit.** The budget is a runtime parameter, `nue_tex_budget_policy`: unlimited, explicit bytes, a fraction of *available* memory, or a
+  preset (`LOW_MEMORY_MOBILE` 12 % with a 64 MiB floor, `MOBILE` 20 %, `DESKTOP` 35 %, `HIGH_END` 50 %) applied to the `available_bytes` the host queries
+  from the system (RAM, per-process limit, GPU memory), with optional min/max clamps. `nue_tex_budget_resolve` turns it into bytes; `nue_tex_budget_set_policy`
+  changes it at run time (low-memory events, settings menu). A game that wants a fixed ceiling (for example 2 GB overall) just configures that number.
+  The disk cache limit is likewise a parameter (0 = unlimited). Statistics: `nue_tex_budget_get_stats` (limit, used, peak, evictions, over-budget events).
+* **Legacy ABI data.** `nue_tex_d3d9_format_table()` exposes the D3DFMT / FOURCC <-> `nue_tex_format` mapping as a static, sorted table (with exactness and
+  premultiplied-alpha flags), so the `nue_legacy` Direct3D 9 layer holds no format knowledge of its own. The same data backs `nue_tex_format_from_d3d9` /
+  `nue_tex_format_to_d3d9`.
 
 ## 6. Status (honest)
 

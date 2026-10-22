@@ -241,7 +241,7 @@ typedef struct nue_tex_caps {
     nue_bool astc_hdr;                  /* ASTC HDR profile samples (iOS A13+, few Android) */
     nue_bool astc_ldr_full_profile;     /* false: LDR sRGB decode may differ slightly ("ldr" only drivers) */
     nue_bool supports_texture_swizzle;  /* sampler component swizzle exists (planner can leave swizzles to the GPU) */
-    uint64_t memory_budget_bytes;       /* suggested texture memory ceiling (0 = unknown) */
+    uint64_t available_memory_bytes;    /* memory a texture budget can be a share of, as reported by the probe (0 = unknown) */
     uint32_t reserved[8];
 } nue_tex_caps;
 
@@ -554,6 +554,34 @@ typedef void (NUE_CALL *nue_tex_log_fn)(void* userdata, int level /* nue_log_lev
 /* Optional: route the module's log lines (default: nothing; NUE_TEX_LOG=1 in the environment prints them to stderr). */
 NUE_API void NUE_CALL nue_tex_set_log_callback(nue_tex_log_fn fn, void* userdata);
 
+/* Texture memory budget policy. There is NO built-in limit anywhere in the module: the host (game, platform layer, user settings) chooses one.
+ * `mode` selects how the byte limit is derived; presets are only convenient defaults a platform layer may apply. */
+typedef enum nue_tex_budget_mode {
+    NUE_TEX_BUDGET_UNLIMITED = 0,       /* never evict */
+    NUE_TEX_BUDGET_BYTES,               /* limit_bytes */
+    NUE_TEX_BUDGET_FRACTION,            /* fraction x available_bytes (supplied by the host from the system: RAM, per-process limit, GPU memory) */
+    NUE_TEX_BUDGET_PRESET               /* preset below applied to available_bytes */
+} nue_tex_budget_mode;
+typedef enum nue_tex_budget_preset {
+    NUE_TEX_BUDGET_PRESET_UNLIMITED = 0,
+    NUE_TEX_BUDGET_PRESET_LOW_MEMORY_MOBILE,   /* 12% of available, floor 64 MiB: small phones, textures shed aggressively */
+    NUE_TEX_BUDGET_PRESET_MOBILE,              /* 20% of available */
+    NUE_TEX_BUDGET_PRESET_DESKTOP,             /* 35% of available (graphics memory is usually separate) */
+    NUE_TEX_BUDGET_PRESET_HIGH_END             /* 50% of available */
+} nue_tex_budget_preset;
+typedef struct nue_tex_budget_policy {
+    uint32_t struct_size;
+    nue_tex_budget_mode mode;
+    uint64_t limit_bytes;               /* BYTES */
+    double fraction;                    /* FRACTION: 0..1 */
+    nue_tex_budget_preset preset;       /* PRESET */
+    uint64_t available_bytes;           /* FRACTION / PRESET: memory the texture budget is a share of; the host queries it (system.h memory info, platform per-process limit) */
+    uint64_t min_bytes, max_bytes;      /* clamp of the derived limit (0 = none) */
+} nue_tex_budget_policy;
+/* Resolve a policy to bytes (UINT64_MAX = unlimited). [any] */
+NUE_API uint64_t NUE_CALL nue_tex_budget_resolve(const nue_tex_budget_policy* policy);
+NUE_API void NUE_CALL nue_tex_budget_policy_preset(nue_tex_budget_preset preset, uint64_t available_bytes, nue_tex_budget_policy* out);
+
 NUE_DEFINE_HANDLE(nue_tex_context);
 
 typedef struct nue_tex_context_desc {
@@ -561,9 +589,9 @@ typedef struct nue_tex_context_desc {
     const nue_tex_caps* caps;           /* required (copied) */
     const nue_tex_policy* policy;       /* NULL = defaults (copied) */
     const char* cache_dir;              /* UTF-8 native path of the cache directory (created on demand); NULL = no cache */
-    uint64_t cache_max_bytes;           /* 0 = 2 GiB; trimmed least-recently-used first */
+    uint64_t cache_max_bytes;           /* disk cache size limit, trimmed least-recently-used first; 0 = unlimited (hosts normally set a limit) */
     uint32_t worker_threads;            /* executor threads; 0 = auto */
-    uint64_t budget_bytes;              /* texture memory budget; 0 = caps->memory_budget_bytes, or unlimited */
+    nue_tex_budget_policy budget;       /* texture memory budget policy (a preset or explicit bytes / fraction), see above; NUE_STRUCT_INIT = unlimited */
     const nue_tex_executor_desc* executor; /* NULL = own threads */
     uint32_t reserved[4];
 } nue_tex_context_desc;
@@ -652,9 +680,9 @@ enum { NUE_TEX_RES_PINNED = 1u << 0 };      /* never offered for eviction (rende
 /* Called (on the thread that triggered the over-budget condition, with no budget lock held) with candidates, least recently used first. The owner
  * releases the resource (and calls nue_tex_budget_remove) or keeps it; it should free at least `bytes_to_free`. Return the bytes actually freed. */
 typedef uint64_t (NUE_CALL *nue_tex_evict_fn)(void* userdata, const nue_tex_resource_id* candidates, uint32_t count, uint64_t bytes_to_free);
-NUE_API nue_result NUE_CALL nue_tex_budget_create(uint64_t limit_bytes, nue_tex_evict_fn evict, void* userdata, nue_tex_budget* out);
+NUE_API nue_result NUE_CALL nue_tex_budget_create(const nue_tex_budget_policy* policy, nue_tex_evict_fn evict, void* userdata, nue_tex_budget* out);
 NUE_API void NUE_CALL nue_tex_budget_destroy(nue_tex_budget budget);
-NUE_API void NUE_CALL nue_tex_budget_set_limit(nue_tex_budget budget, uint64_t limit_bytes);
+NUE_API void NUE_CALL nue_tex_budget_set_policy(nue_tex_budget budget, const nue_tex_budget_policy* policy);   /* runtime change (low-memory warning, settings) */
 NUE_API nue_result NUE_CALL nue_tex_budget_add(nue_tex_budget budget, uint64_t bytes, uint32_t flags, nue_tex_resource_id* out_id);   /* may call evict */
 NUE_API nue_result NUE_CALL nue_tex_budget_resize(nue_tex_budget budget, nue_tex_resource_id id, uint64_t bytes);
 NUE_API nue_result NUE_CALL nue_tex_budget_remove(nue_tex_budget budget, nue_tex_resource_id id);
@@ -684,6 +712,17 @@ NUE_API uint64_t NUE_CALL nue_tex_memory_estimate(const nue_tex_memory_item* ite
  *   CreateTexture/CreateCubeTexture  -> nue_tex_d3d9_plan_texture: the GPU format to create the bgfx texture with, and the per-texture state;
  *   UnlockRect / UpdateTexture level -> nue_tex_d3d9_convert_level: D3D9-format bytes of the (sub)rectangle in, GPU-format bytes out;
  *   texture destroyed                -> nue_tex_d3d9_texture_destroy. */
+
+/* Mapping tables as DATA (legacy ABI layers use these instead of owning format knowledge). Entries are static and sorted by `d3d`. A FOURCC entry has
+ * d3d = the FOURCC value (e.g. 'DXT1' little endian), is_fourcc = 1. `exact` = byte-identical meaning. Several D3D9 ids may map to one format. */
+typedef struct nue_tex_d3d9_format_entry {
+    uint32_t d3d;                       /* D3DFMT value or FOURCC */
+    nue_tex_format format;
+    uint8_t is_fourcc, exact, premultiplied_alpha, reserved;
+    const char* d3d_name;               /* "D3DFMT_A8R8G8B8", "DXT1" */
+} nue_tex_d3d9_format_entry;
+NUE_API const nue_tex_d3d9_format_entry* NUE_CALL nue_tex_d3d9_format_table(uint32_t* out_count);
+
 NUE_DEFINE_HANDLE(nue_tex_d3d9_texture);
 typedef struct nue_tex_d3d9_texture_desc {
     uint32_t struct_size;
