@@ -51,6 +51,15 @@ There are two ways in:
 The legacy ABI sits on top of the native one and never the other way round, so a native program links no legacy code. Platform
 code is isolated in one layer per operating system, with SDL3 underneath for the parts that are the same everywhere.
 
+## Native on every platform
+
+NUE does not stop at the lowest common denominator. Each platform layer uses what that system actually offers, and the native API
+exposes the result the same way everywhere.
+
+<p align="center">
+  <img alt="Native services used on Windows, Linux and SteamOS, Android and iOS" src="assets/platforms.svg" width="860">
+</p>
+
 ## What you get
 
 | Feature | What you get |
@@ -67,6 +76,24 @@ code is isolated in one layer per operating system, with SDL3 underneath for the
 | Textures | BC/DXT, ETC, ASTC and PVRTC: capability detection, transcoding and a cache. |
 | 32-bit guests | Handle tables and guest pointers for recompiled code that expects a 32-bit address space (planned, part of the legacy ABI). |
 | Diagnostics | Logging, crash reports and counters, with a deterministic null backend so tests need no window, sound card or GPU. |
+
+## Graphics
+
+Recompiled Windows games draw with Direct3D 9. The Direct3D 9 layer keeps that API and renders it through bgfx, so the recompiled
+code does not change per platform. Direct3D 11 is the backend exercised so far; the others come from bgfx.
+
+<p align="center">
+  <img alt="Direct3D 9 calls go through the Direct3D 9 layer and the shader translator to bgfx and the GPU" src="assets/graphics.svg" width="860">
+</p>
+
+## Textures
+
+Old games ship textures in formats that many GPUs do not sample. The texture module checks what the GPU supports, uploads what it
+can as is, transcodes the rest and caches the result.
+
+<p align="center">
+  <img alt="A texture goes through a capability check, then is uploaded as is or transcoded, cached and sent to the GPU" src="assets/textures.svg" width="860">
+</p>
 
 ## Status
 

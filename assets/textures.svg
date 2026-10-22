@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="270" viewBox="0 0 960 270" role="img" aria-label="How a texture reaches the GPU in the format that GPU can use">
+<style>
+.bg{fill:#ffffff}.box{fill:#f6f8fa;stroke:#d0d7de}.cell{fill:#ffffff;stroke:#d0d7de}
+.yours{fill:none;stroke:#8c959f;stroke-dasharray:5 4}.t{fill:#1f2328}.m{fill:#656d76}
+.ar{stroke:#8c959f;fill:none}.hi{fill:#eaeef2;stroke:#8c959f}
+@media (prefers-color-scheme: dark){
+.bg{fill:#0d1117}.box{fill:#161b22;stroke:#30363d}.cell{fill:#0d1117;stroke:#30363d}
+.yours{stroke:#6e7681}.t{fill:#e6edf3}.m{fill:#8b949e}.ar{stroke:#6e7681}.hi{fill:#21262d;stroke:#6e7681}}
+</style>
+<rect class="bg" width="960" height="270" rx="14"/>
+<rect class="yours" x="24" y="36" width="170" height="150" rx="10"/>
+<text x="40" y="64" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Source texture</text>
+<text x="40" y="88" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">BC / DXT, ETC, ASTC,</text>
+<text x="40" y="106" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">PVRTC or plain RGBA,</text>
+<text x="40" y="124" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">as the game ships it</text>
+<path class="ar" d="M199 111.0 H226 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="232" y="36" width="170" height="150" rx="10"/>
+<text x="248" y="64" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Capability check</text>
+<text x="248" y="88" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">which formats this</text>
+<text x="248" y="106" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">GPU samples natively,</text>
+<text x="248" y="124" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">which it can only emulate</text>
+<path class="ar" d="M407 111.0 H434 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="hi" x="440" y="36" width="210" height="64" rx="10"/>
+<text x="456" y="64" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="start">Supported: upload as is</text>
+<text x="456" y="85" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">no work, no memory spent</text>
+<rect class="box" x="440" y="108" width="210" height="78" rx="10"/>
+<text x="456" y="136" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="start">Not supported: transcode</text>
+<text x="456" y="157" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">to the best format the GPU has,</text>
+<text x="456" y="175" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">or decode to RGBA</text>
+<path class="ar" d="M655 68 H682 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path class="ar" d="M655 147 H682 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="692" y="36" width="120" height="150" rx="10"/>
+<text x="708" y="64" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Cache</text>
+<text x="708" y="88" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">transcoded</text>
+<text x="708" y="106" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">results kept</text>
+<text x="708" y="124" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">on disk</text>
+<path class="ar" d="M817 111.0 H840 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="846" y="36" width="90" height="150" rx="10"/>
+<text x="862" y="64" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">GPU</text>
+<text x="862" y="88" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">ready to</text>
+<text x="862" y="106" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">sample</text>
+<text x="480.0" y="232" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle">Texture memory is a budget the host sets at run time, and the planner stays inside it.</text>
+<text x="480.0" y="252" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle">Formats: BC1 to BC7, ETC1 and ETC2, ASTC, PVRTC.</text>
+</svg>
