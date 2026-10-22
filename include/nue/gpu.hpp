@@ -30,7 +30,8 @@ struct VertexAttribute { uint8_t stream = 0; uint16_t offset = 0; uint8_t type =
 
 struct SamplerDesc {
     uint8_t min = 1, mag = 1, mip = 1;                     // 0 point, 1 linear, 2 anisotropic (min only)
-    bool use_mips = true;                                  // false: only the top level is sampled
+    bool use_mips = true;                                  // false: no mip filtering: only the top level is sampled
+    uint8_t max_mip_level = 0;                             // D3DSAMP_MAXMIPLEVEL: the most detailed level that may be sampled (0 = the top level)
     uint8_t address_u = 0, address_v = 0, address_w = 0;   // 0 wrap, 1 mirror, 2 clamp, 3 border, 4 mirror once
     uint8_t max_aniso = 1;
     float lod_bias = 0.0f;

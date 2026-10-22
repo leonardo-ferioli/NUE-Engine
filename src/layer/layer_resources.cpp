@@ -17,6 +17,7 @@ LayerImpl::~LayerImpl() {
     for (auto& t : textures_.items) if (t.alive && t.gpu) gpu_.destroy(t.gpu);
     for (auto& b : buffers_.items) if (b.alive && b.gpu) gpu_.destroy(b.gpu);
     for (auto& s : surfaces_.items) if (s.alive && s.gpu) gpu_.destroy(s.gpu);
+    for (auto& [key, t] : matching_depth_) gpu_.destroy(t);
     if (dummy_2d_) gpu_.destroy(dummy_2d_);
     if (dummy_cube_) gpu_.destroy(dummy_cube_);
 }
@@ -209,7 +210,7 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
     if (!params_.depth_format) return;
     const FormatInfo& info = format_info(params_.depth_format);
     SurfaceObject s;
-    s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = params_.depth_format;
+    s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = params_.depth_format; s.samples = backbuffer_samples_;
     auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, backbuffer_samples_);
     s.gpu = r.value;
     auto_depth_surface_ = surfaces_.add(std::move(s));
@@ -325,7 +326,7 @@ Result<SurfaceId> LayerImpl::create_render_target(uint32_t width, uint32_t heigh
     ++surface_generation_;
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
-    s.alive = true; s.kind = SurfaceObject::Kind::render_target; s.width = width; s.height = height; s.format = format;
+    s.alive = true; s.kind = SurfaceObject::Kind::render_target; s.width = width; s.height = height; s.format = format; s.samples = surface_samples(multisample);
     auto r = gpu_.create_texture(width, height, 1, render_target_format(info), true, false, surface_samples(multisample));
     if (!r) return {r.status, {}};
     s.gpu = r.value;
@@ -337,7 +338,7 @@ Result<SurfaceId> LayerImpl::create_depth_stencil(uint32_t width, uint32_t heigh
     ++surface_generation_;
     const FormatInfo& info = format_info(format);
     SurfaceObject s;
-    s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = format;
+    s.alive = true; s.kind = SurfaceObject::Kind::depth; s.width = width; s.height = height; s.format = format; s.samples = surface_samples(multisample);
     auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, surface_samples(multisample));
     if (!r) return {r.status, {}};
     s.gpu = r.value;
