@@ -59,8 +59,8 @@ TEST_CASE(crash_handler_needs_a_platform_layer) {
     Engine e;
     nue_crash_desc cd;
     NUE_STRUCT_INIT(&cd);
-    GENERIC(CHECK_EQ(nue_diag_install_crash_handler(&cd), NUE_ERR_UNSUPPORTED));
-    GENERIC(CHECK_EQ(nue_diag_uninstall_crash_handler(), NUE_OK_NOOP));
+    GENERIC_EQ(nue_diag_install_crash_handler(&cd), NUE_ERR_UNSUPPORTED);
+    GENERIC_EQ(nue_diag_uninstall_crash_handler(), NUE_OK_NOOP);
     GENERIC(CHECK(!nue_has_capability(NUE_CAP_CRASH_HANDLER)));
 }
 
