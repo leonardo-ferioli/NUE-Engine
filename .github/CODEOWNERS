@@ -1,0 +1,12 @@
+# Ownership by area (one session per area). The main session merges.
+/include/nue/               @leonardo-ferioli
+/include/nuepp/             @leonardo-ferioli
+/src/core/                  @leonardo-ferioli
+/src/platform/sdl3/         @leonardo-ferioli
+/src/platform/windows/      @leonardo-ferioli
+/src/platform/linux/        @leonardo-ferioli
+/src/platform/android/      @leonardo-ferioli
+/src/platform/ios/          @leonardo-ferioli
+/src/texture/               @leonardo-ferioli
+/src/legacy/                @leonardo-ferioli
+/.github/                   @leonardo-ferioli
