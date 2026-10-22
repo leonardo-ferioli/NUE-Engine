@@ -1,6 +1,6 @@
 # nue_d3d9: a Direct3D 9 to bgfx translator
 
-`nue_d3d9/` is a standalone C++20 library: it answers Direct3D 9 calls (as plain handle-based C++ calls, no COM, no Windows types, no guest pointers) and
+`src/legacy/d3d9/` (`nue_d3d9`, the engine's legacy_d3d9 module) is a standalone C++20 library: it answers Direct3D 9 calls (as plain handle-based C++ calls, no COM, no Windows types, no guest pointers) and
 draws through [bgfx](https://github.com/bkaradzic/bgfx) (Direct3D 11/12, Vulkan, OpenGL (ES), Metal). It knows nothing about any game: the 32-bit
 guest/COM glue that turns a game's `IDirect3DDevice9` calls into library calls stays outside it (the *facade*, `platform/` and `native32.cpp` today).
 It was written for Need for Speed: Underground 2 and is meant for other Direct3D 9 games of the same engine family (Most Wanted next).
@@ -9,17 +9,20 @@ Status: **a real frame is rendered** (see "Measurements"). Not everything of Dir
 
 ## Using it in the game: the drop-in `d3d9.dll`
 
-`nue_d3d9/dll/` implements the COM objects of Direct3D 9 (`IDirect3D9`, `IDirect3DDevice9`, textures, surfaces, buffers, declarations, shaders, state
+`dll/` implements the COM objects of Direct3D 9 (`IDirect3D9`, `IDirect3DDevice9`, textures, surfaces, buffers, declarations, shaders, state
 blocks, swap chain) on top of the layer and the bgfx adapter, and exports `Direct3DCreate9` and the `D3DPERF_*` stubs, so it works the way DXVK does: **put
 `d3d9.dll` in the folder of the program that uses Direct3D 9**. Capability questions (adapter name, display modes, `CheckDeviceFormat`, multisample support,
 `GetDeviceCaps`) are answered by the system's real Direct3D 9, which is loaded from the Windows folder and never asked to create a device, so the game takes the
 decisions it takes with the real driver; the device and everything it draws are ours.
 
 ```
-# 32-bit (the game is x86): static C runtime, no redistributable needed; the result is build_nue32\d3d9.dll (about 5 MB)
-cmake -S nue_d3d9 -B build_nue32 -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_FLAGS=-m32 -msse4.2" "-DCMAKE_C_FLAGS=-m32 -msse4.2" -DNUE_STATIC_CRT=ON
-cmake --build build_nue32 --target nue_d3d9_dll
-# 64-bit (tests only): cmake --build build_nue_rel --target nue_d3d9_dll
+# in the nue-engine repository (this module is src/legacy/d3d9, the engine's legacy_d3d9); bgfx comes from the submodule:
+git submodule update --init --recursive --depth 1 third_party/bgfx.cmake
+# 32-bit (the game is x86): static C runtime (the preset sets NUE_STATIC_CRT=ON); the result is build/windows-x86/src/legacy/d3d9/d3d9.dll
+cmake --preset windows-x86 -B build/windows-x86 -DNUE_WITH_LEGACY_D3D9=ON
+cmake --build build/windows-x86
+ctest --test-dir build/windows-x86          # engine tests + nue_tests (no window, no GPU)
+# 64-bit (tests): the same with windows-x64. The module also builds on its own: cmake -S src/legacy/d3d9 -B build_d3d9 -G Ninja -DCMAKE_CXX_COMPILER=clang++
 ```
 
 * **The recompiled launcher** (`nfsu2_launcher.exe`): copy `d3d9.dll` next to it. `native32.cpp` loads it instead of the system's for the guest's `d3d9.dll`
@@ -27,7 +30,7 @@ cmake --build build_nue32 --target nue_d3d9_dll
   The guest's own calls are untouched: they go through the same bridge into our COM objects.
 * **The original game** (`SPEED2.EXE`): copy `d3d9.dll` next to the executable (Windows looks in the application folder first).
 * **F12** saves the frame just presented (the game's back buffer, before scaling to the window) as `nue_screenshot_N.bmp` next to the dll, to compare images.
-* Optional `nue_d3d9.ini` next to the dll (see `nue_d3d9/dll/nue_d3d9.ini.sample`): `renderer=d3d11|vulkan`, `vsync`, `render_thread`, `worker_thread` (see "Worker-thread mode"), `log`, `shader_cache`.
+* Optional `nue_d3d9.ini` next to the dll (see `dll/nue_d3d9.ini.sample`): `renderer=d3d11|vulkan`, `vsync`, `render_thread`, `worker_thread` (see "Worker-thread mode"), `log`, `shader_cache`.
   Log: `nue_d3d9.log` next to the dll (device creation, resets, and at exit what the game asked for that the translator cannot do). To go back to the
   system's Direct3D 9 delete the file.
 * **Verified without the game**: the replay tool drives the dll through real COM calls with the recorded traces (`NUE_D3D9_DLL=<path> nue_replay <trace> --native
@@ -84,7 +87,7 @@ so there is none, which the tools use). Handles are `Id<Tag>` (`uint32_t`, 0 = n
 
 Exercised = replayed from real captures of the game (`captures/menu`, `captures/loading`, `captures/garage`) and compared with the reference images.
 Ground truth = the same calls drawn by the system's Direct3D 9 and by the dll, pixel by pixel (`nue_state_test` 117 cases, `nue_format_test`,
-`nue_defaults_test`, see "Ground-truth tests"). Through COM = what the dll offers to a game (`nue_d3d9/dll`); the layer (`d3d9::Device`) offers a little more.
+`nue_defaults_test`, see "Ground-truth tests"). Through COM = what the dll offers to a game (`dll/`); the layer (`d3d9::Device`) offers a little more.
 
 | Area | State |
 |---|---|
@@ -139,12 +142,26 @@ worker-thread branch; this section adds the details it does not list. Nothing wa
 
 **Build**
 
-* `nue_d3d9/CMakeLists.txt` sets `REPO` to the folder above it and builds bgfx and SPIRV-Cross from `${REPO}/third_party/bgfx.cmake` (bgfx's
-  vendored SPIRV-Cross; the translator writes SPIR-V itself, no glslang). Nothing else of the game repository is compiled into the dll.
-* 32-bit dll: clang `-m32 -msse4.2`, `NUE_STATIC_CRT=ON`; `dll/x86_stdcall_fix.h` undoes bx's `#define __stdcall` (wrong COM calling convention on
+* `src/legacy/d3d9/CMakeLists.txt` builds bgfx and SPIRV-Cross from `NUE_BGFX_CMAKE_DIR` (default: the repository's `third_party/bgfx.cmake`;
+  bgfx's vendored SPIRV-Cross; the translator writes SPIR-V itself, no glslang), and adds bgfx only when no other module of the engine has. The
+  engine's root `CMakeLists.txt` adds it with `-DNUE_WITH_LEGACY_D3D9=ON` (off by default). Nothing of the game repository is compiled into the dll.
+* 32-bit dll: clang targeting `i686-pc-windows-msvc` (preset `windows-x86`), `-msse4.2` (added by the module), `NUE_STATIC_CRT=ON`; `dll/x86_stdcall_fix.h` undoes bx's `#define __stdcall` (wrong COM calling convention on
   x86 otherwise); `NUE_EXPORT` writes the x86 decorated export names.
-* The game repository's top `CMakeLists.txt` compiles `nue_d3d9/src/d3d9_trace.cpp` and `nue_d3d9/src/null_gpu.cpp` into the launcher (its recorder
-  `d3d9_recorder.cpp` writes the trace format), adds `nue_d3d9/include` to the include path, and `mods_system.cpp` includes `nue/window_fit.hpp`.
+* The game repository (NFSU2 raw_recomp) still uses parts of this module from its own copy of the old `nue_d3d9/` folder: its top `CMakeLists.txt`
+  compiles `src/d3d9_trace.cpp` and `src/null_gpu.cpp` into the launcher (its recorder `d3d9_recorder.cpp` writes the trace format), adds
+  `include/` to the include path, and `mods_system.cpp` (the launcher's scaled window) includes `nue/window_fit.hpp`. When the game builds against the
+  engine, those come from here: `include/nue/d3d9_trace.hpp`, `include/nue/window_fit.hpp` and the two sources.
+
+**What the game needs from this module (keep stable)**
+
+* The drop-in `d3d9.dll` (32-bit, static runtime): exports `Direct3DCreate9`, `Direct3DCreate9Ex`, `D3DPERF_*` with the x86 decorated names; the
+  COM objects of Direct3D 9 as the game uses them. The launcher (`native32.cpp`, game repo) loads it from its own folder and trusts its code range.
+* Its configuration: `nue_d3d9.ini` keys (`renderer`, `vsync`, `render_thread`, `worker_thread`, `worker_copy_mb`, `msaa`, `log`, `log_unsupported`,
+  `shader_cache`, `texture_copy_mb`, `texture_report_at`, `mark_missing_textures`, `render_thread_priority`, `render_thread_cpu`) and the `NUE_*`
+  environment variables; the log `nue_d3d9.log` next to the dll with its `timeline:`, `worker thread:`, `spike:`, `spikes:`, `profile:`, `audit:`
+  lines (the user's test reports are read from them); the shader cache folder `nue_shader_cache` with `nue_programs.txt`.
+* F10 / F11 / F12 (magenta checker, texture report, screenshot) in `Present`.
+* The trace format of `include/nue/d3d9_trace.hpp` (captures recorded by the launcher are replayed by `nue_replay`).
 * The launcher side of the drop-in lives in the game repository: `native32.cpp` `d3d9_override_module` loads `d3d9.dll` from the launcher's folder for
   the guest's `d3d9.dll` imports and trusts its code range like a system dll (`NFSU2_SYSTEM_D3D9=1` turns it off).
 
@@ -213,7 +230,7 @@ file says so. So far nothing was copied: the design of the fixed-function genera
 ## Tools and how to verify
 
 ```
-cmake -S nue_d3d9 -B build_nue -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build_nue   # always measure an optimised build
+cmake -S src/legacy/d3d9 -B build_nue -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build_nue   # always measure an optimised build
 build_nue/nue_replay.exe <trace> --null --twice            # headless: statistics + deterministic call hash (run twice: identical)
 build_nue/nue_replay.exe <trace> --bgfx d3d11 --frames 3 --out dir   # renders, saves ours_*.bmp / diff_*.bmp, prints MAE and p99.9 outside edges
 build_nue/nue_replay.exe <trace> --bench --bgfx d3d11 --mt --loops 3 --window 0 --shader-cache cache_dir   # frame time, layer/adapter/GPU profile
@@ -340,7 +357,7 @@ The render thread priority and ideal processor (`render_thread_priority`, `rende
 ## Worker-thread mode (`worker_thread=1`)
 
 `nue_d3d9.ini` `worker_thread=1` (or `NUE_WORKER_THREAD=1`; default 0) puts the translator and the bgfx calls on a thread of their own, as DXVK's
-command-stream thread does: the game thread only records each call into a queue (`nue_d3d9/dll/threaded.cpp`, `ThreadedLayer`, a `d3d9::Layer` in
+command-stream thread does: the game thread only records each call into a queue (`dll/threaded.cpp`, `ThreadedLayer`, a `d3d9::Layer` in
 front of the real one), and the worker replays the queue on the real layer and the adapter. The worker also creates and destroys the adapter and the
 layer, because bgfx must be called from the thread that started it (bgfx keeps its own render thread behind that).
 
@@ -388,7 +405,7 @@ copies described above: only the first lock of each level waits.
 
 ## Hitches: `spike:` lines and the shader program list
 
-Every frame `Present` hands its numbers to `note_frame` (`nue_d3d9/dll/spikes.cpp`, always on, a copy of a few counters per frame). A frame slower than
+Every frame `Present` hands its numbers to `note_frame` (`dll/spikes.cpp`, always on, a copy of a few counters per frame). A frame slower than
 max(2.5 x the median of the last 64 frames, 40 ms) gets one `spike:` line: wall time, game code outside the dll, time inside the dll with the three
 slowest calls, waits for the worker outside `Present` and why, the worker's busy time, `bgfx::frame()`, render thread and GPU time, draws, resources
 created and destroyed (from the COM calls), and the translator's counters of that frame (UP draws, dynamic vertex bytes, buffer and texture uploads,
