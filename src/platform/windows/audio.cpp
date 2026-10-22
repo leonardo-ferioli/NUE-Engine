@@ -201,7 +201,7 @@ private:
 
     void run() {
         MmcssScope mmcss;
-        if (cfg_.mmcss) mmcss.begin(L"Pro Audio");
+        if (cfg_.mmcss) mmcss.begin(cfg_.mmcss_task ? cfg_.mmcss_task : L"Playback");
         PreciseSleeper sleeper;
         std::vector<uint8_t> device_buffer(size_t(period_frames_) * dev_format_.frame_bytes());
         const int64_t period_qpc = qpc_from_ns(int64_t(1e9 * double(period_frames_) / double(dev_format_.sample_rate)));

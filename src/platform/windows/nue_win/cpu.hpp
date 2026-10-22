@@ -40,6 +40,13 @@ struct CpuTopology {
     bool wow64 = false;                // 32-bit process on 64-bit Windows
 };
 
+struct CpuFeatures {
+    bool sse2 = false, sse41 = false, sse42 = false, avx = false, avx2 = false, avx512f = false, fma = false, popcnt = false;
+};
+// CPUID plus the OS support check (XGETBV) for AVX and AVX-512 state; all false on non-x86.
+CpuFeatures query_cpu_features();
+uint32_t cpu_max_mhz();   // highest MaxMhz over the logical processors (CallNtPowerInformation), 0 unknown
+
 // Reads GetSystemCpuSetInformation + CPUID. Returns false when CPU Sets are not available.
 bool query_cpu_topology(CpuTopology& out);
 

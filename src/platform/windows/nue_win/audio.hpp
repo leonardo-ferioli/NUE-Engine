@@ -88,7 +88,10 @@ struct AudioStreamConfig {
     uint32_t period_frames = 0;            // wanted period at format.sample_rate; 0 = the smallest the mode supports (low latency) or the engine default
     bool low_latency = true;               // shared mode: use IAudioClient3 to shrink the engine period when the device allows it
     bool follow_default_device = true;
-    bool mmcss = true;                     // render thread registered as "Pro Audio" (falls back to "Audio")
+    bool mmcss = true;                     // render thread registered with MMCSS under `mmcss_task`
+    // Measured on Windows 11: Playback = base priority 10, Audio 13, Pro Audio 15 (= TIME_CRITICAL, which the project's scheduling policy forbids). The default keeps
+    // the render thread below that; choose "Pro Audio" only for a callback that is short and bounded.
+    const wchar_t* mmcss_task = L"Playback";
     bool allow_engine_conversion = true;   // shared mode: let the Windows audio engine convert (AUTOCONVERTPCM) instead of doing it ourselves
     float session_volume = 1.0f;           // applied to this stream's audio session only
     AudioRenderCallback callback;

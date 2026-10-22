@@ -43,6 +43,15 @@ Status process_disable_power_throttling(bool also_timer_resolution) {
     return Status::success();
 }
 
+Status process_force_power_throttling() {
+    PROCESS_POWER_THROTTLING_STATE s{};
+    s.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    s.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+    s.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;   // control + state set = throttling forced ON
+    if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &s, sizeof s)) return Status::last_error("SetProcessInformation(ProcessPowerThrottling on)");
+    return Status::success();
+}
+
 Status process_reset_power_throttling() {
     PROCESS_POWER_THROTTLING_STATE s{};
     s.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
@@ -149,8 +158,31 @@ Status TimerResolutionScope::begin(UINT ms) {
     return Status::success();
 }
 
+Status TimerResolutionScope::begin_us(uint32_t us, uint32_t* granted) {
+    end();
+    if (us >= 1000) {
+        const UINT ms = (us + 999) / 1000;
+        Status s = begin(ms);
+        if (s.ok && granted) *granted = ms * 1000;
+        return s;
+    }
+    using Fn = LONG(NTAPI*)(ULONG desired, BOOLEAN set, PULONG actual);
+    auto fn = load_proc<Fn>(L"ntdll.dll", "NtSetTimerResolution");
+    if (!fn) return begin(1);
+    ULONG want = us * 10 ? us * 10 : 5000, actual = 0;
+    if (fn(want, TRUE, &actual) != 0) return Status::fail("NtSetTimerResolution", ERROR_NOT_SUPPORTED);
+    nt_period_ = want;
+    if (granted) *granted = actual / 10;
+    return Status::success();
+}
+
 void TimerResolutionScope::end() {
     if (period_) { timeEndPeriod(period_); period_ = 0; }
+    if (nt_period_) {
+        using Fn = LONG(NTAPI*)(ULONG desired, BOOLEAN set, PULONG actual);
+        if (auto fn = load_proc<Fn>(L"ntdll.dll", "NtSetTimerResolution")) { ULONG actual = 0; fn(nt_period_, FALSE, &actual); }
+        nt_period_ = 0;
+    }
 }
 
 int64_t qpc_frequency() {
@@ -236,6 +268,7 @@ PowerStatus query_power_status() {
     r.has_battery = !(s.BatteryFlag & 128) && s.BatteryFlag != 255;
     r.battery_percent = s.BatteryLifePercent == 255 ? -1 : int(s.BatteryLifePercent);
     r.battery_seconds_left = s.BatteryLifeTime == DWORD(-1) ? -1 : int(s.BatteryLifeTime);
+    r.charging = (s.BatteryFlag != 255) && (s.BatteryFlag & 8) != 0;
     r.energy_saver = (s.SystemStatusFlag & 1) != 0;
     return r;
 }

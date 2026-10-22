@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdio>
+#include <cwchar>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -285,10 +286,60 @@ struct DumpJob {
     EXCEPTION_POINTERS* ep = nullptr;
     DWORD crashing_thread = 0;
     Status status;
+    bool terminate = true;
 };
+CrashHook g_hook;
+bool g_hook_active = false;
+CrashInfo g_hook_info;
+
+// Builds the NUE crash facts from an exception without heap allocation.
+void fill_crash_info(CrashInfo& info, const EXCEPTION_POINTERS* ep) {
+    const EXCEPTION_RECORD* x = ep->ExceptionRecord;
+    info.code = x->ExceptionCode;
+    info.fault_pc = uint64_t(reinterpret_cast<uintptr_t>(x->ExceptionAddress));
+    info.fault_address = info.fault_pc;
+    if ((x->ExceptionCode == 0xC0000005 || x->ExceptionCode == 0xC0000006) && x->NumberParameters >= 2) {
+        info.fault_address = uint64_t(x->ExceptionInformation[1]);
+        std::snprintf(info.reason, sizeof info.reason, "access violation %s 0x%llX", x->ExceptionInformation[0] == 0 ? "reading" : (x->ExceptionInformation[0] == 8 ? "executing" : "writing"),
+                      (unsigned long long)info.fault_address);
+    } else {
+        std::snprintf(info.reason, sizeof info.reason, "%s (0x%08lX)", exception_code_name(x->ExceptionCode), x->ExceptionCode);
+    }
+}
+
 DumpJob g_job;   // static: the filter may run on an exhausted stack (stack overflow), so it allocates nothing and keeps nothing there
 
 // Everything heavy happens on this fresh thread (1 MiB stack).
+DWORD WINAPI hook_thread(LPVOID) {
+    DumpJob& j = g_job;
+    if (g_hook.release_input) emergency_restore_desktop();
+    fill_crash_info(g_hook_info, j.ep);
+    g_hook_info.report_dir = g_hook.begin ? g_hook.begin(g_hook_info, g_hook.user) : nullptr;
+    if (g_hook.write_dump && g_hook_info.report_dir) {
+        auto write = dump_writer();
+        wchar_t dir[MAX_PATH * 2];
+        int n = MultiByteToWideChar(CP_UTF8, 0, g_hook_info.report_dir, -1, dir, int(sizeof dir / sizeof dir[0]) - 16);
+        if (write && n > 0) {
+            wchar_t path[MAX_PATH * 2 + 16];
+            std::swprintf(path, sizeof path / sizeof path[0], L"%ls\\crash.dmp", dir);
+            HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE) {
+                MINIDUMP_EXCEPTION_INFORMATION info{};
+                info.ThreadId = j.crashing_thread;
+                info.ExceptionPointers = j.ep;
+                info.ClientPointers = FALSE;
+                const MINIDUMP_TYPE type = MINIDUMP_TYPE((g_hook.full_memory ? MiniDumpWithFullMemory : MiniDumpWithIndirectlyReferencedMemory) | MiniDumpWithDataSegs | MiniDumpWithHandleData |
+                                                          MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo | MiniDumpWithProcessThreadData | MiniDumpWithFullMemoryInfo);
+                write(GetCurrentProcess(), GetCurrentProcessId(), file, type, &info, nullptr, nullptr);
+                CloseHandle(file);
+            }
+        }
+    }
+    j.status = Status::success();
+    j.terminate = g_hook.end ? g_hook.end(g_hook_info, g_hook.user) : true;
+    return 0;
+}
+
 DWORD WINAPI dump_thread(LPVOID) {
     DumpJob& j = g_job;
     if (g_crash.restore_desktop) emergency_restore_desktop();
@@ -321,13 +372,18 @@ DWORD WINAPI dump_thread(LPVOID) {
 }
 
 LONG WINAPI crash_filter(EXCEPTION_POINTERS* ep) {
-    if (g_crash.skip_when_debugger_attached && IsDebuggerPresent()) return EXCEPTION_CONTINUE_SEARCH;
+    if (g_hook_active) {
+        if (g_hook.skip_when_debugger_attached && IsDebuggerPresent()) return EXCEPTION_CONTINUE_SEARCH;
+    } else if (g_crash.skip_when_debugger_attached && IsDebuggerPresent()) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     if (g_crashing.exchange(true)) TerminateProcess(GetCurrentProcess(), ep->ExceptionRecord->ExceptionCode);   // crashed again while crashing
     g_job.ep = ep;
     g_job.crashing_thread = GetCurrentThreadId();
-    HANDLE t = CreateThread(nullptr, 1 << 20, dump_thread, nullptr, 0, nullptr);
+    HANDLE t = CreateThread(nullptr, 1 << 20, g_hook_active ? hook_thread : dump_thread, nullptr, 0, nullptr);
     if (t) { WaitForSingleObject(t, 120000); CloseHandle(t); }
-    if (g_crash.chain_previous_filter && g_previous_filter) return g_previous_filter(ep);
+    if (g_hook_active && !g_job.terminate) { g_crashing = false; return EXCEPTION_CONTINUE_SEARCH; }   // the caller wants the OS default handling
+    if ((g_hook_active || g_crash.chain_previous_filter) && g_previous_filter) return g_previous_filter(ep);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
@@ -343,8 +399,19 @@ Status install_crash_handler(const CrashOptions& o) {
     return Status::success();
 }
 
+Status install_crash_hook(const CrashHook& h) {
+    if (g_crash_installed) uninstall_crash_handler();
+    g_hook = h;
+    g_hook_active = true;
+    g_crashing = false;
+    g_previous_filter = SetUnhandledExceptionFilter(crash_filter);
+    g_crash_installed = true;
+    return Status::success();
+}
+
 void uninstall_crash_handler() {
     if (!g_crash_installed) return;
+    g_hook_active = false;
     SetUnhandledExceptionFilter(g_previous_filter);
     g_previous_filter = nullptr;
     g_crash_installed = false;

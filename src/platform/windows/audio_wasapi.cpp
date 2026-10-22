@@ -486,7 +486,7 @@ WasapiStream::Pump WasapiStream::pump(Session& s) {
 void WasapiStream::run(std::promise<Status> first) {
     ScopedCom com;
     MmcssScope mmcss;
-    if (cfg_.mmcss && !mmcss.begin(L"Pro Audio").ok) mmcss.begin(L"Audio");
+    if (cfg_.mmcss && !mmcss.begin(cfg_.mmcss_task ? cfg_.mmcss_task : L"Playback").ok) mmcss.begin(L"Audio");
 
     Com<IMMDeviceEnumerator> enumerator;
     Status es = com.ok() ? create_enumerator(enumerator) : Status::hresult("CoInitializeEx", com.hr);

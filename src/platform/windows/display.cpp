@@ -277,8 +277,13 @@ Status restore_display_mode(const std::wstring& device) {
 }
 
 void restore_all_changed_display_modes() {
+    // try_lock: this runs from crash handlers, where the lock may be held by the thread that crashed; then the display mode is left to Windows,
+    // which restores CDS_FULLSCREEN modes itself when the process ends.
+    std::unique_lock<std::mutex> g(g_changed_mutex, std::try_to_lock);
+    if (!g.owns_lock()) return;
     std::set<std::wstring> devices;
-    { std::lock_guard<std::mutex> g(g_changed_mutex); devices.swap(g_changed_devices); }
+    devices.swap(g_changed_devices);
+    g.unlock();
     for (const auto& d : devices) ChangeDisplaySettingsExW(d.c_str(), nullptr, nullptr, 0, nullptr);
 }
 

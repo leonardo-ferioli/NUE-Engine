@@ -25,6 +25,27 @@ struct CrashOptions {
     uint32_t max_dumps_kept = 5;           // oldest dumps of this app are deleted before writing a new one
     std::function<void(const std::wstring& dump_path, const std::wstring& report_path)> on_crash;   // after the files exist; runs on the crashing process, keep it trivial
 };
+// Variant used by the NUE core: the report directory is chosen by the caller instead of by this module. `begin` receives the facts of the crash and
+// returns a native UTF-8 directory path (static storage) or null; the dump goes to <dir>\crash.dmp; `end` decides whether the process terminates
+// (true) or the default handling continues (false). Both run on the crash thread, without this module allocating anything on the way.
+struct CrashInfo {
+    char reason[160];             // "access violation reading 0x00000008"
+    uint64_t fault_address = 0;   // address touched for access violations, else the instruction pointer
+    uint64_t fault_pc = 0;
+    uint32_t code = 0;            // NTSTATUS
+    const char* report_dir = nullptr;
+};
+struct CrashHook {
+    const char* (*begin)(const CrashInfo& info, void* user) = nullptr;
+    bool (*end)(const CrashInfo& info, void* user) = nullptr;
+    void* user = nullptr;
+    bool full_memory = false;
+    bool write_dump = true;
+    bool release_input = true;    // emergency_restore_desktop() first (pointer clip, hidden pointer, display modes)
+    bool skip_when_debugger_attached = true;
+};
+Status install_crash_hook(const CrashHook& hook);
+
 // Installs SetUnhandledExceptionFilter. The dump is written by a fresh thread so that stack overflows can be reported too.
 Status install_crash_handler(const CrashOptions& options);
 void uninstall_crash_handler();

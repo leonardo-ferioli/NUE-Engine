@@ -20,6 +20,8 @@ struct ThrottlingState {
 };
 // Opts the process out of EcoQoS (and, on Windows 11, of the timer-resolution throttling). Cheap and idempotent.
 Status process_disable_power_throttling(bool also_timer_resolution = true);
+// Forces EcoQoS ON (efficiency cores, low clocks): the "power saver" profile.
+Status process_force_power_throttling();
 // Returns the process to automatic management.
 Status process_reset_power_throttling();
 Status process_query_power_throttling(ThrottlingState& out);
@@ -46,7 +48,8 @@ public:
     ~MmcssScope() { end(); }
     MmcssScope(const MmcssScope&) = delete;
     MmcssScope& operator=(const MmcssScope&) = delete;
-    // `task` examples: L"Games", L"Pro Audio", L"Audio", L"Playback". Must be called on the thread to register.
+    // `task` examples: L"Games" (base priority 9 = ABOVE_NORMAL), L"Playback" (10), L"Audio" (13), L"Pro Audio" (15 = TIME_CRITICAL: forbidden by the project policy
+    // for anything that can run long). MMCSS replaces the thread's priority while registered. Must be called on the thread to register.
     Status begin(const wchar_t* task = L"Games");
     void end();
     bool active() const { return handle_ != nullptr; }
@@ -74,10 +77,14 @@ public:
     TimerResolutionScope(const TimerResolutionScope&) = delete;
     TimerResolutionScope& operator=(const TimerResolutionScope&) = delete;
     Status begin(UINT milliseconds = 1);
+    // Microsecond request: 1000 and above go through timeBeginPeriod (rounded up to whole ms); below that NtSetTimerResolution is used (0.5 ms is the usual finest
+    // period; undocumented but stable ntdll API). Returns the period granted in `granted_us` when not null.
+    Status begin_us(uint32_t microseconds, uint32_t* granted_us = nullptr);
     void end();
-    bool active() const { return period_ != 0; }
+    bool active() const { return period_ != 0 || nt_period_ != 0; }
 private:
     UINT period_ = 0;
+    ULONG nt_period_ = 0;   // 100 ns units
 };
 
 // Sleep with sub-millisecond accuracy: a high-resolution waitable timer (Windows 10 1803+) for the bulk, a short spin for the tail.
@@ -124,6 +131,7 @@ struct PowerStatus {
     bool has_battery = false;
     int battery_percent = -1;          // 0..100, -1 unknown
     int battery_seconds_left = -1;     // -1 unknown
+    bool charging = false;             // BatteryFlag charging bit
     bool energy_saver = false;         // Battery Saver / Energy Saver is on (SYSTEM_STATUS_FLAG_POWER_SAVING_ON)
 };
 PowerStatus query_power_status();

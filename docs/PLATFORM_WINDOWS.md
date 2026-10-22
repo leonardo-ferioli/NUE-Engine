@@ -3,14 +3,22 @@
 Owner: the nue-windows session. Code: `src/platform/windows/` (library `nue_platform_windows`, namespace `nue::win`, headers in
 `include/nue_win/`). Builds for x86 and x64 with clang and MSVC; every test suite below passes in all four configurations.
 
-The backend has **no dependency on SDL3 or on the core API headers**. It is the "own code beside SDL3" part for Windows: things SDL3 does not
-give a recompiled game that owns its HWND. The thin glue that exposes it through the core `nue_` C API is the next block (see "Not done").
+The backend is two layers:
+
+* `src/platform/windows/nue_win/*.hpp` + the `.cpp` files beside them: the **`nue::win` modules**, with no dependency on SDL3 or on the core. This is the
+  "own code beside SDL3" part: things SDL3 does not give a recompiled game that owns its HWND.
+* `platform_windows.cpp`: the **glue**, `nue_platform_windows_get_ops()`, the `nue_platform_ops` table the core calls (power, thermal, game mode, system info,
+  storage roots, thread priorities, sleep, crash handler, log sink). Windows, input devices and audio devices stay with the SDL3 backend; the HWND-attach,
+  Raw Input, XInput and WASAPI exclusive modules are written and tested but **not wired into the backend interface yet** (see "Not done").
+
+Both ABIs of the engine (native and legacy) can sit on top: nothing here assumes a native caller (the window module attaches to an HWND the caller already owns).
 
 ## How to build and test
 
 ```
-pwsh src/platform/windows/tests/build_and_test.ps1                              # clang x64 + clang x86
+pwsh src/platform/windows/tests/build_and_test.ps1                              # clang x64 + clang x86; whole repo WITHOUT SDL3 (fast)
 pwsh src/platform/windows/tests/build_and_test.ps1 -Configs msvc-x64,msvc-x86   # MSVC (Visual Studio Build Tools via vswhere)
+cmake --preset windows-x64 && cmake --build --preset windows-x64 && ctest --preset windows-x64    # full presets (with SDL3)
 ```
 
 Tests are console programs. They show no window (hidden or message-only windows only), play no sound, create no GPU device, never confine the
@@ -27,6 +35,19 @@ Opt-in tests (environment variables, all verified once on the development machin
 | `NUE_TEST_GPU_PROBES=1` | creates D3D11/D3D12 devices per adapter (can wake a sleeping discrete GPU) |
 
 `samples/windows_probe` prints what the machine supports (console only, `--probe-gpu` for feature-level probes).
+
+## Platform ops table (what the core gets)
+
+| Entry | Windows implementation | State |
+|---|---|---|
+| `init` / `shutdown` / `pump` | power-mode notifications, thermal worker thread (5 s), polling of battery/low-power/game-mode/thermal once a second, events pushed on change; shutdown undoes every OS-wide change | Tested (glue test) |
+| `system_info`, `memory_info`, `system_locale` | RtlGetVersion, CPUID + CPU Sets (P/E counts), DXGI adapters (no device created), registry (model, dark mode), locale name | Tested on this laptop |
+| `storage_root` | data = exe folder, user = Saved Games\orgpp, settings = AppData\Roaming, cache = AppData\Local\...\cache, temp; `user_data_path`/`game_data_path` overrides | Tested |
+| `power_info`, `power_apply`, `timer_resolution_get` | profile -> process priority class (capped ABOVE_NORMAL) and EcoQoS, game hint -> MMCSS "Games", keep-awake, timer 500 us..15.6 ms, power-throttling opt-out, CPU class on hybrid; unsupported fields reported as `NUE_OK_PARTIAL` | Tested |
+| `thread_*`, `sleep_until` | `SetThreadPriority` (cap), CPU Sets, affinity (32-bit safe), `SetThreadDescription`, high-resolution waitable timer | Tested |
+| `crash_install/uninstall/write_dump/release_input` | `SetUnhandledExceptionFilter`, fresh thread, `MiniDumpWriteDump` into the directory the core chooses, `ClipCursor(NULL)` first | Tested for real in a child process (access violation) |
+| `log_write` | `OutputDebugString` | Tested (no crash; output goes to a debugger) |
+| `perf_hint_*`, `window_set_gpu_preference`, `haptics_*`, `import`, `window_safe_area` | NULL: Windows has no equivalent / the SDL3 backend covers it | - |
 
 ## Capability table
 
@@ -136,6 +157,10 @@ or deliberately not done, with the reason.
 
 ## Findings worth knowing (outside this backend too)
 
+- **MMCSS raises thread priority into the real-time range.** Measured on Windows 11: a thread registered with "Games" runs at base priority 9 (the normal
+  class' ABOVE_NORMAL), "Playback" 10, "Audio" 13, "Pro Audio" 15 (= TIME_CRITICAL). The project forbids TIME_CRITICAL (the responsiveness incident), so the layer
+  uses "Games" for `NUE_THREAD_PRIORITY_REALTIME` and the game hint, and its own WASAPI render thread defaults to "Playback"; "Pro Audio" is opt-in per stream.
+
 - **clang 23 and `__try`/`__except`:** a hardware fault (not a call) inside `__try` is **not caught** unless `-fasync-exceptions` is used; on x86 that option
   corrupted callee-saved registers in the caller in our test (vector returned through a garbage `sret` pointer). The backend therefore never relies on
   `__try`; the tests use `RaiseException` and exercise real faults in child processes. The game's guest SEH/VEH code in the launcher is unaffected (it uses vectored handlers).
@@ -145,8 +170,9 @@ or deliberately not done, with the reason.
 
 ## Not done / next block
 
-1. Glue to the core API (`include/nue/*.h` is committed by nue-core): implement the platform interface for Windows on top of these modules, and decide with
-   nue-core how the SDL3 backend and this one share the window (the engine will either create the window through SDL3 or attach to the game's HWND).
+1. Wire the window/input/audio modules into the backend interface (`nue_backend`): attaching to the game's HWND (`WindowAttachment`), a WASAPI sub-table for
+   exclusive mode, Raw Input relative mouse. Needs the core's SDL3 backend and the legacy layer's requirements (`docs/ABI.md`) to settle first. The OS-extras
+   table (`nue_platform_ops`) is done and tested; an extension table `nue.windows.v1` (persistent per-app GPU preference, fullscreen-optimizations opt-out) is not.
 2. Real-hardware checks that need other machines: hybrid-graphics laptop (discrete GPU request), hybrid CPU (P/E cores), gamepad (rumble, battery), second
    monitor, HDR display, Game Mode "on" state, device hot-plug and driver reset.
 3. GameInput wrapper (trigger rumble), WinRT Game Bar events, a real ETW capture test, measuring that a minimised window keeps its 1 ms timer.

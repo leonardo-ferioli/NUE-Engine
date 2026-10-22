@@ -5,6 +5,8 @@
 #include <set>
 #include <utility>
 
+#include <powrprof.h>
+
 #if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
 #include <intrin.h>
 #define NUE_HAVE_CPUID 1
@@ -36,6 +38,59 @@ void cpuid_strings(std::string& vendor, std::string& brand) {
 #endif
 }
 }  // namespace
+
+#ifdef NUE_HAVE_CPUID
+static unsigned long long read_xcr0() {
+#if defined(_MSC_VER) && !defined(__clang__)
+    return _xgetbv(0);
+#else
+    unsigned lo, hi;
+    __asm__ volatile(".byte 0x0f, 0x01, 0xd0" : "=a"(lo), "=d"(hi) : "c"(0));   // xgetbv, without needing the xsave target feature
+    return (static_cast<unsigned long long>(hi) << 32) | lo;
+#endif
+}
+#endif
+
+CpuFeatures query_cpu_features() {
+    CpuFeatures f;
+#ifdef NUE_HAVE_CPUID
+    int r[4] = {};
+    __cpuid(r, 0);
+    const int max_leaf = r[0];
+    if (max_leaf < 1) return f;
+    __cpuid(r, 1);
+    const unsigned ecx = unsigned(r[2]), edx = unsigned(r[3]);
+    f.sse2 = (edx >> 26) & 1;
+    f.sse41 = (ecx >> 19) & 1;
+    f.sse42 = (ecx >> 20) & 1;
+    f.popcnt = (ecx >> 23) & 1;
+    f.fma = (ecx >> 12) & 1;
+    const bool osxsave = (ecx >> 27) & 1;
+    unsigned long long xcr0 = 0;
+    if (osxsave) xcr0 = read_xcr0();
+    const bool ymm_ok = osxsave && (xcr0 & 6) == 6;                 // XMM + YMM state enabled by the OS
+    const bool zmm_ok = ymm_ok && (xcr0 & 0xE0) == 0xE0;            // opmask + ZMM state
+    f.avx = ymm_ok && ((ecx >> 28) & 1);
+    f.fma = f.fma && ymm_ok;
+    if (max_leaf >= 7) {
+        __cpuidex(r, 7, 0);
+        f.avx2 = ymm_ok && ((r[1] >> 5) & 1);
+        f.avx512f = zmm_ok && ((r[1] >> 16) & 1);
+    }
+#endif
+    return f;
+}
+
+uint32_t cpu_max_mhz() {
+    struct Info { ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState; };
+    const DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (!n) return 0;
+    std::vector<Info> info(n);
+    if (CallNtPowerInformation(ProcessorInformation, nullptr, 0, info.data(), ULONG(n * sizeof(Info))) != 0) return 0;
+    uint32_t m = 0;
+    for (const auto& i : info) m = std::max<uint32_t>(m, i.MaxMhz);
+    return m;
+}
 
 void classify_cpu_sets(CpuTopology& t) {
     t.logical_processors = uint32_t(t.sets.size());
