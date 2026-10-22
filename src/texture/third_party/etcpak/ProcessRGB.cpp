@@ -3866,7 +3866,7 @@ static etcpak_force_inline uint64_t ProcessAlpha_ETC2( const uint8_t* src )
 void CompressEtc1Rgb( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width )
 {
     int w = 0;
-    uint32_t buf[4*4];
+    alignas(16) uint32_t buf[4*4];       // NUE: 16-byte aligned for the aligned SSE stores below (a plain local is only 4-byte aligned on 32-bit x86)
     do
     {
 #ifdef __SSE4_1__
@@ -3910,7 +3910,7 @@ void CompressEtc1Rgb( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_
 void CompressEtc1RgbDither( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width )
 {
     int w = 0;
-    uint32_t buf[4*4];
+    alignas(16) uint32_t buf[4*4];       // NUE: 16-byte aligned for the aligned SSE stores below (a plain local is only 4-byte aligned on 32-bit x86)
     do
     {
 #ifdef __SSE4_1__
@@ -3960,7 +3960,7 @@ void CompressEtc1RgbDither( const uint32_t* src, uint64_t* dst, uint32_t blocks,
 void CompressEtc2Rgb( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width, bool useHeuristics )
 {
     int w = 0;
-    uint32_t buf[4*4];
+    alignas(16) uint32_t buf[4*4];       // NUE: 16-byte aligned for the aligned SSE stores below (a plain local is only 4-byte aligned on 32-bit x86)
     do
     {
 #ifdef __SSE4_1__
@@ -4004,8 +4004,8 @@ void CompressEtc2Rgb( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_
 void CompressEtc2Rgba( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width, bool useHeuristics )
 {
     int w = 0;
-    uint32_t rgba[4*4];
-    uint8_t alpha[4*4];
+    alignas(16) uint32_t rgba[4*4];      // NUE: see above
+    alignas(16) uint8_t alpha[4*4];
     do
     {
 #ifdef __SSE4_1__
@@ -4077,7 +4077,7 @@ void CompressEtc2Rgba( const uint32_t* src, uint64_t* dst, uint32_t blocks, size
 void CompressEacR( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width )
 {
     int w = 0;
-    uint8_t r[4*4];
+    alignas(16) uint8_t r[4*4];          // NUE: see above
     do
     {
 #ifdef __SSE4_1__
@@ -4138,7 +4138,7 @@ void CompressEacR( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t w
 void CompressEacRg( const uint32_t* src, uint64_t* dst, uint32_t blocks, size_t width )
 {
     int w = 0;
-    uint8_t rg[4*4*2];
+    alignas(16) uint8_t rg[4*4*2];       // NUE: see above
     do
     {
 #ifdef __SSE4_1__
