@@ -53,30 +53,68 @@ nue_result string_out(const std::string& s, char* buffer, size_t capacity, size_
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------- events from the glue
+std::atomic<int> g_last_pressure{0};   // MemoryPressure as int, for memory_info_ex
+
+void push_memory_pressure(MemoryPressure level, int64_t available) {
+    g_last_pressure = static_cast<int>(level);
+#if NUE_IOS_API_011
+    nue_event ev{};
+    ev.type = NUE_EVENT_MEMORY_PRESSURE;
+    ev.payload.memory = make_memory_payload(level, available > 0 ? static_cast<uint64_t>(available) : 0);
+    nue_internal_push_event(&ev);
+#endif
+    if (level == MemoryPressure::high || level == MemoryPressure::critical) {
+        // Kept for hosts that only listen to the older "release caches" event.
+        nue_event low{};
+        low.type = NUE_EVENT_APP_LOW_MEMORY;
+        nue_internal_push_event(&low);
+        NUE_LOGW(kTag, "memory pressure %s, %lld MB left", memory_pressure_name(level), (long long)(available >> 20));
+    }
+}
+
 void on_ios_event(const NueIosEvent* e, void*) {
     switch (e->kind) {
     case NUE_IOS_EVENT_MEMORY_PRESSURE:
-        // SDL3 already turns UIApplicationDidReceiveMemoryWarning into SDL_EVENT_LOW_MEMORY; this adds the kernel pressure source and the
-        // os_proc_available_memory() poll, which fire before the OS warns. High or critical => release caches.
-        if (e->a >= 2) {
-            nue_event ev{};
-            ev.type = NUE_EVENT_APP_LOW_MEMORY;
-            nue_internal_push_event(&ev);
-            NUE_LOGW(kTag, "memory pressure level %d, %lld MB left", (int)e->a, (long long)(e->b >> 20));
-        }
+        // Kernel pressure source and the os_proc_available_memory() poll: they fire before the OS warns.
+        push_memory_pressure(static_cast<MemoryPressure>(std::min<int64_t>(3, std::max<int64_t>(0, e->a))), e->b);
         break;
     case NUE_IOS_EVENT_THERMAL:
     case NUE_IOS_EVENT_POWER:
         g_power_dirty = true;
         break;
-    case NUE_IOS_EVENT_LIFECYCLE:
+    case NUE_IOS_EVENT_LIFECYCLE: {
         NUE_LOGD(kTag, "lifecycle state %d actions 0x%x", (int)e->a, (unsigned)e->b);
+#if NUE_IOS_API_011
+        // This layer owns the lifecycle (owns_lifecycle): the state machine's state is the NUE app state. The core emits
+        // PAUSING / PAUSED / RESUMING / RESUMED from it, synchronously, so the game stops audio and GPU work inside this call.
+        nue_internal_set_app_state(map_app_state(static_cast<LifecycleState>(e->a)));
+#endif
+        // UIApplicationDidReceiveMemoryWarning: the OS is asking for memory now.
+        if (static_cast<uint32_t>(e->b) & act_emit_low_memory) push_memory_pressure(MemoryPressure::high, nue_ios_memory_available());
         break;
+    }
     case NUE_IOS_EVENT_AUDIO_INTERRUPTION:
         NUE_LOGI(kTag, "audio interruption %s", e->a ? "began" : "ended");
+#if NUE_IOS_API_011
+        {
+            // "ended" without shouldResume (the user started other audio) is not forwarded: the game stays paused until the player acts.
+            if (e->a || e->b) {
+                nue_event ev{};
+                ev.type = e->a ? NUE_EVENT_AUDIO_INTERRUPTED : NUE_EVENT_AUDIO_RESUMED;
+                nue_internal_push_event(&ev);
+            }
+        }
+#endif
         break;
     case NUE_IOS_EVENT_AUDIO_ROUTE:
         NUE_LOGI(kTag, "audio route changed (kind %d%s)", (int)e->a, e->b ? ", device removed" : "");
+#if NUE_IOS_API_011
+        {
+            nue_event ev{};
+            ev.type = NUE_EVENT_AUDIO_ROUTE_CHANGED;   // payload.audio_device: output (is_capture = 0), device_id 0 = the new default
+            nue_internal_push_event(&ev);
+        }
+#endif
         break;
     default:
         break;
@@ -557,6 +595,42 @@ int64_t ext_available_memory(void) { return nue_ios_memory_available(); }
 
 const nue_ext_ios_v1 g_ext = {sizeof(nue_ext_ios_v1), ext_probe_gpu, ext_configure_layer, ext_game_mode_declared, ext_available_memory};
 
+#if NUE_IOS_API_011
+nue_result ios_memory_info_ex(nue_memory_info* m) {
+    if (!m) return NUE_ERR_INVALID_ARGUMENT;
+    static uint64_t working_set = [] {
+        NueIosGpuInfo g;
+        return nue_ios_probe_gpu(&g) == 0 ? g.recommended_max_working_set : 0;
+    }();
+    const int64_t footprint = nue_ios_memory_footprint();
+    const int64_t avail = nue_ios_available_memory();   // os_proc_available_memory: the room LEFT before the jetsam limit; 0 on the Simulator
+    fill_memory_info(m, footprint > 0 ? static_cast<uint64_t>(footprint) : 0, avail > 0 ? static_cast<uint64_t>(avail) : 0, working_set,
+                     static_cast<MemoryPressure>(g_last_pressure.load()));
+    return NUE_OK;
+}
+
+nue_result ios_gpu_probe(nue_gpu_caps* out) {
+    if (!out) return NUE_ERR_INVALID_ARGUMENT;
+    NueIosGpuInfo g;
+    if (nue_ios_probe_gpu(&g) != 0) return NUE_ERR_UNSUPPORTED;   // no Metal device: the core falls back to its conservative table
+    MetalProbe p;
+    p.highest_apple_family = g.highest_apple_family;
+    p.supports_bc = g.supports_bc != 0;
+    p.unified_memory = g.unified_memory != 0;
+    p.is_simulator = g.is_simulator != 0;
+    p.recommended_max_working_set = g.recommended_max_working_set;
+    p.physical_memory = g.physical_memory;
+    fill_gpu_caps(out, p, derive_caps(p));
+    return NUE_OK;
+}
+
+// ProMotion cooperation: an exact frame-rate range. A frame limit wins over the refresh request; 0 and 0 release it.
+nue_result ios_window_request_refresh(const nue_native_window*, float refresh_hz, float frame_limit_fps) {
+    apply_fps(frame_limit_fps > 0 ? frame_limit_fps : refresh_hz);
+    return NUE_OK;
+}
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------------------- lifecycle of the layer
 nue_result ios_init(const nue_backend_init* init) {
     (void)init;
@@ -622,6 +696,14 @@ const nue_platform_ops g_ops = {
     /* haptics */ ios_haptics_available, ios_haptics_vibrate,
     /* crash */ ios_crash_install, ios_crash_uninstall, ios_crash_write_dump, /* release_input */ nullptr,
     /* log */ ios_log_write,
+#if NUE_IOS_API_011
+    /* pre_init: not needed (SDL_AUDIO_CATEGORY is read when the device opens, after config load, so init sets it) */ nullptr,
+    /* owns_lifecycle: this layer drives NUE_EVENT_APP_* from UIApplication notifications; the backend must not */ NUE_TRUE,
+    /* memory_info_ex */ ios_memory_info_ex,
+    /* gpu_probe */ ios_gpu_probe,
+    /* window_request_refresh */ ios_window_request_refresh,
+    /* screen_keyboard: SDL3 text input covers it */ nullptr,
+#endif
 };
 
 }  // namespace

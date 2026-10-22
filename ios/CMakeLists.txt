@@ -20,8 +20,9 @@ add_library(nue_ios_logic STATIC
     ${NUE_IOS_SRC}/logic/audio_policy.cpp
     ${NUE_IOS_SRC}/logic/input_logic.cpp
     ${NUE_IOS_SRC}/logic/nue_map.cpp)
-# nue_map maps to the public NUE types, so the public headers (nue_engine/include) are needed.
-target_include_directories(nue_ios_logic PUBLIC ${NUE_IOS_SRC}/logic ${CMAKE_CURRENT_LIST_DIR}/../include)
+# nue_map maps to the public NUE types, so the public headers are needed.
+set(NUE_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../include" CACHE PATH "Public NUE headers (default: this repository's include/)")
+target_include_directories(nue_ios_logic PUBLIC ${NUE_IOS_SRC}/logic ${NUE_INCLUDE_DIR})
 if(NOT MSVC)
     target_compile_options(nue_ios_logic PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

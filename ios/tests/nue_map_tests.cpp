@@ -101,6 +101,59 @@ int main() {
     CHECK(std::strstr(signal_reason(11), "SIGSEGV") && std::strstr(signal_reason(6), "SIGABRT") && std::strcmp(signal_reason(1234), "signal") == 0);
     CHECK(os_log_type_for(NUE_LOG_DEBUG) == 2 && os_log_type_for(NUE_LOG_INFO) == 1 && os_log_type_for(NUE_LOG_ERROR) == 0x10 && os_log_type_for(NUE_LOG_FATAL) == 0x11);
 
+#if NUE_IOS_API_011
+    // ---- API 0.1.1 ----
+    CHECK(map_app_state(LifecycleState::active) == NUE_APP_STATE_FOREGROUND && map_app_state(LifecycleState::inactive) == NUE_APP_STATE_INACTIVE);
+    CHECK(map_app_state(LifecycleState::background) == NUE_APP_STATE_BACKGROUND && map_app_state(LifecycleState::not_running) == NUE_APP_STATE_TERMINATING);
+    CHECK(map_pressure(MemoryPressure::normal) == NUE_PRESSURE_NONE && map_pressure(MemoryPressure::moderate) == NUE_PRESSURE_MODERATE);
+    CHECK(map_pressure(MemoryPressure::high) == NUE_PRESSURE_HIGH && map_pressure(MemoryPressure::critical) == NUE_PRESSURE_CRITICAL);
+    // The pressure ordering never inverts when mapped.
+    for (int i = 0; i < 3; ++i) CHECK(map_pressure(static_cast<MemoryPressure>(i)) < map_pressure(static_cast<MemoryPressure>(i + 1)));
+    auto mp = make_memory_payload(MemoryPressure::high, 123456);
+    CHECK(mp.level == NUE_PRESSURE_HIGH && mp.available_bytes == 123456);
+
+    nue_memory_info mi;
+    std::memset(&mi, 0, sizeof mi);
+    mi.struct_size = sizeof mi; mi.physical_total = 6ull << 30; mi.physical_available = 2ull << 30;
+    fill_memory_info(&mi, 400ull << 20, 1500ull << 20, 5ull << 30, MemoryPressure::moderate);
+    CHECK(mi.struct_size == sizeof mi && mi.process_used == (400ull << 20) && mi.process_limit == (1900ull << 20) && mi.process_available == (1500ull << 20));
+    CHECK(mi.unified_memory && mi.gpu_dedicated_total == 0 && mi.gpu_shared_total == (5ull << 30) && mi.pressure == NUE_PRESSURE_MODERATE);
+    fill_memory_info(&mi, 400ull << 20, 0, 0, MemoryPressure::normal);   // no OS figure: limit unknown, available falls back to physical
+    CHECK(mi.process_limit == 0 && mi.process_available == mi.physical_available);
+
+    // GPU caps for an iPhone-class GPU (Apple8): no BC, ASTC / ETC2 / PVRTC1 yes, D24S8 no.
+    MetalProbe a15; a15.highest_apple_family = 8; a15.unified_memory = true; a15.physical_memory = 6ull << 30;
+    DeviceCaps dc = derive_caps(a15);
+    nue_gpu_caps gc;
+    std::memset(&gc, 0, sizeof gc);
+    gc.struct_size = sizeof gc;
+    fill_gpu_caps(&gc, a15, dc);
+    CHECK(gc.struct_size == sizeof gc && gc.probed && gc.renderer == NUE_RENDERER_METAL && gc.unified_memory);
+    CHECK(gc.format[NUE_FMT_BC1] == 0 && gc.format[NUE_FMT_BC3] == 0 && gc.format[NUE_FMT_BC7] == 0);
+    CHECK((gc.format[NUE_FMT_ASTC_LDR] & NUE_FMTSUP_SAMPLE) && (gc.format[NUE_FMT_ASTC_LDR] & NUE_FMTSUP_SRGB) && gc.format[NUE_FMT_ASTC_HDR] != 0);
+    CHECK(gc.format[NUE_FMT_ETC2_RGBA] != 0 && gc.format[NUE_FMT_ETC1] != 0 && gc.format[NUE_FMT_PVRTC1] != 0);
+    CHECK(gc.format[NUE_FMT_PVRTC2] == 0 && gc.format[NUE_FMT_ATC] == 0);
+    CHECK(gc.format[NUE_FMT_DEPTH24_STENCIL8] == 0 && (gc.format[NUE_FMT_DEPTH32F_STENCIL8] & NUE_FMTSUP_RENDER_TARGET));
+    CHECK((gc.format[NUE_FMT_RGBA8] & NUE_FMTSUP_RENDER_TARGET) && (gc.format[NUE_FMT_RGBA8] & NUE_FMTSUP_SRGB) && (gc.format[NUE_FMT_BGRA8] & NUE_FMTSUP_BLEND));
+    CHECK(gc.max_texture_2d == 16384 && gc.max_render_targets == 8 && gc.max_msaa_samples == 4 && gc.dedicated_memory_bytes == 0 && gc.tessellation);
+    // Compressed formats are never render targets.
+    for (int f = NUE_FMT_BC1; f <= NUE_FMT_ATC; ++f) CHECK(!(gc.format[f] & NUE_FMTSUP_RENDER_TARGET));
+    // ASTC HDR needs Apple6+; an A8-class GPU (Apple2) has LDR only; an A7 (Apple1) has neither ASTC nor ETC2, but PVRTC.
+    MetalProbe a8; a8.highest_apple_family = 2;
+    nue_gpu_caps g8; std::memset(&g8, 0, sizeof g8); g8.struct_size = sizeof g8;
+    fill_gpu_caps(&g8, a8, derive_caps(a8));
+    CHECK(g8.format[NUE_FMT_ASTC_LDR] != 0 && g8.format[NUE_FMT_ASTC_HDR] == 0 && g8.max_texture_2d == 8192);
+    MetalProbe a7; a7.highest_apple_family = 1;
+    nue_gpu_caps g7; std::memset(&g7, 0, sizeof g7); g7.struct_size = sizeof g7;
+    fill_gpu_caps(&g7, a7, derive_caps(a7));
+    CHECK(g7.format[NUE_FMT_ASTC_LDR] == 0 && g7.format[NUE_FMT_ETC2_RGB] == 0 && g7.format[NUE_FMT_PVRTC1] != 0 && g7.max_render_targets == 4);
+    // A Mac-class device (BC supported): BC yes, PVRTC no, D24S8 yes.
+    MetalProbe mac; mac.highest_apple_family = 7; mac.supports_bc = true;
+    nue_gpu_caps gm; std::memset(&gm, 0, sizeof gm); gm.struct_size = sizeof gm;
+    fill_gpu_caps(&gm, mac, derive_caps(mac));
+    CHECK(gm.format[NUE_FMT_BC1] != 0 && gm.format[NUE_FMT_BC7] != 0 && gm.format[NUE_FMT_PVRTC1] == 0 && gm.format[NUE_FMT_DEPTH24_STENCIL8] != 0);
+#endif
+
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

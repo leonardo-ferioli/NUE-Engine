@@ -62,3 +62,12 @@ Item 6 is also resolved: the core includes `src/platform/ios/CMakeLists.txt`, wh
     services from `ios_init` on the main thread (dispatching there if `nue_init` runs elsewhere).
 14. **`ios.audio_mix` config key.** The layer reads `nue_config_get_string("ios.audio_mix")` at init ("exclusive" default, or "respect_silent") and
     exports `SDL_AUDIO_CATEGORY` for SDL. If the config file is loaded after platform init the first run uses the default: tell me the load order.
+
+## Status after the core replies (REPLIES_core.md, API 0.1.1)
+
+Items 8-14 are answered by nue-core and applied in the iOS layer: frameworks forwarded by the core (8, confirmed by the 0.1.1 notes; not yet seen
+in the repository), safe area = rectangle (9, matches the implementation), audio events (10, `AUDIO_INTERRUPTED/RESUMED/ROUTE_CHANGED` pushed),
+Game Mode declare-only (11), pre-populated data root valid (12), entry stub in sdl3 (13), settings loaded before platform init (14). Also done:
+`owns_lifecycle = TRUE` with `nue_internal_set_app_state`, `NUE_EVENT_MEMORY_PRESSURE`, `memory_info_ex`, `gpu_probe`, `window_request_refresh`.
+The DXT/ASTC policy is now owned by nue-texture; the iOS layer only reports capabilities (`gpu_probe`, extension `nue.ios.v1`).
+Item 2 (32-bit guest address space on arm64) stays open and unverified (`WINDOW64` needs a reduced `__PAGEZERO`; `INDIRECT` is the fallback).

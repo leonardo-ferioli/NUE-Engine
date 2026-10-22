@@ -100,6 +100,7 @@ and `docs/PORTING.md`. The iOS layer implements it in `src/platform/ios/adapter/
 | `thread_set_priority/get_priority` | QoS class for the calling thread; for other threads `pthread_setschedparam` when a pthread handle is known, otherwise `NUE_ERR_UNSUPPORTED` | `THREAD_PRIORITY` |
 | `thread_set_core_class` | QoS bias (efficiency -> background, performance -> user-initiated), calling thread only | `CORE_CLASS` |
 | `thread_set_affinity`, `perf_hint_*`, `sleep_until`, `timer_resolution_get`, `window_set_gpu_preference` | NULL: iOS has no affinity, ADPF-style hints, high-resolution timers or GPU choice | - |
+| `memory_info_ex`, `gpu_probe`, `window_request_refresh` (API 0.1.1) | see the paragraph below | - |
 | `window_safe_area` | `UIWindow.safeAreaInsets` converted to a rectangle inside the window (SDL convention) | `SAFE_AREA` |
 | `haptics_*` | CoreHaptics device engine (iPhone Taptic Engine) | `HAPTICS` |
 | `crash_install/uninstall/write_dump` | signal handlers on an alternate stack -> core sink `begin`, `stack.txt` (`backtrace_symbols_fd`), `end`, then re-raise to the previous handler so Apple's own crash log is still produced. No Mach exceptions, no minidump | `CRASH_HANDLER` |
@@ -113,10 +114,19 @@ info for the Direct3D 9 layer, `CAMetalLayer` configuration and the declared Gam
 Adapter mode (`NueIosConfig.adapter_mode = 1`) exists because SDL3 already owns several things under the core: it opens the audio device and
 sets the `AVAudioSession` category (the glue only observes interruptions and route changes and logs them), it installs the GameController /
 CoreMotion handlers (the glue does not touch them) and it reports window size and safe-area events (the glue does not duplicate them). The
-`UIApplication` lifecycle observers stay on for logging and for the memory sources; SDL's own `SDL_EVENT_*` background/foreground events
-drive `NUE_EVENT_APP_PAUSING/PAUSED/RESUMING/RESUMED` in the core. Memory warnings: SDL turns `didReceiveMemoryWarning` into low-memory;
-this layer adds the kernel pressure source and the `os_proc_available_memory` poll (events fire before the OS warns, so duplicates are
-possible and harmless: "release caches" is idempotent).
+`UIApplication` lifecycle observers drive the app state: since core API 0.1.1 this layer sets `nue_platform_ops.owns_lifecycle = TRUE`
+and calls `nue_internal_set_app_state()` with the state machine's state (active -> FOREGROUND, inactive -> INACTIVE, background -> BACKGROUND,
+terminate -> TERMINATING); the core emits `APP_PAUSING / PAUSED / RESUMING / RESUMED` synchronously from it, so the game stops audio and GPU
+work inside the call (the backend must not derive app state from SDL window events). Memory: the kernel pressure source, the
+`os_proc_available_memory` poll and `UIApplicationDidReceiveMemoryWarning` (reported as level HIGH) become `NUE_EVENT_MEMORY_PRESSURE`
+(level + bytes still available); levels HIGH and CRITICAL also push the older `NUE_EVENT_APP_LOW_MEMORY`. Audio: interruption began ->
+`NUE_EVENT_AUDIO_INTERRUPTED`; ended with "should resume" -> `NUE_EVENT_AUDIO_RESUMED` (an interruption that ends without it, because the player
+started other audio, is not forwarded and the game stays paused until the player acts); route change -> `NUE_EVENT_AUDIO_ROUTE_CHANGED`.
+`memory_info_ex` reports process used (task footprint), the estimated jetsam limit (footprint + `os_proc_available_memory`, 0 = none known when the
+OS gives no figure), the unified-memory flag and the pressure level. `gpu_probe` fills `nue_gpu_caps` from the Metal probe (BC unavailable,
+ASTC LDR from Apple2, ASTC HDR from Apple6, ETC2/EAC from Apple2, PVRTC1 on every iPhone/iPad GPU, D24S8 absent) without any device or context;
+32-bit float filtering is not claimed. `window_request_refresh` sets the exact ProMotion frame-rate range. All of this is compiled only when the core
+headers are 0.1.1 or newer (`NUE_IOS_API_011`, detected with `__has_include("nue/memory.h")`).
 
 Verification: `platform_ios.mm` was syntax-checked with clang on Windows as Objective-C++ (ARC, blocks) against the **real** NUE headers
 (`nue/*.h`, `platform_ops.h`) and hand-written stand-ins for the few Foundation / UIKit / Darwin declarations it uses. That caught one real

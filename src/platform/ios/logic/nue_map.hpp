@@ -5,7 +5,16 @@
 #include <string>
 
 #include "nue/nue.h"
+#include "caps.hpp"
+#include "lifecycle.hpp"
 #include "power.hpp"
+
+// API 0.1.1 (memory.h, gpu caps, new events) is detected by header presence so this file also builds against the 0.1.0 draft.
+#if __has_include("nue/memory.h")
+#  define NUE_IOS_API_011 1
+#else
+#  define NUE_IOS_API_011 0
+#endif
 
 namespace nue::ios {
 
@@ -52,6 +61,23 @@ nue_rect_i safe_area_rect(float width, float height, float left, float top, floa
 std::string storage_subpath(int kind, const char* org, const char* app_id);
 // Sanitises a folder component: letters, digits, '-', '_', '.' kept; anything else becomes '_'; empty -> fallback; never "." or "..".
 std::string sanitize_component(const char* s, const char* fallback);
+
+#if NUE_IOS_API_011
+// ---- lifecycle / memory (API 0.1.1) ----
+// The iOS layer owns the lifecycle (platform_ops.owns_lifecycle): the state machine's state becomes the NUE app state.
+nue_app_state map_app_state(LifecycleState);
+nue_memory_pressure map_pressure(MemoryPressure);
+// Fills the iOS part of nue_memory_info (the core already filled physical_*). The jetsam limit is estimated as footprint + room left
+// (os_proc_available_memory reports the room LEFT); with no OS figure process_limit stays 0 ("none known").
+void fill_memory_info(nue_memory_info* inout, uint64_t footprint, uint64_t os_available, uint64_t recommended_working_set, MemoryPressure pressure);
+
+// ---- GPU capabilities without a device (API 0.1.1) ----
+nue_format_support format_support(nue_format_family family, const MetalProbe& probe, const DeviceCaps& caps);
+// `probed` is TRUE: the numbers come from MTLDevice queries (see nue_ios_probe_gpu).
+void fill_gpu_caps(nue_gpu_caps* out, const MetalProbe& probe, const DeviceCaps& caps);
+// Payload of NUE_EVENT_MEMORY_PRESSURE.
+nue_event_memory make_memory_payload(MemoryPressure level, uint64_t available_bytes);
+#endif
 
 // ---- crash ----
 const char* signal_reason(int sig);   // static strings, async-signal-safe
