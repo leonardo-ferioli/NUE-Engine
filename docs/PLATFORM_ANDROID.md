@@ -1,19 +1,19 @@
 # NUE on Android: backend, packaging, decisions, status
 
 Owner: the `android` area (`src/platform/android/`, `android/`, this file, `docs/REQUESTS_android.md`).
-Written against core API 0.1 (`include/nue/*.h`, `src/core/internal/platform_ops.h`) and SDL3 `release-3.4.18`.
+Written against core API 0.1 (`include/nue/*.h`, `src/core/internal/platform_ops.h`) and SDL3 `release-3.4.18`; API 0.1.1 hooks implemented.
 
 ## 0. Honest status (read this first)
 
 | Level | What |
 |---|---|
 | **Compiled and run on the host (12 ctest suites, all green)** | everything in `src/platform/android/logic/` (lifecycle state machine, memory budget, display mode choice, thermal governor, ADPF target planner, GPU/texture-format policy, input/key/axis tables, audio plan + focus state machine, CPU big/little classification, storage path sanitising, manifest/journal/marker formats, **the import engine** (copy + CRC-32 + journal + resume + cancel + disk-full handling, run against real directories), crash-report text, event queue incl. a threaded test) |
-| **Syntax-checked only** | `jni/*.cpp`, `platform_android.cpp` (clang `-fsyntax-only` against stub Android/POSIX headers, the JDK's `jni.h` and the real core headers). Not linked, not run. `android_crash.cpp` and `android_gpu_probe.cpp` need Linux/Vulkan/EGL headers and were only reviewed by reading |
-| **Written, never compiled** | all Java (`android/nue-engine/.../org/nue/engine/*.java`; `javac` parse check found no syntax errors, everything else needs `android.jar`), the Gradle/CMake project, manifests, sample app |
-| **Run on a device or emulator** | **nothing**. This machine has no Android SDK, NDK, Gradle or adb; nothing was installed |
+| **Built for Android (2026-10-22, NDK r28c 28.2.13676358, AGP 9.4.1, Gradle 9.8.2, JDK 21)** | `gradle :nue-engine:assembleDebug` -> `nue-engine-debug.aar` (libnue.so for arm64-v8a = core + SDL3 backend + this platform layer, all Java compiled against the real `android.jar`, prefab package `nue-engine`); `gradle :sample:assembleDebug` -> `sample-debug.apk` (libmain.so, libnue.so, libc++_shared.so). Checked on the binaries: `zipalign -c -P 16` ok, every `LOAD` segment aligned 0x4000, the 30 `Java_org_nue_engine_NueBridge_*` entry points are exported, exactly one `JNI_OnLoad` (SDL's) |
+| **Not built / not checked** | release build with R8 (`assembleRelease`), x86_64/armeabi-v7a, `lint`; Android Studio itself (its installer download failed twice, not needed for building) |
+| **Run on a device or emulator** | **nothing**. No device or emulator was used, nothing was installed on any phone |
 | **Not possible / deliberately absent** | see section 9 |
 
-Expect compile errors on the first real build (wrong API signatures from memory, AGP DSL details). Section 8 lists exactly what to install and the commands.
+Errors found and fixed by the first real build: Kotlin DSL import in the sample script, a namespace slip in `android_crash.cpp`, `c++_static` vs prefab (a prefab library built with a static STL cannot be used by another library: both modules use `c++_shared` now), the prefab package is named after the module (`find_package(nue-engine)`, target `nue-engine::nue`). Section 8 has the commands.
 
 ## 1. Decisions and reasons
 
