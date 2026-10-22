@@ -79,7 +79,7 @@ NUE_API nue_bool NUE_CALL nue_is_initialized(void);
 /* ============================================================================================== version / build */
 
 NUE_API uint32_t NUE_CALL nue_get_version(void);               /* NUE_MAKE_VERSION of the library; compare with NUE_API_VERSION */
-NUE_API const char* NUE_CALL nue_get_version_string(void);     /* "0.1.0 (abcdef1)" */
+NUE_API const char* NUE_CALL nue_get_version_string(void);     /* "0.1.1 (abcdef1)" */
 
 typedef struct nue_build_info {
     uint32_t struct_size;
@@ -237,8 +237,9 @@ NUE_API void NUE_CALL nue_hex_encode(const uint8_t* data, size_t size, char* out
 
 /* ============================================================================================== time */
 
-/* [any] Monotonic nanoseconds since an unspecified start (does not jump with wall clock changes; does count suspend
- * on platforms where the OS clock does). All event timestamps use this domain. */
+/* [any] Monotonic nanoseconds since an unspecified start; not comparable across processes and never jumps with wall clock changes.
+ * Whether suspended time counts depends on the OS clock: Windows (performance counter) counts it, Linux CLOCK_MONOTONIC does not;
+ * code that must survive device suspend should watch NUE_EVENT_SYSTEM_RESUMED. All event timestamps use this domain. */
 NUE_API int64_t NUE_CALL nue_time_ns(void);
 NUE_API uint64_t NUE_CALL nue_time_counter(void);                  /* raw high-resolution counter (QueryPerformanceCounter-like) */
 NUE_API uint64_t NUE_CALL nue_time_counter_frequency(void);        /* ticks per second */
@@ -250,6 +251,11 @@ typedef enum nue_sleep_mode {
 } nue_sleep_mode;
 NUE_API void NUE_CALL nue_sleep_ns(int64_t ns, nue_sleep_mode mode);
 NUE_API void NUE_CALL nue_sleep_until_ns(int64_t deadline_ns, nue_sleep_mode mode);   /* deadline in nue_time_ns() domain */
+
+/* Frame limiter: call once per frame; sleeps (precisely) until 1/target_fps has passed since the previous call and returns the time waited in ns.
+ * target_fps <= 0 only records the frame. A big gap (pause, breakpoint) resets the schedule instead of bursting to catch up. [any] */
+NUE_API int64_t NUE_CALL nue_frame_limiter_wait(double target_fps);
+NUE_API void NUE_CALL nue_frame_limiter_reset(void);
 
 /* ============================================================================================== threads and sync */
 
@@ -311,6 +317,31 @@ NUE_API nue_result NUE_CALL nue_tls_create(void (NUE_CALL *destructor)(void* val
 NUE_API void NUE_CALL nue_tls_destroy(nue_tls_id id);
 NUE_API void* NUE_CALL nue_tls_get(nue_tls_id id);
 NUE_API nue_result NUE_CALL nue_tls_set(nue_tls_id id, void* value);
+
+/* ============================================================================================== timers */
+
+/* Periodic and one-shot timers with callbacks on an engine timer thread (what timeSetEvent / SetTimer style APIs need). Period and delay are in
+ * nanoseconds; ticks that were missed because the callback ran long are coalesced, never replayed in a burst. In deterministic mode (null backend)
+ * timers fire from nue_null_advance_time instead of a thread. The callback runs on the timer thread: keep it short, do not destroy its own timer
+ * (use nue_timer_cancel). */
+NUE_DEFINE_HANDLE(nue_timer);
+typedef void (NUE_CALL *nue_timer_fn)(void* userdata, nue_timer timer, uint64_t tick);
+
+typedef struct nue_timer_desc {
+    uint32_t struct_size;
+    int64_t period_ns;                  /* > 0; the interval for periodic timers and the delay for one-shots */
+    int64_t first_delay_ns;             /* 0 = one period */
+    nue_bool one_shot;
+    nue_timer_fn callback;
+    void* userdata;
+    const char* name;                   /* thread name */
+    nue_thread_priority priority;       /* timer thread priority (DEFAULT = normal) */
+} nue_timer_desc;
+
+NUE_API nue_result NUE_CALL nue_timer_create(const nue_timer_desc* desc, nue_timer* out_timer);
+NUE_API nue_result NUE_CALL nue_timer_cancel(nue_timer timer);      /* no further callbacks start; a callback in flight finishes. Safe from the callback. */
+NUE_API void NUE_CALL nue_timer_destroy(nue_timer timer);           /* cancels and WAITS for a callback in flight. Not from the callback itself. */
+NUE_API nue_result NUE_CALL nue_timer_set_period(nue_timer timer, int64_t period_ns);
 
 /* ============================================================================================== extensions */
 
