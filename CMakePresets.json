@@ -1,0 +1,101 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build_nue_engine/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NUE_BUILD_TESTS": "ON",
+        "NUE_BUILD_SAMPLES": "ON"
+      }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64 (clang + Ninja)",
+      "inherits": "windows-base",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER_TARGET": "x86_64-pc-windows-msvc",
+        "CMAKE_CXX_COMPILER_TARGET": "x86_64-pc-windows-msvc"
+      }
+    },
+    {
+      "name": "windows-x86",
+      "displayName": "Windows x86 / 32-bit (clang + Ninja) - the launcher of the recompiled game is 32-bit",
+      "inherits": "windows-base",
+      "architecture": { "value": "x86", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER_TARGET": "i686-pc-windows-msvc",
+        "CMAKE_CXX_COMPILER_TARGET": "i686-pc-windows-msvc",
+        "NUE_STATIC_CRT": "ON"
+      }
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Linux x86-64 (Ninja)",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a (NDK toolchain; set ANDROID_NDK_HOME)",
+      "inherits": "base",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-26",
+        "ANDROID_STL": "c++_static",
+        "NUE_BUILD_TESTS": "OFF",
+        "NUE_BUILD_SAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "ios-arm64",
+      "displayName": "iOS arm64 (Xcode, macOS host)",
+      "inherits": "base",
+      "generator": "Xcode",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
+        "NUE_BUILD_TESTS": "OFF",
+        "NUE_BUILD_SAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "host-debug",
+      "displayName": "Host debug build with asserts (null backend + SDL dummy drivers in tests)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "NUE_WARNINGS_AS_ERRORS": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-x64", "configurePreset": "windows-x64" },
+    { "name": "windows-x86", "configurePreset": "windows-x86" },
+    { "name": "linux-x64", "configurePreset": "linux-x64" },
+    { "name": "android-arm64", "configurePreset": "android-arm64" },
+    { "name": "ios-arm64", "configurePreset": "ios-arm64" },
+    { "name": "host-debug", "configurePreset": "host-debug" }
+  ],
+  "testPresets": [
+    { "name": "windows-x64", "configurePreset": "windows-x64", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86", "configurePreset": "windows-x86", "output": { "outputOnFailure": true } },
+    { "name": "linux-x64", "configurePreset": "linux-x64", "output": { "outputOnFailure": true } },
+    { "name": "host-debug", "configurePreset": "host-debug", "output": { "outputOnFailure": true } }
+  ]
+}
