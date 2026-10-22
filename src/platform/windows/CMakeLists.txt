@@ -45,7 +45,7 @@ target_link_libraries(nue_platform_windows PUBLIC kernel32 user32 advapi32 shell
 function(nue_win_request_discrete_gpu target)
     target_sources(${target} PRIVATE "${NUE_WIN_DIR}/gpu_exports.cpp")
 endfunction()
-set(NUE_WIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(NUE_WIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "Directory of the NUE Windows backend (visible to the callers of nue_win_request_discrete_gpu)")
 
 if(NUE_WIN_STANDALONE OR NUE_WINDOWS_BUILD_TESTS)
     enable_testing()
