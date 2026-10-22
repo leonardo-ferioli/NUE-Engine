@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Library manifest: permissions every NUE game needs.  Activities are declared by the app (see the sample). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- keeps the CPU awake during the one-time game data import (copy of ~1.2 GB) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- OpenGL ES 3.0 is the floor (bgfx GLES3 backend); Vulkan 1.1 is optional so GLES-only devices still install. -->
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+</manifest>

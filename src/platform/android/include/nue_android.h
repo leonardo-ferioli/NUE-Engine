@@ -50,8 +50,23 @@ typedef enum NueAndroidEventType {
     NUE_ANDROID_EVENT_INPUT_DEVICE,  /* i[0] = Android device id, i[1] = 1 added / 0 removed, i[2] = NueAndroidInputKind */
     NUE_ANDROID_EVENT_LAST_INPUT,    /* i[0] = NueAndroidInputKind of the last used input device */
     NUE_ANDROID_EVENT_IMPORT,        /* i[0] = NueAndroidImportState, i[1] = files done, i[2] = files total, l[0] = bytes done, l[1] = bytes total */
-    NUE_ANDROID_EVENT_TREE_PICKED    /* i[0] = 1 picked / 0 cancelled (storage access framework result) */
+    NUE_ANDROID_EVENT_TREE_PICKED,   /* i[0] = 1 picked / 0 cancelled (storage access framework result) */
+    NUE_ANDROID_EVENT_ACTION         /* i[0] = NueAndroidAction: what the engine must do now (derived from the lifecycle) */
 } NueAndroidEventType;
+
+/* Decisions of the lifecycle model (logic/lifecycle_model.hpp); executed in the order they arrive. */
+typedef enum NueAndroidAction {
+    NUE_ANDROID_ACTION_START_RENDERING = 1,
+    NUE_ANDROID_ACTION_STOP_RENDERING,
+    NUE_ANDROID_ACTION_RELEASE_SURFACE,  /* destroy the swapchain / EGL surface before returning from this event */
+    NUE_ANDROID_ACTION_RESIZE_SURFACE,
+    NUE_ANDROID_ACTION_SUSPEND_AUDIO,
+    NUE_ANDROID_ACTION_RESUME_AUDIO,
+    NUE_ANDROID_ACTION_PAUSE_SIMULATION,
+    NUE_ANDROID_ACTION_RESUME_SIMULATION,
+    NUE_ANDROID_ACTION_SAVE_STATE,
+    NUE_ANDROID_ACTION_QUIT
+} NueAndroidAction;
 
 typedef enum NueAndroidLifecycle {
     NUE_ANDROID_LIFE_CREATE = 1,
@@ -129,6 +144,9 @@ typedef struct NueAndroidEvent {
 
 /* Returns 1 and fills *out if an event was pending, 0 otherwise. Never blocks. */
 NUE_ANDROID_EXPORT int nue_android_poll_event(NueAndroidEvent *out);
+/* Call after handling NUE_ANDROID_ACTION_RELEASE_SURFACE (swapchain / EGL surface destroyed). Android is blocked
+ * in surfaceDestroyed until this arrives (at most 750 ms), so do it promptly. */
+NUE_ANDROID_EXPORT void nue_android_surface_released(void);
 /* Number of events dropped because the queue was full (diagnostics). */
 NUE_ANDROID_EXPORT uint32_t nue_android_dropped_events(void);
 
@@ -333,6 +351,8 @@ NUE_ANDROID_EXPORT void nue_android_pick_game_folder(void);
  * files (see docs/PLATFORM_ANDROID.md), `use_external` selects externalFilesDir as target. */
 NUE_ANDROID_EXPORT int nue_android_import_start(const char *manifest, int use_external);
 NUE_ANDROID_EXPORT void nue_android_import_cancel(void);
+/* Result code of the last finished import (0 = ok, see ImportResult in logic/import_engine.hpp) and a one-line text. */
+NUE_ANDROID_EXPORT int nue_android_import_last_result(char *text, size_t text_size);
 /* Import of an already accessible directory (drop folder in Android/data/<pkg>/files). */
 NUE_ANDROID_EXPORT int nue_android_import_from_directory(const char *dir, const char *manifest, int use_external);
 
