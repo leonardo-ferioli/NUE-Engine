@@ -262,11 +262,14 @@ void vfs_init(const InitInfo& info) {
 
     std::string user = !info.user_data_path.empty() ? info.user_data_path : root_from_platform(NUE_ROOT_USER, info);
     if (user.empty()) user = generic_user_dir(info);
-    std::string cache = root_from_platform(NUE_ROOT_CACHE, info);
+    // Portable mode: an explicit user_data_path wins over the platform's rules for every writable root, so a whole install can live in one folder
+    // (the platform layer is not even asked; it would otherwise answer its own cache/settings/temp folders).
+    const bool portable = !info.user_data_path.empty();
+    std::string cache = portable ? std::string() : root_from_platform(NUE_ROOT_CACHE, info);
     if (cache.empty()) cache = native_join(user, "cache");
-    std::string settings = root_from_platform(NUE_ROOT_SETTINGS, info);
+    std::string settings = portable ? std::string() : root_from_platform(NUE_ROOT_SETTINGS, info);
     if (settings.empty()) settings = native_join(user, "settings");
-    std::string temp = root_from_platform(NUE_ROOT_TEMP, info);
+    std::string temp = portable ? std::string() : root_from_platform(NUE_ROOT_TEMP, info);
     // Scratch space is cleared at start, so two processes must never share one: portable mode keeps it below the explicit user folder, otherwise
     // it is a per-process folder in the system temp directory, removed again at shutdown.
     if (temp.empty()) {
