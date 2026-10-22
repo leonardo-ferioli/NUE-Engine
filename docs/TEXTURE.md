@@ -148,6 +148,48 @@ Consequences: a DXT1/DXT3/DXT5 -> ETC2 transcode costs ~(1/245 + 1/50) s per MPi
 512x512 level on one core. A scene of 1500 textures averaging 256x256 (98 MPixel with mips) needs about 2 s on 16 threads for ETC2 and about 15 s for ASTC fast, which is why the first-run
 import and the cache exist: nothing of that happens during a race. On a phone core expect 3-6x slower than this desktop core (**not measured**).
 
+## 7b. Results on the real NFSU2 textures (2026-10-22)
+
+Source: 6119 DDS files (164 MB) extracted by the assets session from every `.BUN/.LZC` pack (GLOBAL 503, FRONTEND 499, NIS 183, TRACKS 4934; the duplicate GlobalB/InGameCommon folders excluded). **They are every texture of the
+game, not one scene.** Nothing of the game is stored in the repository; the files stay local. Formats found: DXT1 (BC1) 4532, DXT3 (BC2) 1464, BGRA8 115 (+ expanded palettised), no DXT5, no normal maps (BC4/BC5).
+Machine: Ryzen 7, 16 threads, SSE4.1, Release.
+
+**Memory if every texture were resident** (the real per-scene working set is smaller; this is the ratio that matters):
+
+| Device class | Shipped | Planned | Current D3D9 layer (RGBA8 fallback) |
+|---|---|---|---|
+| desktop BC / Apple silicon / Android with BC | 164.1 MB | 164.1 MB (as is) | 1001.7 MB |
+| Android ASTC / Apple ASTC | 164.1 MB | 161.3 MB | 1001.7 MB |
+| Android ETC2 only | 164.1 MB | 167.8 MB | 1001.7 MB |
+| Apple PVRTC only (A7, square power-of-two only) | 164.1 MB | 479.0 MB | 1001.7 MB |
+| no compressed format (software) | 164.1 MB | 1001.7 MB | 1001.7 MB |
+
+Android ASTC with `COMPRESS_RAW` (the 115 BGRA8 textures, 30 MB, get compressed): 138.1 MB. With `PRIORITY_MEMORY` (ASTC 6x5 for DXT3, 0.6x tolerance): 98.6 MB. The RGBA8 fallback of today is **6.1x** the shipped size.
+Apple PVRTC is the weak class: 2164 DXT1 and 969 DXT3 textures are not square power-of-two and PVRTC1 cannot hold them (they fall back to RGBA8, +300 MB); a padded or 16-bit fallback would fix it (A7 devices are very old; not done).
+
+**Plans** (Android ASTC): DXT1 opaque 4026 -> ETC2 RGB8 (101 MB, same size); DXT1 with 1-bit alpha 506 -> ASTC 6x5 (7.5 -> 8.3 MB); DXT3 1195 -> ASTC 4x4 (17.7 MB, same size); DXT3 whose alpha is all 255, 256 textures -> ETC2 RGB8 (7.5 -> 3.8 MB, half);
+12 + 9 textures under 16 texels stay RGBA8. On ETC2-only devices: DXT1 with alpha -> ETC2 RGBA8 (7.5 -> 15.0 MB), DXT3 -> ETC2 RGBA8.
+
+**Quality of the re-encode against the decoded DXT** (PSNR / SSIM / CIEDE2000):
+
+| Android ASTC | Textures | PSNR mean | Worst | Below 30 dB | SSIM | dE |
+|---|---|---|---|---|---|---|
+| DXT1 -> ETC2 RGB8 (all packs) | 4026 | 36.8 dB | 14.4 dB | 127 | 0.98 | 2.6 |
+| DXT1 + alpha -> ASTC 6x5 | 506 | 39-58 dB | 27.2 dB | 15 | 0.99 | 1.2 |
+| DXT3 -> ASTC 4x4 | 1195 | 47-68 dB | 33.0 dB | 0 | 0.99-1.00 | 0.1-0.7 |
+| DXT3 opaque -> ETC2 RGB8 | 256 | 36-40 dB | 27.4 dB | 19 | 0.94 | 4.1 |
+
+On ETC2-only devices: DXT3 -> ETC2 RGBA8 mean 36-47 dB (26 below 30 dB in TRACKS), DXT1+alpha -> ETC2 RGBA8 32-41 dB. Reading: ASTC reproduces DXT almost exactly; ETC2 is acceptable (mean 36-38 dB) but weak on sharp two-colour patterns
+(the 14 dB cases are 32x32/64x64 test patterns and a few track decals): for those, `PRIORITY_QUALITY` chooses ASTC 4x4 (twice the memory) on ASTC devices; on ETC2-only devices there is no better target.
+
+**Cold conversion cost** (`nue_texconv cook --classes all`, every variant of every texture): GLOBAL 1.6 s, FRONTEND 1.4 s, NIS 1.6 s, TRACKS 44.3 s on 16 threads, i.e. **about 49 s for the whole game**; the cache folder is 259.5 MB (10526 files)
+for all nine device classes together (about 2.5 variants per texture; a single device needs roughly its 160 MB share). Opening that cache at startup (indexing 41595 source levels) takes 1.7 s.
+**Run time:** replaying every texture through the Direct3D 9 seam on a context that cannot encode: **100 % of the levels served from the cache** (23094 levels in TRACKS, 0 placeholders, 0 encodes) for Android ASTC, Android ETC2 and Apple ASTC, with the alpha hint the layer knows and
+with "unknown"; 50-150 us per level (hash + copy). Caveat: this replay uses the same bytes that were cooked; the real test is the dump of what the game uploads during a race (pending from the legacy-d3d9 session).
+
+**Encoders not needed by these numbers:** BC2 (the game has 1464 DXT3 textures but the conversion path decodes them, it never encodes BC2); only a modding tool that replaces a DXT3 texture would need it (the assets session asked for it as a nicety, today it falls back to BC3).
+No BC4/BC5/DXT5/BC7/HDR source exists in the game; PVRTC2, ATC and ETC2-A1 are irrelevant for it.
+
 ## 8. Memory (budget API, model, D3D9 layer numbers)
 
 * **No built-in limit.** `nue_tex_budget_policy`: unlimited | bytes | fraction of the available memory the host reports | preset (`LOW_MEMORY_MOBILE` 12 % with a 64 MiB floor, `MOBILE` 20 %,

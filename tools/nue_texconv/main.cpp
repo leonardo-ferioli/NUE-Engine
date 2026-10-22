@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -133,6 +134,10 @@ static void fill_policy(int argc, char** argv, nue_tex_policy* p) {
     if (const char* s = arg_value(argc, argv, "--max-dimension")) p->max_dimension = (uint32_t)std::atoi(s);
 }
 
+struct Agg { uint32_t count = 0; uint64_t src = 0, dst = 0, rgba8 = 0; };
+static std::map<std::string, Agg> g_agg;
+static uint64_t g_rgba8_total = 0;
+
 static int plan_one(const char* path, const nue_tex_caps& caps, const nue_tex_policy& pol, nue_tex_usage usage, uint32_t flags, uint64_t* src_total, uint64_t* dst_total, bool verbose) {
     nue_tex_image im;
     if (nue_tex_image_load_file(path, NUE_TEX_FILE_AUTO, 0, &im) < 0) return 1;
@@ -149,7 +154,13 @@ static int plan_one(const char* path, const nue_tex_caps& caps, const nue_tex_po
     const nue_result r = nue_tex_make_plan(&caps, &rq, &plan);
     if (verbose) std::printf("%s\n%s\n  => %s (%s), %llu -> %llu bytes\n", path, plan.explanation, nue_tex_format_name(plan.target_format), nue_tex_action_name(plan.action),
                              (unsigned long long)plan.source_bytes, (unsigned long long)plan.target_bytes);
-    if (r >= 0) { *src_total += plan.source_bytes; *dst_total += plan.target_bytes; }
+    if (r >= 0) {
+        *src_total += plan.source_bytes; *dst_total += plan.target_bytes;
+        const uint64_t rgba8 = nue_tex_chain_size(NUE_TEX_RGBA8_UNORM, d.width, d.height, d.depth, d.mip_levels, d.layers, d.faces);
+        g_rgba8_total += rgba8;
+        Agg& a = g_agg[std::string(nue_tex_format_name(plan.source_format)) + " -> " + nue_tex_format_name(plan.target_format) + " (" + nue_tex_action_name(plan.action) + ")"];
+        ++a.count; a.src += plan.source_bytes; a.dst += plan.target_bytes; a.rgba8 += rgba8;
+    }
     nue_tex_image_destroy(im);
     return r < 0 ? 1 : 0;
 }
@@ -165,11 +176,8 @@ static int cmd_plan(int argc, char** argv) {
     return plan_one(argv[2], caps, pol, usage, has_flag(argc, argv, "--srgb") ? NUE_TEX_REQ_SRGB : 0u, &a, &b, true);
 }
 
-static int cmd_scan(int argc, char** argv) {
-    if (argc < 3) return 2;
-    nue_tex_caps caps;
-    nue_tex_caps_for_class(nue_tex_device_class_from_name(arg_value(argc, argv, "--device") ? arg_value(argc, argv, "--device") : "android_astc"), &caps);
-    nue_tex_policy pol; fill_policy(argc, argv, &pol);
+static int scan_class(int argc, char** argv, const nue_tex_caps& caps, const nue_tex_policy& pol) {
+    g_agg.clear(); g_rgba8_total = 0;
     uint64_t a = 0, b = 0; uint32_t n = 0, failed = 0;
     for (const auto& e : fs::recursive_directory_iterator(argv[2])) {
         if (!e.is_regular_file()) continue;
@@ -177,10 +185,26 @@ static int cmd_scan(int argc, char** argv) {
         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return char(std::tolower(c)); });
         if (ext != ".dds" && ext != ".ktx2" && ext != ".png") continue;
         ++n;
-        if (plan_one(e.path().string().c_str(), caps, pol, NUE_TEX_USAGE_COLOR, 0, &a, &b, has_flag(argc, argv, "--verbose"))) ++failed;
+        if (plan_one(e.path().string().c_str(), caps, pol, NUE_TEX_USAGE_COLOR, has_flag(argc, argv, "--srgb") ? NUE_TEX_REQ_SRGB : 0u, &a, &b, has_flag(argc, argv, "--verbose"))) ++failed;
     }
-    std::printf("%u textures (%u unreadable): %.1f MB as shipped -> %.1f MB on %s\n", n, failed, a / 1048576.0, b / 1048576.0, nue_tex_device_class_name(caps.device_class));
+    std::printf("== %s: %u textures (%u unreadable): shipped %.1f MB -> %.1f MB (RGBA8 fallback of the current D3D9 layer: %.1f MB)\n", nue_tex_device_class_name(caps.device_class), n, failed,
+                a / 1048576.0, b / 1048576.0, g_rgba8_total / 1048576.0);
+    for (const auto& kv : g_agg)
+        std::printf("   %-52s %5u textures  %8.1f -> %8.1f MB   (RGBA8: %.1f MB)\n", kv.first.c_str(), kv.second.count, kv.second.src / 1048576.0, kv.second.dst / 1048576.0, kv.second.rgba8 / 1048576.0);
     return 0;
+}
+
+static int cmd_scan(int argc, char** argv) {
+    if (argc < 3) return 2;
+    nue_tex_policy pol; fill_policy(argc, argv, &pol);
+    const char* dev = arg_value(argc, argv, "--device") ? arg_value(argc, argv, "--device") : "android_astc";
+    if (std::strcmp(dev, "all") == 0) {
+        for (int i = 0; i < NUE_TEX_DEVICE_COUNT; ++i) { nue_tex_caps caps; nue_tex_caps_for_class(nue_tex_device_class(i), &caps); scan_class(argc, argv, caps, pol); }
+        return 0;
+    }
+    nue_tex_caps caps;
+    nue_tex_caps_for_class(nue_tex_device_class_from_name(dev), &caps);
+    return scan_class(argc, argv, caps, pol);
 }
 
 static int cmd_cook(int argc, char** argv) {
