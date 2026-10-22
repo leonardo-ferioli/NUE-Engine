@@ -129,6 +129,9 @@ struct State {
     nue_power_info last_pushed{};
     bool pushed_once = false;
     std::atomic<int> ppd_low_power{-1};  // -1 unknown, 0 no, 1 power-saver active (written by the poller)
+    std::atomic<int> tdp_current{-1}, tdp_min{-1}, tdp_max{-1};  // watts from steamos-manager (written by the poller), -1 unknown
+    bool glyph_override_set = false;
+    unsigned pump_count = 0;
     std::thread poller;
     std::condition_variable cv;
     bool stop_poller = false;
@@ -298,6 +301,43 @@ nue_result fill_memory(State& st, uint64_t* total, uint64_t* available) {
     return NUE_OK;
 }
 
+uint32_t platform_flags_of(const State& st) {
+    const SteamOsInfo& s = st.steamos;
+    uint32_t f = 0;
+    const bool deck = s.hardware == SteamHardware::DeckLcd || s.hardware == SteamHardware::DeckOled;
+    if (deck) f |= NUE_PLATFORM_HANDHELD | NUE_PLATFORM_STEAM_DECK;
+    if (s.steamos_like()) f |= NUE_PLATFORM_STEAMOS;
+    if (s.hardware == SteamHardware::SteamMachine) f |= NUE_PLATFORM_STEAM_MACHINE;
+    if (s.hardware == SteamHardware::SteamFrame) f |= NUE_PLATFORM_STEAM_FRAME;
+    if (st.session.gamescope) f |= NUE_PLATFORM_GAMESCOPE;
+    if (s.gaming_mode()) f |= NUE_PLATFORM_STEAM_GAMING_MODE;
+    if (s.runtime_container) f |= NUE_PLATFORM_STEAM_RUNTIME;
+    if (st.session.flatpak) f |= NUE_PLATFORM_FLATPAK;
+    if (s.immutable_root) f |= NUE_PLATFORM_READ_ONLY_ROOT;
+    if (!s.sd_cards.empty()) f |= NUE_PLATFORM_REMOVABLE_STORAGE;
+    if (s.gaming_mode() && !deck && s.steam_hardware()) f |= NUE_PLATFORM_TV_UI;  // Steam Machine in gaming mode: couch UI on a TV
+    return f;
+}
+
+std::string platform_variant_of(const State& st) {
+    const SteamOsInfo& s = st.steamos;
+    if (s.steam_hardware() && !s.hardware_is_heuristic) return to_string(s.hardware);
+    if (s.steamos_like()) {
+        std::string v = to_string(s.flavor);
+        if (s.flavor == SteamOsFlavor::SteamOS && !s.distro_version.empty()) v += " " + s.distro_version;
+        return v;
+    }
+    return std::string();
+}
+
+std::string runtime_name_of(const State& st) {
+    if (st.session.steam_runtime) return "Steam Linux Runtime" + (st.session.steam_runtime_name.empty() ? std::string() : " (" + st.session.steam_runtime_name + ")");
+    if (st.session.flatpak) return "Flatpak";
+    if (st.session.snap) return "Snap";
+    if (st.session.appimage) return "AppImage";
+    return std::string();
+}
+
 nue_result p_system_info(nue_system_info* out) {
     if (!g || !out) return NUE_ERR_NOT_INITIALIZED;
     State& st = *g;
@@ -330,6 +370,11 @@ nue_result p_system_info(nue_system_info* out) {
     out->cpu_max_mhz = static_cast<uint32_t>(max_khz / 1000);
     out->cpu_features = cpu_feature_bits(st.machine.cpu);
     fill_memory(st, &out->memory_total_bytes, &out->memory_available_bytes);
+    if (NUE_STRUCT_HAS(out, nue_system_info, runtime_name)) {
+        out->platform_flags = platform_flags_of(st);
+        copy_cstr(out->platform_variant, platform_variant_of(st));
+        copy_cstr(out->runtime_name, runtime_name_of(st));
+    }
 
     out->gpu_count = 0;
     for (const auto& d : read_drm_devices(*st.fs)) {
@@ -375,8 +420,21 @@ nue_result p_system_locale(char* buffer, size_t capacity) {
 // ------------------------------------------------------------------------------------------ storage
 
 nue_result p_storage_root(nue_root_kind kind, const nue_init_desc* desc, char* buffer, size_t capacity, size_t* out_size) {
-    if (!g) return NUE_ERR_NOT_INITIALIZED;
-    State& st = *g;
+    // Also answers before init (pre_init runs first and the core needs the roots then): resolve from the environment of that moment.
+    struct Early {
+        StdFs fs;
+        ProcessEnv env;
+        XdgDirs xdg;
+    };
+    std::unique_ptr<Early> early;
+    if (!g) {
+        early = std::make_unique<Early>();
+        const IFileSystem& tfs = g_test_fs ? *g_test_fs : static_cast<const IFileSystem&>(early->fs);
+        const IEnv& tenv = g_test_env ? *g_test_env : static_cast<const IEnv&>(early->env);
+        early->xdg = resolve_xdg(tenv, tfs, tenv.get_or("HOME"));
+    }
+    const XdgDirs& xdg = g ? g->xdg : early->xdg;
+    const IEnv& envr = g ? *g->env : (g_test_env ? *g_test_env : static_cast<const IEnv&>(early->env));
     const std::string org = sanitize_component(desc ? desc->org_name : nullptr, "nue");
     const std::string app = sanitize_component(desc ? desc->app_id : nullptr, "app");
     std::string path;
@@ -399,16 +457,16 @@ nue_result p_storage_root(nue_root_kind kind, const nue_init_desc* desc, char* b
             break;
         }
         case NUE_ROOT_USER:
-            path = desc && desc->user_data_path && *desc->user_data_path ? std::string(desc->user_data_path) : st.xdg.data_home.empty() ? std::string() : st.xdg.data_home + "/" + org + "/" + app;
+            path = desc && desc->user_data_path && *desc->user_data_path ? std::string(desc->user_data_path) : xdg.data_home.empty() ? std::string() : xdg.data_home + "/" + org + "/" + app;
             break;
-        case NUE_ROOT_CACHE: path = st.xdg.cache_home.empty() ? std::string() : st.xdg.cache_home + "/" + org + "/" + app; break;
-        case NUE_ROOT_SETTINGS: path = st.xdg.config_home.empty() ? std::string() : st.xdg.config_home + "/" + org + "/" + app; break;
+        case NUE_ROOT_CACHE: path = xdg.cache_home.empty() ? std::string() : xdg.cache_home + "/" + org + "/" + app; break;
+        case NUE_ROOT_SETTINGS: path = xdg.config_home.empty() ? std::string() : xdg.config_home + "/" + org + "/" + app; break;
         case NUE_ROOT_TEMP: {
             // Per-user tmpfs when the session has one (cleared at logout, 0700), else /tmp/<org>-<uid>.
-            if (!st.xdg.runtime_dir.empty()) {
-                path = st.xdg.runtime_dir + "/" + org + "/" + app;
+            if (!xdg.runtime_dir.empty()) {
+                path = xdg.runtime_dir + "/" + org + "/" + app;
             } else {
-                std::string base = st.env->get_or("TMPDIR");
+                std::string base = envr.get_or("TMPDIR");
                 if (base.empty() || base[0] != '/') base = "/tmp";
 #if defined(NUE_LINUX_RUNTIME)
                 path = base + "/" + org + "-" + std::to_string(static_cast<long>(::geteuid())) + "/" + app;
@@ -432,8 +490,16 @@ nue_result p_power_info(nue_power_info* out) {
     nue_power_info p;
     read_power_now(st, p);
     p.game_mode = current_game_mode(st);
+    p.tdp_watts_current = st.tdp_current.load();
+    p.tdp_watts_min = st.tdp_min.load();
+    p.tdp_watts_max = st.tdp_max.load();
+    if (p.tdp_watts_current < 0) {  // no steamos-manager: the amdgpu power cap is the same limit when the OS programs one
+        AmdGpuStatus gpu = read_amdgpu_status(*st.fs);
+        if (gpu.present && gpu.power_cap_w > 0) p.tdp_watts_current = static_cast<int32_t>(gpu.power_cap_w + 0.5);
+    }
 #if defined(NUE_LINUX_RUNTIME)
     p.display_keep_awake_active = st.inhibit_display.held() ? NUE_TRUE : NUE_FALSE;
+    p.suspend_supported = st.suspend.running() ? NUE_TRUE : NUE_FALSE;
 #endif
     const uint32_t n = std::min<uint32_t>(out->struct_size, sizeof p);
     p.struct_size = n;
@@ -540,6 +606,8 @@ nue_result p_power_apply(const nue_power_request* r, nue_power_applied* out_appl
     }
 
     // ---- fields with no Linux equivalent are asked-but-not-applied so the caller sees the truth
+    // The engine never writes the TDP: it belongs to the player (Steam quick access menu); a request is reported as not applied.
+    if (NUE_STRUCT_HAS(r, nue_power_request, tdp_watts) && r->tdp_watts) asked |= NUE_POWER_APPLIED_TDP;
     if (r->target_frame_time_us) asked |= NUE_POWER_APPLIED_FRAME_TIME;
     if (r->disable_power_throttling) asked |= NUE_POWER_APPLIED_THROTTLING;
     if (r->prefer_low_latency_audio) asked |= NUE_POWER_APPLIED_AUDIO;
@@ -800,6 +868,22 @@ void poller_main(State* st) {
         if (tick % 5 == 0 && st->runtime_enabled) {  // power-profiles-daemon: every ~10 s, off the event thread
             std::string active = st->ppd_probe.active_profile();
             if (!active.empty()) st->ppd_low_power = active == "power-saver" ? 1 : 0;
+            if (st->steamos.steamos_like()) {
+                SteamOsManagerInfo m = query_steamos_manager();
+                auto find = [&](const char* suffix) {
+                    for (const auto& kv : m.values)
+                        if (ends_with(kv.first, suffix)) {
+                            uint64_t v;
+                            if (parse_u64(kv.second, v) && v < 1000) return static_cast<int>(v);
+                        }
+                    return -1;
+                };
+                if (m.available) {
+                    st->tdp_current = find(".TdpLimit");
+                    st->tdp_min = find(".TdpLimitMin");
+                    st->tdp_max = find(".TdpLimitMax");
+                }
+            }
         }
 #endif
         l.lock();
@@ -811,9 +895,24 @@ void poller_main(State* st) {
     }
 }
 
+void update_glyph_override(State& st) {
+    // Steam Input shows the game a virtual Xbox pad: on a Deck the player holds a Steam Deck, so tell the core which glyphs to draw.
+    const bool deck = st.steamos.hardware == SteamHardware::DeckLcd || st.steamos.hardware == SteamHardware::DeckOled;
+    SteamInputPlan ip = plan_steam_input(st.steamos, st.session, *st.env, read_input_devices(*st.fs));
+    const bool want = deck && (ip.active || ip.raw_deck_access);
+    if (want && !st.glyph_override_set) {
+        nue_input_set_glyph_override(NUE_GLYPHS_STEAM);
+        st.glyph_override_set = true;
+    } else if (!want && st.glyph_override_set) {
+        nue_input_set_glyph_override(-1);
+        st.glyph_override_set = false;
+    }
+}
+
 void p_pump() {
     if (!g) return;
     State& st = *g;
+    if (st.pump_count++ % 240 == 0) update_glyph_override(st);
     nue_power_info now{};
     {
         std::lock_guard<std::mutex> l(st.mtx);
@@ -1155,6 +1254,128 @@ nue_result x_describe_power_tuning(char* buffer, size_t capacity, size_t* out_si
     return out_string(text, buffer, capacity, out_size);
 }
 
+// ---- hooks added in API 0.1.1
+
+nue_result p_pre_init(const nue_backend_init* init) {
+    uint32_t flags = 0;
+    if (init && init->headless) flags |= NUE_LINUX_POLICY_HEADLESS;
+    nue_linux_apply_early_policy(flags);  // audio / video driver order, latency, joystick hints; never overrides what the user exported
+    return NUE_OK;
+}
+
+nue_result p_screen_keyboard(const nue_native_window*, nue_bool show) {
+    // Steam's keyboard closes itself when the player confirms or cancels; there is no portable "hide" request to send.
+    if (!show) return NUE_OK_NOOP;
+    return x_show_onscreen_keyboard();
+}
+
+nue_result p_memory_info_ex(nue_memory_info* io) {
+    if (!g || !io) return NUE_ERR_NOT_INITIALIZED;
+    State& st = *g;
+    std::string text;
+    if (st.fs->read_file("/proc/self/status", text, 65536)) io->process_used = parse_proc_status(text).vm_rss_kb * 1024;
+    const uint64_t limit = cgroup_memory_limit(st);
+    if (limit && (io->physical_total == 0 || limit < io->physical_total)) io->process_limit = limit;
+    uint64_t avail = io->physical_available;
+    if (io->process_limit && io->process_limit > io->process_used) {
+        const uint64_t headroom = io->process_limit - io->process_used;
+        avail = avail ? std::min(avail, headroom) : headroom;
+    }
+    io->process_available = avail;
+
+    // GPU memory: amdgpu exposes VRAM and GTT in sysfs. Integrated parts share system memory.
+    std::vector<DrmDevice> gpus = read_drm_devices(*st.fs);
+    for (const auto& d : gpus) {
+        if (d.platform) { io->unified_memory = NUE_TRUE; continue; }
+        const std::string base = "/sys/class/drm/" + d.card + "/device/";
+        uint64_t v;
+        const bool integrated = !d.discrete_guess;
+        if (integrated) io->unified_memory = NUE_TRUE;
+        if (d.vendor == kVendorAmd) {
+            if (parse_u64(st.fs->read_line(base + "mem_info_gtt_total"), v)) io->gpu_shared_total = std::max(io->gpu_shared_total, v);
+            if (!integrated && d.vram_bytes) {
+                io->gpu_dedicated_total = d.vram_bytes;
+                if (parse_u64(st.fs->read_line(base + "mem_info_vram_used"), v) && v <= d.vram_bytes) io->gpu_dedicated_available = d.vram_bytes - v;
+            }
+        }
+    }
+    // Pressure: PSI "some avg10" is the percentage of the last 10 s in which tasks stalled on memory.
+    std::string psi = st.fs->read_line("/proc/pressure/memory");
+    size_t p = psi.find("avg10=");
+    if (p != std::string::npos) {
+        double avg = std::atof(psi.c_str() + p + 6);
+        io->pressure = avg >= 40.0 ? NUE_PRESSURE_CRITICAL : avg >= 15.0 ? NUE_PRESSURE_HIGH : avg >= 3.0 ? NUE_PRESSURE_MODERATE : NUE_PRESSURE_NONE;
+    }
+    return NUE_OK;
+}
+
+struct FamilyFormat {
+    nue_format_family family;
+    int32_t vk_format;  // VkFormat, 0 = no Vulkan equivalent
+};
+const FamilyFormat kFamilyFormats[] = {
+    {NUE_FMT_RGBA8, 37}, {NUE_FMT_BGRA8, 44}, {NUE_FMT_RGB565, 4}, {NUE_FMT_RGBA4444, 2}, {NUE_FMT_RGB5A1, 6}, {NUE_FMT_R8, 9}, {NUE_FMT_RG8, 16},
+    {NUE_FMT_R16F, 76}, {NUE_FMT_RGBA16F, 97}, {NUE_FMT_RGBA32F, 109}, {NUE_FMT_RGB10A2, 64}, {NUE_FMT_DEPTH16, 124}, {NUE_FMT_DEPTH24_STENCIL8, 129},
+    {NUE_FMT_DEPTH32F, 126}, {NUE_FMT_DEPTH32F_STENCIL8, 130},
+    {NUE_FMT_BC1, 133}, {NUE_FMT_BC2, 135}, {NUE_FMT_BC3, 137}, {NUE_FMT_BC4, 139}, {NUE_FMT_BC5, 141}, {NUE_FMT_BC6H, 143}, {NUE_FMT_BC7, 145},
+    {NUE_FMT_ETC1, 147}, {NUE_FMT_ETC2_RGB, 147}, {NUE_FMT_ETC2_RGBA, 151}, {NUE_FMT_EAC_R11, 153}, {NUE_FMT_EAC_RG11, 155},
+    {NUE_FMT_ASTC_LDR, 157}, {NUE_FMT_ASTC_HDR, 1000066000}, {NUE_FMT_PVRTC1, 1000054000}, {NUE_FMT_PVRTC2, 1000054002},
+};
+
+nue_format_support support_from_vk_features(uint32_t f) {
+    nue_format_support s = 0;
+    if (f & 0x1u) s |= NUE_FMTSUP_SAMPLE | NUE_FMTSUP_MIPMAPS;
+    if (f & 0x1000u) s |= NUE_FMTSUP_FILTER;
+    if (f & (0x80u | 0x200u)) s |= NUE_FMTSUP_RENDER_TARGET;
+    if (f & 0x100u) s |= NUE_FMTSUP_BLEND;
+    if (f & 0x2u) s |= NUE_FMTSUP_STORAGE;
+    return s;
+}
+
+nue_result p_gpu_probe(nue_gpu_caps* out) {
+    if (!out) return NUE_ERR_INVALID_ARGUMENT;
+    const uint32_t keep = out->struct_size;
+    std::memset(out, 0, sizeof *out);
+    out->struct_size = keep;
+    out->renderer = NUE_RENDERER_AUTO;
+    out->probed = NUE_FALSE;
+    out->npot_mipmaps = out->texture_compare = out->instancing = NUE_TRUE;
+
+    std::vector<int32_t> fmts;
+    for (const auto& f : kFamilyFormats) fmts.push_back(f.vk_format);
+    VulkanCaps vk = probe_vulkan_caps(0, 0, fmts);
+    if (vk.ok && !(vk.device_type == 4)) {
+        out->probed = NUE_TRUE;
+        out->renderer = NUE_RENDERER_VULKAN;
+        for (size_t i = 0; i < vk.format_features.size() && i < sizeof kFamilyFormats / sizeof kFamilyFormats[0]; ++i)
+            out->format[kFamilyFormats[i].family] = support_from_vk_features(vk.format_features[i].second);
+        out->max_texture_2d = vk.max_texture_2d;
+        out->max_texture_3d = vk.max_texture_3d;
+        out->max_texture_cube = vk.max_texture_cube;
+        out->max_array_layers = vk.max_array_layers;
+        // maxSamplerAnisotropy, maxColorAttachments and the sample count masks are further inside VkPhysicalDeviceLimits and are not read:
+        // report the common values only when the feature exists, and the Vulkan-guaranteed minimum for the rest.
+        out->max_anisotropy = vk.sampler_anisotropy ? 16 : 1;
+        out->max_render_targets = 4;
+        out->max_msaa_samples = 4;
+        out->compute = NUE_TRUE;
+        out->tessellation = vk.tessellation_shader ? NUE_TRUE : NUE_FALSE;
+        out->unified_memory = vk.device_type == 1 ? NUE_TRUE : NUE_FALSE;
+        out->dedicated_memory_bytes = vk.device_type == 2 ? vk.device_local_bytes : 0;
+        return NUE_OK;
+    }
+    // No Vulkan device: a conservative desktop table. Uncompressed formats and the S3TC / BPTC families are universal on desktop GL drivers.
+    static const nue_format_family basic[] = {NUE_FMT_RGBA8, NUE_FMT_BGRA8, NUE_FMT_R8, NUE_FMT_RG8, NUE_FMT_RGBA16F, NUE_FMT_DEPTH24_STENCIL8, NUE_FMT_BC1, NUE_FMT_BC2, NUE_FMT_BC3, NUE_FMT_BC4, NUE_FMT_BC5};
+    for (nue_format_family f : basic) out->format[f] = NUE_FMTSUP_SAMPLE | NUE_FMTSUP_FILTER | NUE_FMTSUP_MIPMAPS;
+    out->max_texture_2d = out->max_texture_cube = 8192;
+    out->max_texture_3d = 2048;
+    out->max_array_layers = 256;
+    out->max_anisotropy = 8;
+    out->max_render_targets = 4;
+    out->max_msaa_samples = 4;
+    return NUE_OK;
+}
+
 nue_ext_linux_v1 g_ext;
 
 }  // namespace
@@ -1221,6 +1442,10 @@ extern "C" const nue_platform_ops* nue_platform_linux_get_ops(void) {
         g_ops.system_info = p_system_info;
         g_ops.memory_info = p_memory_info;
         g_ops.system_locale = p_system_locale;
+        g_ops.pre_init = p_pre_init;
+        g_ops.memory_info_ex = p_memory_info_ex;
+        g_ops.gpu_probe = p_gpu_probe;
+        g_ops.screen_keyboard = p_screen_keyboard;
         g_ops.storage_root = p_storage_root;
         g_ops.power_info = p_power_info;
         g_ops.timer_resolution_get = p_timer_resolution_get;

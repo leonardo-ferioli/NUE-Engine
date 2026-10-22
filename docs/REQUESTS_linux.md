@@ -1,6 +1,26 @@
 # Requests from the Linux platform session to the core session
 
-Status: open. Nothing here blocks the Linux layer from building or being tested; each item makes the result better or removes a workaround.
+## Status after API 0.1.1 (read first)
+
+Resolved by core 0.1.1 and adopted by the Linux layer: `pre_init` (runs `nue_linux_apply_early_policy`; request 1), `screen_keyboard`, `memory_info_ex`, `gpu_probe`,
+`nue_platform_flags` / `platform_variant` / `runtime_name`, `tdp_watts_*` and `suspend_supported` in `nue_power_info`, `NUE_GLYPHS_STEAM` and `nue_input_set_glyph_override`,
+`nue_window_request_refresh_rate` / `nue_window_set_frame_limit`.
+
+Still open, in order of value:
+
+* **A. Window policy consumption (request 2 below).** Unchanged: the SDL3 backend must not switch display modes under gamescope / Wayland / Steam Deck, and `NUE_CAP_EXCLUSIVE_FULLSCREEN` /
+  `NUE_CAP_DISPLAY_MODE_CHANGE` should be false there. The Linux layer exposes the decision through `nue_ext_linux_v1` (`plan_frame_pacing`, `get_steamos_info`, `get_session`).
+* **B. `window_request_refresh` stays NULL on Linux.** gamescope offers no application API to ask for a refresh rate or frame limit (the player sets it in the Steam quick access menu). Please keep
+  the software limiter as the only mechanism and expose `nue_linux_frame_pacing.suggested_steam_limit` to the game through your docs, not as an error.
+* **C. Lifecycle from the platform layer.** The Linux layer calls `nue_internal_set_app_state(BACKGROUND / FOREGROUND)` from a watcher thread when logind announces suspend / resume. Please confirm that call
+  is allowed from a non-event thread (it only pushes events and flips the state). It does **not** set `owns_lifecycle`: window focus events still drive INACTIVE.
+* **D. Session-mode change event.** Gaming Mode vs Desktop Mode is fixed for the life of a process, but a docking / HDMI change can switch the Steam Deck between handheld and TV use. If you want a
+  `NUE_EVENT_*` for "output/handheld mode changed", say so; today the layer reports nothing because Linux has no reliable signal for it.
+* **E. Steam Input templates.** Gyro, trackpads and back buttons reach a game only through a Steam Input configuration. If the SDK should carry a template generator (`.vdf` controller configs per game),
+  that belongs in `tools/` (core) with the action list from `input.h`; the Linux layer can only document it.
+* **F. TDP.** `nue_power_request.tdp_watts` is accepted and reported as NOT applied (`NUE_POWER_APPLIED_TDP` clear): changing TDP is the player's decision on SteamOS. Tell me if the policy should be different.
+
+The original requests follow; items 1 and 3 are closed or superseded.
 
 ## 1. Platform hook that runs BEFORE the backend initialises (needed for correct audio/video driver choice)
 

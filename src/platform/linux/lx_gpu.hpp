@@ -65,6 +65,21 @@ struct VulkanProbe {
 // non-Linux builds it returns a probe with attempted=false.
 VulkanProbe probe_vulkan();
 
+// Texture-related capabilities of one physical device, read without creating a logical device or a surface.
+struct VulkanCaps {
+    bool ok = false;
+    std::string error, device_name;
+    uint32_t vendor_id = 0, device_id = 0;
+    int device_type = 0;                // VkPhysicalDeviceType
+    bool texture_bc = false, texture_etc2 = false, texture_astc_ldr = false;
+    bool sampler_anisotropy = false, geometry_shader = false, tessellation_shader = false;
+    uint32_t max_texture_2d = 0, max_texture_3d = 0, max_texture_cube = 0, max_array_layers = 0;
+    uint64_t device_local_bytes = 0;    // largest DEVICE_LOCAL heap (VRAM on discrete GPUs, shared on integrated ones)
+    std::vector<std::pair<int32_t, uint32_t>> format_features;  // (VkFormat, optimal-tiling VkFormatFeatureFlags) for the requested formats
+};
+// Picks the physical device matching prefer_vendor/prefer_device (0 = best: discrete, then integrated, never CPU unless alone).
+VulkanCaps probe_vulkan_caps(uint32_t prefer_vendor, uint32_t prefer_device, const std::vector<int32_t>& vk_formats);
+
 struct GlLibraries {
     bool egl = false, gles2 = false, gl = false, opengl = false;  // libEGL, libGLESv2, libGL, libOpenGL
 };

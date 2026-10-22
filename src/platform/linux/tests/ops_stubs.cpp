@@ -16,6 +16,7 @@ std::vector<nue_event> events;
 std::map<std::string, const void*> extensions;
 std::vector<std::string> logs;
 std::vector<int> app_states;
+std::vector<int> glyph_overrides;
 }  // namespace stubs
 
 extern "C" {
@@ -41,6 +42,11 @@ void nue_log_write(nue_log_level, const char* tag, const char*, int, const char*
     stubs::logs.push_back(std::string(tag) + ": " + buf);
 }
 void nue_set_last_error(const char*, ...) {}
+nue_result nue_input_set_glyph_override(int32_t family) {
+    std::lock_guard<std::mutex> l(stubs::mtx);
+    stubs::glyph_overrides.push_back(family);
+    return NUE_OK;
+}
 void nue_internal_set_app_state(nue_app_state state) {
     std::lock_guard<std::mutex> l(stubs::mtx);
     stubs::app_states.push_back(static_cast<int>(state));

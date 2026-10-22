@@ -101,6 +101,8 @@ SteamOsInfo detect_steamos(const IEnv& env, const IFileSystem& fs, const Session
     if (fs.read_file("/etc/os-release", text) || fs.read_file("/usr/lib/os-release", text)) os = parse_os_release(text);
     s.distro_id = os.id;
     s.variant_id = os.variant_id;
+    s.distro_version = os.version_id;
+    s.distro_pretty = os.pretty_name.empty() ? os.name : os.pretty_name;
     if (os.id == "steamos") { s.flavor = SteamOsFlavor::SteamOS; s.flavor_reason = "os-release ID=steamos"; }
     else if (os.id == "bazzite" || id_has(os, "bazzite")) { s.flavor = SteamOsFlavor::Bazzite; s.flavor_reason = "os-release ID=bazzite"; }
     else if (os.id == "chimeraos") { s.flavor = SteamOsFlavor::ChimeraOS; s.flavor_reason = "os-release ID=chimeraos"; }

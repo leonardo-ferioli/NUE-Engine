@@ -35,7 +35,7 @@ struct SteamOsInfo {
     bool hardware_is_heuristic = false;  // Steam Machine / Steam Frame are inferred, not matched to a known product name
 
     SteamOsFlavor flavor = SteamOsFlavor::None;  // None = not a SteamOS-like system
-    std::string distro_id, variant_id, flavor_reason;
+    std::string distro_id, variant_id, distro_version, distro_pretty, flavor_reason;
     bool immutable_root = false;     // read-only or ostree root: nothing may be installed outside $HOME / the library
     std::string immutable_reason;
 

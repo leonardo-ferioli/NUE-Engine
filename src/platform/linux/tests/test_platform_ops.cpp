@@ -370,3 +370,74 @@ TEST(ops_extension_steamos) {
     CHECK_EQ(x->describe_power_tuning(&tuning[0], tuning.size(), &need), NUE_OK);
     CHECK(std::string(tuning.c_str()).find("amdgpu.power_cap_w=15") != std::string::npos);
 }
+
+TEST(ops_api_011_hooks_and_platform_flags) {
+    Machine m(fixtures::steamos_deck);
+    m.env.vars["SteamDeck"] = "1";
+    m.env.vars["SteamGamepadUI"] = "1";
+    m.env.vars["SteamGameId"] = "1234567";
+    m.env.vars["SDL_GAMECONTROLLER_IGNORE_DEVICES"] = "0x28de/0x1205";
+    m.fs.add_file("/proc/pressure/memory", "some avg10=20.00 avg60=1.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n");
+    m.fs.add_file("/proc/self/status", "VmRSS:\t  2048 kB\n");
+    m.fs.add_file("/sys/class/drm/card0/device/mem_info_gtt_total", "8589934592\n");
+    m.fs.add_file("/sys/fs/cgroup/memory.max", "max\n");
+    CHECK(m.ops->pre_init != nullptr && m.ops->memory_info_ex != nullptr && m.ops->gpu_probe != nullptr && m.ops->screen_keyboard != nullptr);
+    CHECK(m.ops->window_request_refresh == nullptr);  // gamescope offers no API to request a refresh rate: the core limits in software
+    CHECK(m.ops->owns_lifecycle == NUE_FALSE);
+    CHECK(m.ops->pre_init(&m.bi) >= 0);  // before init: must not need the layer state
+    char root[256];
+    size_t need;
+    CHECK(m.ops->storage_root(NUE_ROOT_USER, nullptr, root, sizeof root, &need) >= 0);  // works before init
+    CHECK(m.init());
+
+    nue_system_info si;
+    NUE_STRUCT_INIT(&si);
+    CHECK(m.ops->system_info(&si) >= 0);
+    CHECK((si.platform_flags & NUE_PLATFORM_STEAM_DECK) && (si.platform_flags & NUE_PLATFORM_HANDHELD) && (si.platform_flags & NUE_PLATFORM_STEAMOS));
+    CHECK((si.platform_flags & NUE_PLATFORM_GAMESCOPE) && (si.platform_flags & NUE_PLATFORM_STEAM_GAMING_MODE));
+    CHECK((si.platform_flags & NUE_PLATFORM_READ_ONLY_ROOT) && (si.platform_flags & NUE_PLATFORM_REMOVABLE_STORAGE));
+    CHECK(!(si.platform_flags & NUE_PLATFORM_FLATPAK));
+    CHECK_EQ(std::string(si.platform_variant), std::string("Steam Deck LCD"));
+
+    nue_power_info pi;
+    NUE_STRUCT_INIT(&pi);
+    CHECK(m.ops->power_info(&pi) >= 0);
+    CHECK_EQ(pi.tdp_watts_current, 15);  // amdgpu power1_cap = 15 W
+    CHECK_EQ(pi.tdp_watts_min, -1);
+
+    nue_memory_info mi;
+    NUE_STRUCT_INIT(&mi);
+    mi.physical_total = 16ull << 30;
+    mi.physical_available = 8ull << 30;
+    CHECK(m.ops->memory_info_ex(&mi) >= 0);
+    CHECK_EQ(mi.process_used, uint64_t(2048) * 1024);
+    CHECK_EQ(mi.process_limit, uint64_t(0));  // cgroup limit "max" = none
+    CHECK(mi.process_available == mi.physical_available);
+    CHECK(mi.unified_memory);
+    CHECK_EQ(mi.gpu_shared_total, uint64_t(8589934592ull));
+    CHECK(mi.pressure == NUE_PRESSURE_HIGH);  // avg10 = 20 %
+
+    nue_gpu_caps gc;
+    NUE_STRUCT_INIT(&gc);
+    CHECK(m.ops->gpu_probe(&gc) >= 0);
+    CHECK(!gc.probed);  // no Vulkan loader in the host test: the conservative table, labelled as such
+    CHECK(gc.format[NUE_FMT_BC1] & NUE_FMTSUP_SAMPLE);
+    CHECK(!(gc.format[NUE_FMT_ASTC_LDR] & NUE_FMTSUP_SAMPLE));
+
+    // the glyph override is installed on the first pump: the Deck pad is the one the player holds
+    m.ops->pump();
+    {
+        std::lock_guard<std::mutex> l(stubs::mtx);
+        CHECK(!stubs::glyph_overrides.empty());
+        CHECK_EQ(stubs::glyph_overrides.back(), int(NUE_GLYPHS_STEAM));
+    }
+    nue_power_request rq;
+    NUE_STRUCT_INIT(&rq);
+    rq.tdp_watts = 12;
+    nue_power_applied applied = 0;
+    // power_apply exists only in the Linux runtime build; there the TDP bit must never be reported as applied
+    if (m.ops->power_apply) {
+        m.ops->power_apply(&rq, &applied);
+        CHECK(!(applied & NUE_POWER_APPLIED_TDP));
+    }
+}
