@@ -188,6 +188,90 @@ Status enumerate_gpus(GpuEnumeration& out, bool with_memory_budget, bool with_pr
     return Status::success();
 }
 
+GpuMemorySnapshot query_gpu_memory() {
+    GpuMemorySnapshot r;
+    static LUID chosen{};
+    static bool have_luid = false;
+    static bool integrated = false;
+    static uint64_t dedicated = 0, shared = 0;
+    ComPtr<IDXGIFactory4> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return r;
+    ComPtr<IDXGIAdapter1> adapter;
+    if (have_luid) {
+        if (FAILED(factory->EnumAdapterByLuid(chosen, IID_PPV_ARGS(&adapter)))) have_luid = false;   // adapter vanished (driver reinstall): choose again
+    }
+    if (!have_luid) {
+        ComPtr<IDXGIFactory6> f6;
+        for (UINT i = 0;; ++i) {
+            ComPtr<IDXGIAdapter1> a;
+            HRESULT hr = SUCCEEDED(factory.As(&f6)) ? f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)) : factory->EnumAdapters1(i, &a);
+            if (hr == DXGI_ERROR_NOT_FOUND || FAILED(hr)) break;
+            DXGI_ADAPTER_DESC1 d{};
+            if (FAILED(a->GetDesc1(&d)) || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) continue;
+            adapter = a;
+            chosen = d.AdapterLuid;
+            integrated = looks_integrated(d.VendorId, to_utf8(d.Description), d.DedicatedVideoMemory);
+            dedicated = d.DedicatedVideoMemory;
+            shared = d.SharedSystemMemory;
+            have_luid = true;
+            break;
+        }
+    }
+    if (!adapter) return r;
+    r.dedicated_total = integrated ? 0 : dedicated;
+    r.shared_total = shared;
+    r.unified = integrated;
+    ComPtr<IDXGIAdapter3> a3;
+    DXGI_QUERY_VIDEO_MEMORY_INFO local{};
+    if (SUCCEEDED(adapter.As(&a3)) && SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local))) { r.budget = local.Budget; r.usage = local.CurrentUsage; }
+    r.valid = true;
+    return r;
+}
+
+Status probe_d3d11(const std::vector<uint32_t>& formats, D3D11Probe& out) {
+    out = D3D11Probe{};
+    using D3D11Create = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+    auto create = load_proc<D3D11Create>(L"d3d11.dll", "D3D11CreateDevice");
+    if (!create) return Status::fail("d3d11.dll not available", ERROR_PROC_NOT_FOUND);
+    ComPtr<IDXGIFactory1> factory;
+    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+    if (FAILED(hr)) return Status::hresult("CreateDXGIFactory1", hr);
+    ComPtr<IDXGIFactory6> f6;
+    ComPtr<IDXGIAdapter1> adapter;
+    DXGI_ADAPTER_DESC1 desc{};
+    for (UINT i = 0;; ++i) {
+        ComPtr<IDXGIAdapter1> a;
+        hr = SUCCEEDED(factory.As(&f6)) ? f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)) : factory->EnumAdapters1(i, &a);
+        if (FAILED(hr)) break;
+        DXGI_ADAPTER_DESC1 d{};
+        if (SUCCEEDED(a->GetDesc1(&d)) && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) { adapter = a; desc = d; break; }
+    }
+    if (!adapter) return Status::fail("no hardware adapter", ERROR_NOT_FOUND);
+    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0,
+                                        D3D_FEATURE_LEVEL_9_3, D3D_FEATURE_LEVEL_9_2, D3D_FEATURE_LEVEL_9_1};
+    ComPtr<ID3D11Device> dev;
+    D3D_FEATURE_LEVEL got{};
+    hr = create(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, levels, ARRAYSIZE(levels), D3D11_SDK_VERSION, &dev, &got, nullptr);
+    if (FAILED(hr)) return Status::hresult("D3D11CreateDevice", hr);
+    out.feature_level = uint32_t(got);
+    out.dedicated_memory = desc.DedicatedVideoMemory;
+    D3D11_FEATURE_DATA_D3D11_OPTIONS2 o2{};
+    if (SUCCEEDED(dev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof o2))) out.unified_memory = o2.UnifiedMemoryArchitecture != FALSE;
+    else out.unified_memory = looks_integrated(desc.VendorId, to_utf8(desc.Description), desc.DedicatedVideoMemory);
+    for (uint32_t f : formats) {
+        UINT bits = 0;
+        if (FAILED(dev->CheckFormatSupport(DXGI_FORMAT(f), &bits))) bits = 0;
+        out.formats.push_back({f, bits});
+        // sRGB variants (R8G8B8A8 29, B8G8R8A8 91, BC1 72, BC2 75, BC3 78, BC7 99) are asked for explicitly by the caller as extra entries
+    }
+    for (UINT samples : {2u, 4u, 8u, 16u}) {
+        UINT quality = 0;
+        if (SUCCEEDED(dev->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, samples, &quality)) && quality > 0) out.max_msaa_samples = samples;
+    }
+    out.ok = true;
+    return Status::success();
+}
+
 // ---- Per-app GPU preference ---------------------------------------------------------------------------------------------------------
 
 std::wstring current_exe_path() {

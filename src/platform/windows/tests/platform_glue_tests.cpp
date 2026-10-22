@@ -18,6 +18,10 @@ extern "C" int64_t NUE_CALL nue_time_ns(void) { return int64_t(nue::win::qpc_now
 
 using namespace nue::win;
 
+extern "C" int nue_win_test_pressure(double free_fraction, int limited, int os_low_memory);
+extern "C" void nue_win_test_inject_power(int kind);
+extern "C" void nue_win_test_classify_handheld(const char* product, const char* board, nue_system_info* out);
+
 static const nue_platform_ops* ops() { return nue_platform_windows_get_ops(); }
 
 static void test_table() {
@@ -210,6 +214,99 @@ static void test_threads() {
     CHECK(dt >= 5000000 && dt < 15000000);
 }
 
+static void test_memory_and_pressure() {
+    TEST_BEGIN("memory_info_ex and pressure levels");
+    nue_memory_info mi;
+    std::memset(&mi, 0, sizeof mi);
+    mi.struct_size = sizeof mi;
+    uint64_t total = 0, avail = 0;
+    ops()->memory_info(&total, &avail);
+    mi.physical_total = total;
+    mi.physical_available = avail;
+    CHECK(ops()->memory_info_ex(&mi) == NUE_OK);
+    INFO("process used %llu MiB, limit %llu MiB, available %llu MiB; GPU dedicated %llu MiB (free %llu), shared %llu MiB, unified %d, pressure %d", (unsigned long long)(mi.process_used >> 20),
+         (unsigned long long)(mi.process_limit >> 20), (unsigned long long)(mi.process_available >> 20), (unsigned long long)(mi.gpu_dedicated_total >> 20),
+         (unsigned long long)(mi.gpu_dedicated_available >> 20), (unsigned long long)(mi.gpu_shared_total >> 20), int(mi.unified_memory), int(mi.pressure));
+    CHECK(mi.process_used > 0 && mi.process_available > 0 && mi.process_available <= avail);
+#ifndef _WIN64
+    CHECK(mi.process_limit >= (1ull << 30) && mi.process_limit <= (4ull << 30));   // a 32-bit process: its 2 GiB or 4 GiB user address space is the limit
+#else
+    CHECK(mi.process_limit == 0 || mi.process_limit < (1ull << 40));              // 64-bit: no address-space limit worth reporting (a Job Object may set one)
+#endif
+    nue_system_info si;
+    std::memset(&si, 0, sizeof si);
+    si.struct_size = sizeof si;
+    ops()->system_info(&si);
+    CHECK(si.gpu_count == 0 || (mi.unified_memory != 0) == (si.gpus[0].is_integrated != 0));
+    CHECK(mi.unified_memory ? mi.gpu_dedicated_total == 0 : true);
+    CHECK(mi.pressure >= NUE_PRESSURE_NONE && mi.pressure <= NUE_PRESSURE_CRITICAL);
+
+    CHECK(nue_win_test_pressure(1.0, 0, 0) == NUE_PRESSURE_NONE);
+    CHECK(nue_win_test_pressure(0.5, 1, 0) == NUE_PRESSURE_NONE);
+    CHECK(nue_win_test_pressure(0.14, 1, 0) == NUE_PRESSURE_MODERATE);
+    CHECK(nue_win_test_pressure(0.07, 1, 0) == NUE_PRESSURE_HIGH);
+    CHECK(nue_win_test_pressure(0.02, 1, 0) == NUE_PRESSURE_CRITICAL);
+    CHECK(nue_win_test_pressure(0.01, 0, 0) == NUE_PRESSURE_NONE);        // an unlimited process never reports address-space pressure
+    CHECK(nue_win_test_pressure(1.0, 0, 1) == NUE_PRESSURE_HIGH);         // the OS' low-memory notification
+    CHECK(nue_win_test_pressure(0.02, 1, 1) == NUE_PRESSURE_CRITICAL);    // ... never lowers a worse level
+}
+
+static void test_gpu_probe() {
+    TEST_BEGIN("gpu_probe (opt-in: creates a Direct3D 11 device)");
+    if (!nuetest::env_set("NUE_TEST_GPU_PROBES")) { SKIP("set NUE_TEST_GPU_PROBES=1 (the probe creates a hardware device and can wake a discrete GPU)"); return; }
+    nue_gpu_caps c;
+    const nue_result r = ops()->gpu_probe(&c);
+    if (r == NUE_ERR_UNSUPPORTED) { SKIP("no hardware Direct3D 11 adapter on this machine (the core falls back to its table)"); return; }
+    CHECK(r == NUE_OK && c.probed && c.renderer == NUE_RENDERER_D3D11);
+    const nue_format_support rgba = c.format[NUE_FMT_RGBA8];
+    CHECK((rgba & NUE_FMTSUP_SAMPLE) && (rgba & NUE_FMTSUP_FILTER) && (rgba & NUE_FMTSUP_RENDER_TARGET) && (rgba & NUE_FMTSUP_BLEND) && (rgba & NUE_FMTSUP_SRGB) && (rgba & NUE_FMTSUP_MIPMAPS));
+    for (nue_format_family f : {NUE_FMT_BC1, NUE_FMT_BC2, NUE_FMT_BC3, NUE_FMT_BC4, NUE_FMT_BC5, NUE_FMT_BC7}) CHECK(c.format[f] & NUE_FMTSUP_SAMPLE);
+    for (nue_format_family f : {NUE_FMT_ETC1, NUE_FMT_ETC2_RGB, NUE_FMT_ASTC_LDR, NUE_FMT_PVRTC1, NUE_FMT_ATC}) CHECK(c.format[f] == 0);   // no Direct3D 11 format: transcoded by the texture module
+    CHECK(c.max_texture_2d >= 2048 && c.max_render_targets >= 4 && c.max_msaa_samples >= 1 && c.max_anisotropy == 16);
+    INFO("probe: BC7 support 0x%X, max texture %u, MSAA x%u, compute %d, tessellation %d, unified %d, VRAM %llu MiB", c.format[NUE_FMT_BC7], c.max_texture_2d, c.max_msaa_samples, int(c.compute), int(c.tessellation),
+         int(c.unified_memory), (unsigned long long)(c.dedicated_memory_bytes >> 20));
+}
+
+static void test_platform_flags_and_suspend() {
+    TEST_BEGIN("platform flags and suspend/resume events");
+    nue_system_info si;
+    std::memset(&si, 0, sizeof si);
+    si.struct_size = sizeof si;
+    CHECK(ops()->system_info(&si) == NUE_OK);
+    CHECK(((si.platform_flags & NUE_PLATFORM_COMPAT_LAYER) != 0) == (si.running_under_translation != 0));   // the flag follows the Wine / ARM-emulation detection
+    INFO("platform flags 0x%X, variant \"%s\", runtime \"%s\"", si.platform_flags, si.platform_variant, si.runtime_name);
+
+    struct Case { const char* product; const char* board; bool handheld; const char* variant; bool deck; };
+    const Case cases[] = {
+        {"ROG Ally RC71L_RC71L", "RC71L", true, "ROG Ally", false}, {"ROG Ally X RC72LA", "RC72LA", true, "ROG Ally X", false}, {"83E1", "LNVNB161216", true, "Legion Go", false},
+        {"Claw A1M", "MS-1T41", true, "MSI Claw", false}, {"Jupiter", "Jupiter", true, "Steam Deck", true}, {"Galileo", "Galileo", true, "Steam Deck OLED", true},
+        {"Surface Laptop 4", "Surface Laptop 4", false, "", false}, {"MS-7D25", "PRO B660M", false, "", false},
+    };
+    for (const Case& c : cases) {
+        nue_system_info x;
+        std::memset(&x, 0, sizeof x);
+        x.struct_size = sizeof x;
+        x.device_class = NUE_DEVICE_LAPTOP;
+        nue_win_test_classify_handheld(c.product, c.board, &x);
+        CHECK(((x.platform_flags & NUE_PLATFORM_HANDHELD) != 0) == c.handheld);
+        CHECK(std::strcmp(x.platform_variant, c.variant) == 0);
+        CHECK(((x.platform_flags & NUE_PLATFORM_STEAM_DECK) != 0) == c.deck);
+        CHECK(x.device_class == (c.handheld ? NUE_DEVICE_HANDHELD : NUE_DEVICE_LAPTOP));
+    }
+
+    // Suspend / resume reach the core as events; Windows' double resume message produces one event.
+    nue_power_info pi;
+    CHECK(ops()->power_info(&pi) == NUE_OK && pi.suspend_supported && pi.tdp_watts_current == -1);
+    g_events.clear();
+    nue_win_test_inject_power(PowerEvent::Suspend);
+    nue_win_test_inject_power(PowerEvent::Suspend);          // a second suspend without resume is ignored
+    nue_win_test_inject_power(PowerEvent::ResumeAutomatic);
+    nue_win_test_inject_power(PowerEvent::ResumeSuspend);    // the follow-up resume message
+    nue_win_test_inject_power(PowerEvent::ResumeAutomatic);  // spurious resume without suspend
+    CHECK(g_events.size() == 2 && g_events[0].type == NUE_EVENT_SYSTEM_SUSPENDING && g_events[1].type == NUE_EVENT_SYSTEM_RESUMED);
+    g_events.clear();
+}
+
 static void test_pump_and_logging() {
     TEST_BEGIN("pump and log sink");
     g_events.clear();
@@ -322,6 +419,9 @@ int main(int argc, char** argv) {
     test_storage();
     test_power();
     test_threads();
+    test_memory_and_pressure();
+    test_gpu_probe();
+    test_platform_flags_and_suspend();
     test_pump_and_logging();
     test_crash_through_ops();
     ops()->shutdown();

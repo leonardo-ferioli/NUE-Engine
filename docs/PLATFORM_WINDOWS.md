@@ -47,7 +47,15 @@ Opt-in tests (environment variables, all verified once on the development machin
 | `thread_*`, `sleep_until` | `SetThreadPriority` (cap), CPU Sets, affinity (32-bit safe), `SetThreadDescription`, high-resolution waitable timer | Tested |
 | `crash_install/uninstall/write_dump/release_input` | `SetUnhandledExceptionFilter`, fresh thread, `MiniDumpWriteDump` into the directory the core chooses, `ClipCursor(NULL)` first | Tested for real in a child process (access violation) |
 | `log_write` | `OutputDebugString` | Tested (no crash; output goes to a debugger) |
+| `memory_info_ex` (API 0.1.1) | process_used = working set; process_limit = the smaller of the Job Object memory limit and the user address space of a 32-bit process (2 or 4 GiB: the real ceiling of the recompiled game); process_available = min(address space left, job room, physical available); GPU dedicated / shared / unified from DXGI (`QueryVideoMemoryInfo`, no device) | Tested (x64 and x86; the 2/4 GiB limit is asserted on x86; no Job Object case run) |
+| `gpu_probe` (0.1.1) | throw-away Direct3D 11 device on the high-performance hardware adapter: `CheckFormatSupport` for 22 families (+ sRGB variants), MSAA levels, limits from the feature level; ETC/ASTC/PVRTC/ATC families stay 0 | Tested on this machine's integrated GPU (opt-in `NUE_TEST_GPU_PROBES=1`: it creates a device); returns UNSUPPORTED without a hardware adapter so the core falls back |
+| events `MEMORY_PRESSURE`, `SYSTEM_SUSPENDING/RESUMED` (0.1.1) | pressure from the free fraction of the limited address space / Job Object (defaults 15 %, 8 %, 3 %: only when the event is raised, never a budget) and the OS low-memory notification; suspend/resume from `PowerRegisterSuspendResumeNotification`, one resume event for Windows' double message | Level logic and event de-duplication tested by injection; a real suspend or real memory exhaustion was not provoked |
+| `platform_flags`, `platform_variant`, `runtime_name` (0.1.1) | `COMPAT_LAYER` + "Wine x.y" from `wine_get_version`, or Windows-on-ARM x86/x64 emulation; handheld PCs (ROG Ally / Ally X, Legion Go, MSI Claw, Steam Deck on Windows, AYANEO/OneXPlayer/GPD) by firmware product / board name | Name table tested; **no real handheld or Wine available**, so detection on those devices is unverified |
+| `pre_init`, `window_request_refresh`, `screen_keyboard` | NULL: nothing process-wide must precede SDL_Init on Windows (DPI policy stays with the host's manifest), no compositor frame-rate API, SDL text input brings up the touch keyboard | - |
 | `perf_hint_*`, `window_set_gpu_preference`, `haptics_*`, `import`, `window_safe_area` | NULL: Windows has no equivalent / the SDL3 backend covers it | - |
+
+Storage rule worth stating: when `user_data_path` is given (portable mode, tests), `storage_root` answers UNSUPPORTED for cache and settings so that the core
+puts them under `<user>/cache` and `<user>/settings`; otherwise they go to `%LocalAppData%` and `%AppData%`. Without it the core tests wrote into the real profile.
 
 ## Capability table
 

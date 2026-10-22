@@ -61,6 +61,30 @@ Status enumerate_gpus(GpuEnumeration& out, bool with_memory_budget = true, bool 
 // and dedicated memory. With `with_probes` the D3D11 UnifiedMemoryArchitecture flag replaces it.
 bool looks_integrated(uint32_t vendor_id, const std::string& name, uint64_t dedicated_video_memory);
 
+// ---- Cheap GPU memory snapshot and a one-shot D3D11 capability probe -------------------------------------------------------------------------------
+struct GpuMemorySnapshot {
+    bool valid = false;
+    uint64_t dedicated_total = 0;      // DedicatedVideoMemory of the chosen adapter (0 for integrated GPUs)
+    uint64_t budget = 0, usage = 0;    // local segment as the OS grants it to this process (IDXGIAdapter3::QueryVideoMemoryInfo)
+    uint64_t shared_total = 0;         // SharedSystemMemory
+    bool unified = false;              // integrated / UMA by the same heuristic as enumerate_gpus
+};
+// The high-performance non-software adapter (the one a default device would use). Creates no device; cheap enough for once-per-second polling.
+GpuMemorySnapshot query_gpu_memory();
+
+// Format support and limits from a throw-away Direct3D 11 device on the high-performance adapter (a hardware device is created and released: this can wake
+// a sleeping discrete GPU, so call it when the answer is needed, not at start-up). `dxgi_formats` are DXGI_FORMAT values.
+struct D3D11Probe {
+    bool ok = false;
+    uint32_t feature_level = 0;                 // D3D_FEATURE_LEVEL value, e.g. 0xB000 = 11_0
+    bool unified_memory = false;
+    uint64_t dedicated_memory = 0;
+    uint32_t max_msaa_samples = 1;              // for R8G8B8A8_UNORM
+    std::vector<std::pair<uint32_t, uint32_t>> formats;    // (DXGI_FORMAT, D3D11_FORMAT_SUPPORT bits)
+    std::vector<uint32_t> srgb_ok;                         // DXGI_FORMAT values of the sRGB variants that exist (those among the requested ones)
+};
+Status probe_d3d11(const std::vector<uint32_t>& dxgi_formats, D3D11Probe& out);
+
 // ---- Per-application GPU preference (Windows Settings > Graphics) --------------------------------------------------------------
 // HKCU\Software\Microsoft\DirectX\UserGpuPreferences, value name = full exe path, data "GpuPreference=N;". The setting is read when the
 // process is created, so a change only takes effect for the next launch. Only HKCU is written (no admin).

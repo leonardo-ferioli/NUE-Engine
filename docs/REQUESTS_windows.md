@@ -28,3 +28,13 @@
 | `NUE_CAP_CRASH_HANDLER`, `NUE_CAP_MINIDUMP` | `crash_*` | yes | child-process crash test: access violation | stack overflow, divide by zero covered by the module tests |
 | `NUE_CAP_GPU_PREFERENCE`, `NUE_CAP_PERF_HINT`, `NUE_CAP_HAPTICS` | - | no | - | Windows reads the GPU preference at process start; no ADPF equivalent |
 | Windows, input, audio devices | SDL3 backend | - | - | the native HWND attach / WASAPI exclusive modules exist (`nue::win`) but are not wired into the backend yet |
+
+## Added with API 0.1.1
+
+6. **Core tests assume the generic platform.** With the Windows layer linked, `nue_test_core`, `nue_test_diag`, `nue_test_events` and `nue_test_hooks` fail
+   on expectations that only hold for the generic table: `platform_layer == "generic"`, crash handler UNSUPPORTED, `!NUE_CAP_GAME_MODE`, `power_apply == OK_NOOP`,
+   `thread_set_priority == UNSUPPORTED`, `gpu_probe` PARTIAL / `!probed`, `!suspend_supported`. The same will happen on every OS. Suggestion: a switch
+   (CMake option or `NUE_PLATFORM=generic`) that forces the generic table for those tests, or conditional asserts on `build_info.platform_layer`.
+7. **MSVC (optional toolchain):** `src/core/window.cpp:113` declares `enum_displays` inside an `extern "C"` block while returning `std::vector`; clang accepts it,
+   MSVC does not (C2526). Windows CI uses clang, so this only matters if MSVC builds are wanted.
+8. **Portable mode contract** (see PLATFORM_WINDOWS.md): an explicit `user_data_path` makes the platform answer UNSUPPORTED for cache/settings so the core derives them below it.

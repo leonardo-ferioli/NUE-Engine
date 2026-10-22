@@ -4,9 +4,12 @@
 // (Windows reads it when the process starts: use nue_win_request_discrete_gpu() in CMake or the persistent per-app setting), trigger rumble, perf hints.
 // Everything the table changes outside the process is undone by shutdown() or, after a crash, by crash_release_input().
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgiformat.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -68,6 +71,11 @@ struct PlatformState {
     std::atomic<bool> thermal_stop{false};
     std::atomic<int> thermal{int(NUE_THERMAL_UNKNOWN)};
     HANDLE thermal_wake = nullptr;
+
+    // memory pressure and suspend
+    HANDLE low_memory_notification = nullptr;
+    std::atomic<int> pressure{int(NUE_PRESSURE_NONE)};
+    std::atomic<bool> suspended{false};
 
     // pump bookkeeping (event thread only)
     uint64_t last_poll_ms = 0;
@@ -153,6 +161,8 @@ void fill_power_info(nue_power_info& out) {
     out.game_mode = game_mode_from(EffectivePowerMode(S().power_mode.load()));
     out.thermal_headroom = -1.0f;
     out.display_keep_awake_active = S().wake.active();
+    out.tdp_watts_current = out.tdp_watts_min = out.tdp_watts_max = -1;   // no vendor-neutral TDP API on Windows
+    out.suspend_supported = NUE_TRUE;        // PowerRegisterSuspendResumeNotification
 }
 
 nue_result win_power_info(nue_power_info* out) {
@@ -260,6 +270,153 @@ void release_power_state() {
     if (st.cpu_sets_changed) { process_use_cpu_sets({}); st.cpu_sets_changed = false; }
 }
 
+// ---------------------------------------------------------------------------------------------------------------- memory
+
+// How much of the address space or of a Job Object limit may be used before the layer reports pressure. These only decide WHEN an event is raised,
+// never how much memory anything may use (budgets are policies in the core). A 32-bit process (the recompiled game) runs out of address space long
+// before it runs out of RAM, which is why the free fraction of the user address space is watched.
+struct PressurePolicy {
+    double free_fraction_moderate = 0.15, free_fraction_high = 0.08, free_fraction_critical = 0.03;
+};
+const PressurePolicy& pressure_policy() { static const PressurePolicy p; return p; }
+
+uint64_t job_memory_limit() {
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+    if (!QueryInformationJobObject(nullptr, JobObjectExtendedLimitInformation, &info, sizeof info, nullptr)) return 0;   // not in a job
+    uint64_t limit = 0;
+    if (info.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_PROCESS_MEMORY) limit = info.ProcessMemoryLimit;
+    if (info.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_JOB_MEMORY) limit = limit ? std::min<uint64_t>(limit, info.JobMemoryLimit) : info.JobMemoryLimit;
+    return limit;
+}
+
+struct ProcessMemory { uint64_t used = 0, limit = 0, available = 0; double free_fraction = 1.0; bool limited = false; };
+
+// limit = the smaller of the Job Object memory limit and the user address space of a 32-bit process (a 2 GiB process cannot use more than 2 GiB, whatever the RAM).
+ProcessMemory process_memory(uint64_t physical_available) {
+    ProcessMemory r;
+    const MemorySample m = sample_memory();
+    r.used = m.working_set;
+    MEMORYSTATUSEX ms{};
+    ms.dwLength = sizeof ms;
+    uint64_t va_total = 0, va_free = 0;
+    if (GlobalMemoryStatusEx(&ms)) { va_total = ms.ullTotalVirtual; va_free = ms.ullAvailVirtual; }
+    const uint64_t kUnlimitedVa = 1ull << 40;   // 64-bit processes have 128 TiB: not a limit worth reporting
+    const bool va_limited = va_total && va_total < kUnlimitedVa;
+    uint64_t limit = va_limited ? va_total : 0;
+    const uint64_t job = job_memory_limit();
+    if (job && (limit == 0 || job < limit)) limit = job;
+    r.limit = limit;
+    r.limited = limit != 0;
+    uint64_t room = UINT64_MAX;
+    if (va_limited) { room = va_free; r.free_fraction = double(va_free) / double(va_total); }
+    if (job) {
+        const uint64_t left = job > m.private_bytes ? job - m.private_bytes : 0;
+        room = std::min(room, left);
+        r.free_fraction = std::min(r.free_fraction, double(left) / double(job));
+    }
+    if (physical_available) room = std::min(room, physical_available);
+    r.available = room == UINT64_MAX ? physical_available : room;
+    return r;
+}
+
+nue_memory_pressure pressure_level(double free_fraction, bool limited, bool os_low_memory) {
+    nue_memory_pressure level = NUE_PRESSURE_NONE;
+    const PressurePolicy& p = pressure_policy();
+    if (limited) {
+        if (free_fraction < p.free_fraction_critical) level = NUE_PRESSURE_CRITICAL;
+        else if (free_fraction < p.free_fraction_high) level = NUE_PRESSURE_HIGH;
+        else if (free_fraction < p.free_fraction_moderate) level = NUE_PRESSURE_MODERATE;
+    }
+    if (os_low_memory && level < NUE_PRESSURE_HIGH) level = NUE_PRESSURE_HIGH;   // the OS says physical memory is low
+    return level;
+}
+
+nue_memory_pressure compute_pressure(const ProcessMemory& pm) {
+    BOOL low = FALSE;
+    if (S().low_memory_notification) QueryMemoryResourceNotification(S().low_memory_notification, &low);
+    return pressure_level(pm.free_fraction, pm.limited, low != FALSE);
+}
+
+nue_result win_memory_info_ex(nue_memory_info* io) {
+    if (!io) return NUE_ERR_INVALID_ARGUMENT;
+    const ProcessMemory pm = process_memory(io->physical_available);
+    io->process_used = pm.used;
+    io->process_limit = pm.limit;
+    io->process_available = pm.available;
+    const GpuMemorySnapshot g = query_gpu_memory();
+    if (g.valid) {
+        io->unified_memory = g.unified ? NUE_TRUE : NUE_FALSE;
+        io->gpu_shared_total = g.shared_total;
+        io->gpu_dedicated_total = g.dedicated_total;
+        io->gpu_dedicated_available = (g.dedicated_total && g.budget > g.usage) ? std::min(g.dedicated_total, g.budget - g.usage) : 0;
+    }
+    io->pressure = nue_memory_pressure(S().pressure.load());
+    return NUE_OK;
+}
+
+// ---------------------------------------------------------------------------------------------------------------- GPU capabilities (D3D11 probe)
+
+struct FamilyMap { nue_format_family family; uint32_t dxgi, dxgi_srgb; };
+const FamilyMap kFamilies[] = {
+    {NUE_FMT_RGBA8, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB}, {NUE_FMT_BGRA8, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB},
+    {NUE_FMT_RGB565, DXGI_FORMAT_B5G6R5_UNORM, 0}, {NUE_FMT_RGBA4444, DXGI_FORMAT_B4G4R4A4_UNORM, 0}, {NUE_FMT_RGB5A1, DXGI_FORMAT_B5G5R5A1_UNORM, 0},
+    {NUE_FMT_R8, DXGI_FORMAT_R8_UNORM, 0}, {NUE_FMT_RG8, DXGI_FORMAT_R8G8_UNORM, 0}, {NUE_FMT_R16F, DXGI_FORMAT_R16_FLOAT, 0},
+    {NUE_FMT_RGBA16F, DXGI_FORMAT_R16G16B16A16_FLOAT, 0}, {NUE_FMT_RGBA32F, DXGI_FORMAT_R32G32B32A32_FLOAT, 0}, {NUE_FMT_RGB10A2, DXGI_FORMAT_R10G10B10A2_UNORM, 0},
+    {NUE_FMT_DEPTH16, DXGI_FORMAT_D16_UNORM, 0}, {NUE_FMT_DEPTH24_STENCIL8, DXGI_FORMAT_D24_UNORM_S8_UINT, 0}, {NUE_FMT_DEPTH32F, DXGI_FORMAT_D32_FLOAT, 0},
+    {NUE_FMT_DEPTH32F_STENCIL8, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, 0},
+    {NUE_FMT_BC1, DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC1_UNORM_SRGB}, {NUE_FMT_BC2, DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC2_UNORM_SRGB},
+    {NUE_FMT_BC3, DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC3_UNORM_SRGB}, {NUE_FMT_BC4, DXGI_FORMAT_BC4_UNORM, 0}, {NUE_FMT_BC5, DXGI_FORMAT_BC5_UNORM, 0},
+    {NUE_FMT_BC6H, DXGI_FORMAT_BC6H_UF16, 0}, {NUE_FMT_BC7, DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC7_UNORM_SRGB},
+};   // ETC/EAC/ASTC/PVRTC/ATC have no Direct3D 11 format: those families stay 0 (the texture module transcodes them)
+
+nue_format_support support_from(UINT bits, bool srgb_exists) {
+    nue_format_support s = 0;
+    if (bits & (D3D11_FORMAT_SUPPORT_SHADER_SAMPLE | D3D11_FORMAT_SUPPORT_SHADER_LOAD)) s |= NUE_FMTSUP_SAMPLE;
+    if (bits & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE) s |= NUE_FMTSUP_FILTER;
+    if (bits & D3D11_FORMAT_SUPPORT_MIP) s |= NUE_FMTSUP_MIPMAPS;
+    if (bits & (D3D11_FORMAT_SUPPORT_RENDER_TARGET | D3D11_FORMAT_SUPPORT_DEPTH_STENCIL)) s |= NUE_FMTSUP_RENDER_TARGET;
+    if (bits & D3D11_FORMAT_SUPPORT_BLENDABLE) s |= NUE_FMTSUP_BLEND;
+    if (srgb_exists) s |= NUE_FMTSUP_SRGB;
+    if (bits & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) s |= NUE_FMTSUP_STORAGE;
+    if (bits & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET) s |= NUE_FMTSUP_MSAA;
+    return s;
+}
+
+nue_result win_gpu_probe(nue_gpu_caps* out) {
+    if (!out) return NUE_ERR_INVALID_ARGUMENT;
+    std::vector<uint32_t> wanted;
+    for (const auto& f : kFamilies) { wanted.push_back(f.dxgi); if (f.dxgi_srgb) wanted.push_back(f.dxgi_srgb); }
+    D3D11Probe p;
+    std::memset(out, 0, sizeof *out);
+    out->struct_size = sizeof *out;
+    if (!probe_d3d11(wanted, p).ok) return NUE_ERR_UNSUPPORTED;   // the core falls back to its conservative table (probed = FALSE)
+    auto bits_of = [&](uint32_t dxgi) -> UINT { for (const auto& e : p.formats) if (e.first == dxgi) return e.second; return 0; };
+    for (const auto& f : kFamilies) {
+        const bool srgb = f.dxgi_srgb && (bits_of(f.dxgi_srgb) & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+        out->format[f.family] = support_from(bits_of(f.dxgi), srgb);
+    }
+    out->probed = NUE_TRUE;
+    out->renderer = NUE_RENDERER_D3D11;
+    const uint32_t fl = p.feature_level;
+    const bool fl11 = fl >= 0xB000, fl10 = fl >= 0xA000, fl93 = fl >= 0x9300;
+    // Limits promised by the feature level (D3D11 spec "Hardware Feature Levels"); the driver may offer more, these are guaranteed.
+    out->max_texture_2d = fl11 ? 16384 : (fl10 ? 8192 : (fl93 ? 4096 : 2048));
+    out->max_texture_cube = out->max_texture_2d;
+    out->max_texture_3d = fl10 ? 2048 : 256;
+    out->max_array_layers = fl10 ? 2048 : 1;
+    out->max_anisotropy = 16;
+    out->max_render_targets = fl10 ? 8 : 4;
+    out->max_msaa_samples = p.max_msaa_samples;
+    out->unified_memory = p.unified_memory ? NUE_TRUE : NUE_FALSE;
+    out->npot_mipmaps = fl10 ? NUE_TRUE : NUE_FALSE;
+    out->texture_compare = fl10 ? NUE_TRUE : NUE_FALSE;
+    out->compute = fl11 ? NUE_TRUE : NUE_FALSE;
+    out->instancing = fl93 ? NUE_TRUE : NUE_FALSE;
+    out->tessellation = fl11 ? NUE_TRUE : NUE_FALSE;
+    out->dedicated_memory_bytes = p.unified_memory ? 0 : p.dedicated_memory;
+    return NUE_OK;
+}
+
 // ---------------------------------------------------------------------------------------------------------------- init / pump / shutdown
 
 void thermal_worker() {
@@ -268,6 +425,13 @@ void thermal_worker() {
         st.thermal = sample_thermal();
         WaitForSingleObject(st.thermal_wake, 5000);
     }
+}
+
+void push_simple_event(uint32_t type) {
+    nue_event e;
+    std::memset(&e, 0, sizeof e);
+    e.type = type;
+    nue_internal_push_event(&e);
 }
 
 nue_result win_init(const nue_backend_init* init) {
@@ -281,8 +445,12 @@ nue_result win_init(const nue_backend_init* init) {
     }
     if (!st.deterministic) {
         st.power_mode = int(query_effective_power_mode());
+        st.low_memory_notification = CreateMemoryResourceNotification(LowMemoryResourceNotification);
         st.notifier.start([](const PowerEvent& e) {
-            if (e.kind == PowerEvent::PowerMode) S().power_mode = e.value;
+            if (e.kind == PowerEvent::PowerMode) { S().power_mode = e.value; return; }
+            // Suspend / resume reach the core as events (any thread may push). Windows sends RESUMEAUTOMATIC and then RESUMESUSPEND when the user is there: one event.
+            if (e.kind == PowerEvent::Suspend) { if (!S().suspended.exchange(true)) push_simple_event(NUE_EVENT_SYSTEM_SUSPENDING); }
+            else if (e.kind == PowerEvent::ResumeAutomatic || e.kind == PowerEvent::ResumeSuspend) { if (S().suspended.exchange(false)) push_simple_event(NUE_EVENT_SYSTEM_RESUMED); }
         });
         st.thermal_stop = false;
         st.thermal_wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -303,6 +471,8 @@ void win_shutdown() {
         st.thermal_thread.join();
     }
     if (st.thermal_wake) { CloseHandle(st.thermal_wake); st.thermal_wake = nullptr; }
+    if (st.low_memory_notification) { CloseHandle(st.low_memory_notification); st.low_memory_notification = nullptr; }
+    st.suspended = false;
     release_power_state();
     st.have_last = false;
     st.initialised = false;
@@ -330,6 +500,20 @@ void win_pump() {
     cur.percent = info.battery_percent;
     cur.low_power = info.low_power_mode ? 1 : 0;
     cur.game_mode = uint8_t(info.game_mode);
+    // memory pressure has its own level and payload
+    {
+        const ProcessMemory pm = process_memory(0);
+        const int level = int(compute_pressure(pm));
+        if (st.have_last && level != st.pressure.load()) {
+            nue_event e;
+            std::memset(&e, 0, sizeof e);
+            e.type = NUE_EVENT_MEMORY_PRESSURE;
+            e.payload.memory.level = uint32_t(level);
+            e.payload.memory.available_bytes = pm.available;
+            nue_internal_push_event(&e);
+        }
+        st.pressure = level;
+    }
     if (!st.have_last) { st.last_pushed = cur; st.have_last = true; return; }   // first sample is the baseline, not a change
     const nue_event_power& last = st.last_pushed;
     if (cur.power_state != last.power_state || cur.percent != last.percent) push_power_event(NUE_EVENT_POWER_CHANGED, cur);
@@ -344,6 +528,32 @@ void win_pump() {
 std::string registry_string(const wchar_t* key, const wchar_t* value) {
     std::wstring w;
     return reg_read_string(HKEY_LOCAL_MACHINE, key, value, w) ? to_utf8(w) : std::string();
+}
+
+// Handheld PCs are recognised by the product / board name the firmware reports. This list is a best effort from published model identifiers and has not
+// been checked on the devices themselves (none was available): a miss only means the device is reported as a laptop.
+void classify_handheld(const std::string& product, const std::string& board, nue_system_info& out) {
+    auto has = [&](const char* needle) {
+        std::string b = needle;
+        for (auto& c : b) c = char(std::tolower((unsigned char)c));
+        for (const std::string* s : {&product, &board}) {
+            std::string a = *s;
+            for (auto& c : a) c = char(std::tolower((unsigned char)c));
+            if (a.find(b) != std::string::npos) return true;
+        }
+        return false;
+    };
+    const char* variant = nullptr;
+    if (has("jupiter") || has("galileo")) { out.platform_flags |= NUE_PLATFORM_STEAM_DECK; variant = has("galileo") ? "Steam Deck OLED" : "Steam Deck"; }
+    else if (has("rc71l") || has("rc72la") || has("rog ally")) variant = has("rc72la") ? "ROG Ally X" : "ROG Ally";
+    else if (has("legion go") || has("83e1") || has("83l3") || has("83n6")) variant = "Legion Go";
+    else if (has("msi claw") || has("claw a1m") || has("claw 8")) variant = "MSI Claw";
+    else if (has("ayaneo") || has("onexplayer") || has("onexfly") || has("gpd win")) variant = "Handheld PC";
+    if (variant) {
+        out.platform_flags |= NUE_PLATFORM_HANDHELD;
+        out.device_class = NUE_DEVICE_HANDHELD;
+        set_text(out.platform_variant, variant);
+    }
 }
 
 nue_result win_system_info(nue_system_info* out) {
@@ -415,6 +625,14 @@ nue_result win_system_info(nue_system_info* out) {
         }
     }
     out->display_count = uint32_t(GetSystemMetrics(SM_CMONITORS));
+    out->platform_flags = 0;
+    out->platform_variant[0] = out->runtime_name[0] = 0;
+    if (out->running_under_translation) {
+        out->platform_flags |= NUE_PLATFORM_COMPAT_LAYER;
+        using WineVersion = const char* (*)(void);
+        if (auto wv = reinterpret_cast<WineVersion>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version"))) set_text(out->runtime_name, std::string("Wine ") + wv());
+    }
+    classify_handheld(registry_string(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemProductName"), registry_string(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BaseBoardProduct"), *out);
     wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
     if (GetUserDefaultLocaleName(locale, LOCALE_NAME_MAX_LENGTH)) set_text(out->locale, to_utf8(locale));
     DWORD light = 1;
@@ -453,12 +671,14 @@ nue_result win_storage_root(nue_root_kind kind, const nue_init_desc* desc, char*
             { AppDirs d; AppDirOptions o; o.create = false; if (!resolve_app_dirs(org, app, o, d).ok) return NUE_ERR_BACKEND; path = d.saves; }
             break;
         case NUE_ROOT_CACHE: {
+            if (desc && desc->user_data_path && desc->user_data_path[0]) return NUE_ERR_UNSUPPORTED;   // explicit user folder (portable mode, tests): the core puts cache/ and settings/ below it
             AppDirs d; AppDirOptions o; o.create = false;
             if (!resolve_app_dirs(org, app, o, d).ok) return NUE_ERR_BACKEND;
             path = d.cache;
             break;
         }
         case NUE_ROOT_SETTINGS: {
+            if (desc && desc->user_data_path && desc->user_data_path[0]) return NUE_ERR_UNSUPPORTED;
             AppDirs d; AppDirOptions o; o.create = false;
             if (!resolve_app_dirs(org, app, o, d).ok) return NUE_ERR_BACKEND;
             path = d.config;
@@ -662,6 +882,10 @@ extern "C" const nue_platform_ops* nue_platform_windows_get_ops(void) {
         ops.crash_write_dump = win_crash_write_dump;
         ops.crash_release_input = win_crash_release_input;
         ops.log_write = win_log_write;
+        ops.memory_info_ex = win_memory_info_ex;
+        ops.gpu_probe = win_gpu_probe;
+        // pre_init, window_request_refresh and screen_keyboard stay NULL: nothing process-wide must precede SDL_Init on Windows (DPI policy is left to the host's
+        // manifest), there is no compositor frame-rate API, and SDL's text input already brings up the touch keyboard.
         // perf_hint_*, window_set_gpu_preference, haptics_*, import, window_safe_area stay NULL: Windows offers nothing real for them.
 
         auto set = [](nue_capability c) { ops.capabilities[unsigned(c) / 64] |= 1ull << (unsigned(c) % 64); };
@@ -679,3 +903,8 @@ extern "C" const nue_platform_ops* nue_platform_windows_get_ops(void) {
     });
     return &ops;
 }
+
+// ---------------------------------------------------------------------------------------------------------------- test seams (used by platform_glue_tests only)
+extern "C" int nue_win_test_pressure(double free_fraction, int limited, int os_low_memory) { return int(pressure_level(free_fraction, limited != 0, os_low_memory != 0)); }
+extern "C" void nue_win_test_inject_power(int kind) { S().notifier.inject_for_test({PowerEvent::Kind(kind), 0}); }
+extern "C" void nue_win_test_classify_handheld(const char* product, const char* board, nue_system_info* out) { classify_handheld(product, board, *out); }
