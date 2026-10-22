@@ -56,13 +56,15 @@ struct AstcCache {
 };
 AstcCache& astc_cache() { thread_local AstcCache c; return c; }
 
+// astcenc effort levels: FASTEST/FAST are its presets; NORMAL is a 30 (between "fast" and "medium": "medium" costs ~8x the time of "fast" on this machine, see the
+// benchmark in docs/TEXTURE.md), HIGH is "medium", BEST is "thorough".
 float astc_quality(nue_tex_quality q) {
     switch (q) {
     case NUE_TEX_QUALITY_FASTEST: return ASTCENC_PRE_FASTEST;
     case NUE_TEX_QUALITY_FAST: return ASTCENC_PRE_FAST;
-    case NUE_TEX_QUALITY_NORMAL: return ASTCENC_PRE_MEDIUM;
-    case NUE_TEX_QUALITY_HIGH: return ASTCENC_PRE_THOROUGH;
-    default: return ASTCENC_PRE_VERYTHOROUGH;
+    case NUE_TEX_QUALITY_NORMAL: return 30.0f;
+    case NUE_TEX_QUALITY_HIGH: return ASTCENC_PRE_MEDIUM;
+    default: return ASTCENC_PRE_THOROUGH;
     }
 }
 astcenc_swz swz_of(char c) {
@@ -249,7 +251,8 @@ void encode_band(EncodeJob& j, uint32_t r0, uint32_t r1) {
     std::vector<uint32_t> band(size_t(j.pw) * rows * 4);
     std::memcpy(band.data(), j.rgba8 + size_t(r0) * 4 * j.pw * 4, band.size() * 4);
     uint64_t* d = reinterpret_cast<uint64_t*>(dst);
-    const bool fast = j.p->quality <= NUE_TEX_QUALITY_FAST;
+    // etcpak's `useHeuristics` switches the T/H/planar mode search on: slower and clearly better (measured, see docs/TEXTURE.md), so it is the NORMAL+ setting
+    const bool fast = j.p->quality >= NUE_TEX_QUALITY_NORMAL;
     switch (f) {
     case NUE_TEX_BC1_UNORM: case NUE_TEX_BC1_SRGB:
         if (j.p->flags & NUE_TEX_ENC_DITHER) CompressBc1Dither(band.data(), d, blocks, j.pw); else CompressBc1(band.data(), d, blocks, j.pw);
