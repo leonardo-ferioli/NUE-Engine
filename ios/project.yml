@@ -1,0 +1,86 @@
+# XcodeGen description (https://github.com/yonaskolb/XcodeGen): an Xcode project without CMake, for people who prefer to work inside Xcode.
+#   brew install xcodegen && cd nue_engine/ios && xcodegen generate && open NueSample.xcodeproj
+# SDL3 comes from the Swift package below (SDL's own Package.swift, product "SDL3"); keep the version in sync with nue-core.
+# Never run: written without macOS/Xcode access (see nue_engine/docs/PLATFORM_IOS.md).
+name: NueSample
+options:
+  bundleIdPrefix: org.nue
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CLANG_CXX_LANGUAGE_STANDARD: gnu++17
+    CLANG_ENABLE_OBJC_ARC: YES
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_BITCODE: NO
+    # Signing: set DEVELOPMENT_TEAM in Xcode (Signing & Capabilities) or pass DEVELOPMENT_TEAM=XXXXXXXXXX to xcodebuild.
+    CODE_SIGN_STYLE: Automatic
+packages:
+  SDL:
+    url: https://github.com/libsdl-org/SDL
+    exactVersion: 3.4.18
+targets:
+  NueIosLogic:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: ../src/platform/ios/logic
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/../src/platform/ios/logic"]
+        GCC_C_LANGUAGE_STANDARD: gnu11
+  NueIosGlue:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: ../src/platform/ios/apple
+      - path: ../src/platform/ios/nue_ios.h
+    dependencies:
+      - target: NueIosLogic
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: AVFoundation.framework
+      - sdk: GameController.framework
+      - sdk: CoreHaptics.framework
+      - sdk: CoreMotion.framework
+      - sdk: MetricKit.framework
+      - sdk: UniformTypeIdentifiers.framework
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/../src/platform/ios", "$(SRCROOT)/../src/platform/ios/logic"]
+  NueSample:
+    type: application
+    platform: iOS
+    sources:
+      - path: sample/main.mm
+      - path: sample/Info.plist
+        buildPhase: none
+      - path: sample/NueSample.entitlements
+        buildPhase: none
+    dependencies:
+      - target: NueIosGlue
+      - package: SDL
+        product: SDL3
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nue.sample
+        INFOPLIST_FILE: sample/Info.plist
+        CODE_SIGN_ENTITLEMENTS: sample/NueSample.entitlements
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/../src/platform/ios"]
+        # Debug builds on a device can use a free Apple ID; the entitlements file stays empty on purpose (nothing needs a capability).
+schemes:
+  NueSample:
+    build:
+      targets:
+        NueSample: all
+    run:
+      config: Debug
+    archive:
+      config: Release

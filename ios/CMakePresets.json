@@ -1,0 +1,42 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "host-tests",
+      "displayName": "Host tests (any OS): pure logic + plist check",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../build_ios_host"
+    },
+    {
+      "name": "ios-device",
+      "displayName": "iOS device (arm64), Xcode generator, needs macOS + Xcode",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/../../build_ios_device",
+      "toolchainFile": "${sourceDir}/cmake/ios.toolchain.cmake",
+      "cacheVariables": {
+        "NUE_IOS_PLATFORM": "device",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "16.0"
+      }
+    },
+    {
+      "name": "ios-simulator",
+      "displayName": "iOS Simulator (arm64 on Apple-silicon Macs), Xcode generator",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/../../build_ios_sim",
+      "toolchainFile": "${sourceDir}/cmake/ios.toolchain.cmake",
+      "cacheVariables": {
+        "NUE_IOS_PLATFORM": "simulator",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "16.0"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "host-tests", "configurePreset": "host-tests" },
+    { "name": "ios-device", "configurePreset": "ios-device", "configuration": "Release" },
+    { "name": "ios-simulator", "configurePreset": "ios-simulator", "configuration": "Debug" }
+  ],
+  "testPresets": [
+    { "name": "host-tests", "configurePreset": "host-tests", "output": { "outputOnFailure": true } }
+  ]
+}

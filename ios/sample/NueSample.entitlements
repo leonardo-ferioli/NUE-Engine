@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Intentionally empty: nothing in the engine needs a provisioned capability, so a free Apple ID can sign it.
+	     Optional capabilities worth knowing (add them only if the feature is wanted; each one needs a paid-program profile or is limited
+	     for free accounts):
+	       com.apple.developer.kernel.increased-memory-limit   raises the jetsam limit on supported devices (App Store: "Increased Memory Limit")
+	       com.apple.developer.kernel.extended-virtual-addressing  larger address space (not needed: the guest is 32-bit)
+	-->
+</dict>
+</plist>
