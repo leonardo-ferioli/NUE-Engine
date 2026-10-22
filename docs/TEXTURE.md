@@ -151,7 +151,7 @@ import and the cache exist: nothing of that happens during a race. On a phone co
 ## 7b. Results on the real NFSU2 textures (2026-10-22)
 
 Source: 6119 DDS files (164 MB) extracted by the assets session from every `.BUN/.LZC` pack (GLOBAL 503, FRONTEND 499, NIS 183, TRACKS 4934; the duplicate GlobalB/InGameCommon folders excluded). **They are every texture of the
-game, not one scene.** Nothing of the game is stored in the repository; the files stay local. Formats found: DXT1 (BC1) 4532, DXT3 (BC2) 1464, BGRA8 115 (+ expanded palettised), no DXT5, no normal maps (BC4/BC5).
+game, not one scene.** Nothing of the game is stored in the repository; the files stay local. Formats found: DXT1 (BC1) 4544, DXT3 (BC2) 1460, BGRA8 115 (+ expanded palettised), no DXT5, no normal maps (BC4/BC5).
 Machine: Ryzen 7, 16 threads, SSE4.1, Release.
 
 **Memory if every texture were resident** (the real per-scene working set is smaller; this is the ratio that matters):
@@ -187,7 +187,7 @@ for all nine device classes together (about 2.5 variants per texture; a single d
 **Run time:** replaying every texture through the Direct3D 9 seam on a context that cannot encode: **100 % of the levels served from the cache** (23094 levels in TRACKS, 0 placeholders, 0 encodes) for Android ASTC, Android ETC2 and Apple ASTC, with the alpha hint the layer knows and
 with "unknown"; 50-150 us per level (hash + copy). Caveat: this replay uses the same bytes that were cooked; the real test is the dump of what the game uploads during a race (pending from the legacy-d3d9 session).
 
-**Encoders not needed by these numbers:** BC2 (the game has 1464 DXT3 textures but the conversion path decodes them, it never encodes BC2); only a modding tool that replaces a DXT3 texture would need it (the assets session asked for it as a nicety, today it falls back to BC3).
+**Encoders not needed by these numbers:** BC2 (the game has 1460 DXT3 textures but the conversion path decodes them, it never encodes BC2); only a modding tool that replaces a DXT3 texture would need it (the assets session asked for it as a nicety, today it falls back to BC3).
 No BC4/BC5/DXT5/BC7/HDR source exists in the game; PVRTC2, ATC and ETC2-A1 are irrelevant for it.
 
 ## 8. Memory (budget API, model, D3D9 layer numbers)
