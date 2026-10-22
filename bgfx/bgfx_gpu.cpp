@@ -649,7 +649,13 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
         if (!d.textures[i]) continue;
         TextureEntry* t = textures_.get(d.textures[i].value);
         if (!t) continue;
-        bgfx::setTexture(uint8_t(i), u_tex_[i], t->handle, sampler_flags(d.samplers[i]));
+        // Direct3D 9: with MIPFILTER NONE only the top level is sampled; with mip filtering no level more detailed than MAXMIPLEVEL is.
+        // bgfx clamps the level of detail in quarter steps.
+        const SamplerDesc& sd = d.samplers[i];
+        const uint8_t lod_min = sd.use_mips ? uint8_t(sd.max_mip_level * 4) : uint8_t(0);   // MIPFILTER NONE samples the top level whatever MAXMIPLEVEL says (measured)
+        const uint8_t lod_max = sd.use_mips ? uint8_t(UINT8_MAX) : uint8_t(0);
+        if (lod_min == 0 && lod_max == UINT8_MAX) bgfx::setTexture(uint8_t(i), u_tex_[i], t->handle, sampler_flags(sd));
+        else bgfx::setTexture(uint8_t(i), u_tex_[i], t->handle, 0, UINT16_MAX, 0, UINT8_MAX, sampler_flags(sd), lod_min, lod_max);
     }
     const uint64_t t3 = timed ? now_ns() : 0;
     bgfx::submit(uint16_t(current_view_), program->handle);

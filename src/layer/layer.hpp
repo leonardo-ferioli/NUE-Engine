@@ -74,6 +74,7 @@ struct TextureObject {
 struct SurfaceObject {
     enum class Kind : uint8_t { none, backbuffer, render_target, depth, texture_level } kind = Kind::none;
     uint32_t width = 0, height = 0, format = 0, texture = 0, level = 0, face = 0;
+    uint32_t samples = 1;              // render targets and depth surfaces: the sample count of their texture
     gpu::Texture gpu;                  // own texture for render targets / depth surfaces
     bool alive = false;
 };
@@ -334,6 +335,10 @@ private:
     struct PassKey { std::array<uint32_t, 4> targets{}; uint32_t depth = 0; uint64_t generation = 0; bool operator==(const PassKey&) const = default; };
     PassKey pass_key_;
     uint64_t surface_generation_ = 1;
+    // Direct3D 9 lets a depth surface be larger than the colour target (its top-left part is used); bgfx and Direct3D 11 need equal sizes and sample
+    // counts. Such a pass gets a depth surface of the target's size and samples, kept per (width, height, format, samples).
+    std::map<uint64_t, gpu::Texture> matching_depth_;
+    gpu::Texture matching_depth(uint32_t width, uint32_t height, uint32_t format, uint32_t samples);
     // shader constants: a version bumped by every change, and what the last draw collected (a draw with the same program, version and fix-ups reuses it)
     uint64_t vs_version_ = 1, ps_version_ = 1;
     struct ConstantsKey { const void* program = nullptr; uint64_t version = 0; float fix[8] = {}; bool operator==(const ConstantsKey&) const = default; };

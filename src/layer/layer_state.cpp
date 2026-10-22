@@ -51,6 +51,19 @@ void LayerImpl::set_transform(uint32_t type, const float* m) {
     std::memcpy(target, m, 64);
 }
 
+gpu::Texture LayerImpl::matching_depth(uint32_t width, uint32_t height, uint32_t format, uint32_t samples) {
+    const uint64_t key = uint64_t(width) | uint64_t(height) << 16 | uint64_t(format & 0xFFFF) << 32 | uint64_t(samples) << 48;
+    auto it = matching_depth_.find(key);
+    if (it != matching_depth_.end()) return it->second;
+    const FormatInfo& info = format_info(format);
+    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, samples);
+    char text[200];
+    std::snprintf(text, sizeof text, "a depth surface is used with a %ux%u target of another size or sample count: the target gets its own %ux%u depth surface (%u samples)", width, height, width, height, samples);
+    log(text);
+    if (r) matching_depth_[key] = r.value;
+    return r ? r.value : gpu::Texture{};
+}
+
 void LayerImpl::set_light(uint32_t index, const LightDesc& light) {
     if (index >= 32) return;
     if (state_.lights[index].type != light.type) ++program_epoch_;   // the light's kind is part of the generated vertex program
@@ -285,7 +298,12 @@ LayerImpl::Attachment LayerImpl::resolve_attachments() {
         }
     }
     a.valid = bool(a.color[0]);
-    if (SurfaceObject* d = surfaces_.get(state_.depth_stencil)) if (d->kind == SurfaceObject::Kind::depth) a.depth = d->gpu;
+    if (SurfaceObject* d = surfaces_.get(state_.depth_stencil)) if (d->kind == SurfaceObject::Kind::depth) {
+        a.depth = d->gpu;
+        uint32_t color_samples = 1;
+        if (SurfaceObject* c = surfaces_.get(state_.render_targets[0])) color_samples = c->kind == SurfaceObject::Kind::backbuffer ? backbuffer_samples_ : c->kind == SurfaceObject::Kind::render_target ? c->samples : 1;
+        if (a.valid && (d->width != a.width || d->height != a.height || d->samples != color_samples)) a.depth = matching_depth(a.width, a.height, d->format, color_samples);
+    }
     return a;
 }
 

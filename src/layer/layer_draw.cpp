@@ -277,6 +277,7 @@ gpu::SamplerDesc LayerImpl::sampler_desc(uint32_t slot) const {
     d.mag = (magf == texf_point || magf == texf_none) ? 0 : 1;
     d.mip = mipf == texf_linear ? 1 : 0;
     d.use_mips = mipf != texf_none;
+    d.max_mip_level = uint8_t(std::min<uint32_t>(s[ss_maxmiplevel], 15));
     d.address_u = address_of(s[ss_addressu]); d.address_v = address_of(s[ss_addressv]); d.address_w = address_of(s[ss_addressw]);
     d.max_aniso = uint8_t(std::clamp<uint32_t>(s[ss_maxanisotropy], 1, 16));
     d.lod_bias = as_float(s[ss_mipmaplodbias]);
@@ -575,7 +576,8 @@ void LayerImpl::do_draw(uint32_t primitive, int32_t base_vertex, uint32_t min_ve
             if (stats_.sampled_before_upload <= 20) log("texture " + std::to_string(t->width) + "x" + std::to_string(t->height) + " d3d format " + std::to_string(t->format) + " levels " + std::to_string(t->levels) + " sampled by a draw before any data was uploaded to it");
         }
         d.samplers[i] = sampler_desc(i);
-        if (t && t->levels <= 1) d.samplers[i].use_mips = false;
+        if (t && t->levels <= 1) { d.samplers[i].use_mips = false; d.samplers[i].max_mip_level = 0; }
+        else if (t && d.samplers[i].max_mip_level >= t->levels) d.samplers[i].max_mip_level = uint8_t(t->levels - 1);
     }
 
     if (options_.profile) { const uint64_t n = clock_ns(); prof_[3] += n - t_phase; t_phase = n; }

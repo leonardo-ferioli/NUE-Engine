@@ -33,6 +33,8 @@ struct Context {
     IDirect3DTexture9* texture = nullptr;      // 4x4 pseudo-random A8R8G8B8
     IDirect3DTexture9* texture2 = nullptr;
     IDirect3DCubeTexture9* cube = nullptr;     // six flat colours
+    IDirect3DTexture9* mips = nullptr;         // 16x16, five levels, each a flat colour of its own
+    IDirect3DTexture9* target = nullptr;       // 16x16 render target (smaller than the 32x32 back buffer and its depth buffer)
 };
 
 bool make_context(CreateFn create, Context& c) {
@@ -53,6 +55,17 @@ bool make_context(CreateFn create, Context& c) {
         for (UINT y = 0; y < 4; ++y) for (UINT x = 0; x < 4; ++x) { uint8_t* p = static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch + x * 4; p[0] = rnd(); p[1] = rnd(); p[2] = rnd(); p[3] = rnd(); }
         (*t)->UnlockRect(0);
     }
+    if (SUCCEEDED(c.device->CreateTexture(16, 16, 5, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c.mips, nullptr))) {
+        const DWORD level_colors[5] = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFF00, 0xFFFF00FF};
+        for (UINT level = 0; level < 5; ++level) {
+            D3DLOCKED_RECT lr;
+            c.mips->LockRect(level, &lr, nullptr, 0);
+            const UINT size = 16u >> level;
+            for (UINT y = 0; y < size; ++y) for (UINT x = 0; x < size; ++x) std::memcpy(static_cast<uint8_t*>(lr.pBits) + y * lr.Pitch + x * 4, &level_colors[level], 4);
+            c.mips->UnlockRect(level);
+        }
+    }
+    c.device->CreateTexture(16, 16, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &c.target, nullptr);
     if (SUCCEEDED(c.device->CreateCubeTexture(4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c.cube, nullptr))) {
         const DWORD colors[6] = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFF00, 0xFFFF00FF, 0xFF00FFFF};   // +X -X +Y -Y +Z -Z
         for (int face = 0; face < 6; ++face) {
@@ -365,6 +378,45 @@ std::vector<Case> build_cases() {
             d->DrawPrimitiveUP(D3DPT_TRIANGLELIST, UINT(list.size() / 3), list.data(), sizeof(VertexC));
         });
     }
+    // ---- mip levels: MIPFILTER NONE samples one level only (MAXMIPLEVEL), MAXMIPLEVEL keeps the more detailed levels out
+    struct MipCase { const char* name; DWORD mipfilter, maxmip; float size; };
+    const MipCase mip_cases[] = {
+        {"mip filter NONE on a mipmapped texture, minified 4x", D3DTEXF_NONE, 0, 4}, {"mip filter POINT, minified 4x (level 2)", D3DTEXF_POINT, 0, 4},
+        {"MAXMIPLEVEL 1 with mip filter POINT, not minified", D3DTEXF_POINT, 1, 16}, {"MAXMIPLEVEL 2 with mip filter NONE, minified 2x", D3DTEXF_NONE, 2, 8},
+        {"MAXMIPLEVEL 1 with mip filter LINEAR, minified 4x", D3DTEXF_LINEAR, 1, 4},
+    };
+    for (const MipCase& mc : mip_cases) {
+        const MipCase m = mc;
+        add(m.name, [m](Context& c) {
+            auto* d = c.device;
+            d->SetTexture(0, c.mips);
+            d->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1); d->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+            d->SetSamplerState(0, D3DSAMP_MIPFILTER, m.mipfilter);
+            d->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, m.maxmip);
+            quad(d, 0, 0, m.size, m.size, 0.5f, 0.5f, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+            d->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, 0);
+        });
+    }
+    // ---- a 16x16 render target used with the 32x32 depth buffer (legal in Direct3D 9: the depth buffer may be larger), then shown on the back buffer
+    for (int depth_test = 0; depth_test < 2; ++depth_test) add(std::string("render target smaller than the depth buffer, depth test ") + (depth_test ? "on" : "off"), [depth_test](Context& c) {
+        auto* d = c.device;
+        IDirect3DSurface9 *back = nullptr, *rt = nullptr;
+        d->GetRenderTarget(0, &back);
+        c.target->GetSurfaceLevel(0, &rt);
+        d->SetRenderTarget(0, rt);
+        d->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(10, 20, 30), 1.0f, 0);
+        d->SetRenderState(D3DRS_ZENABLE, depth_test ? TRUE : FALSE);
+        d->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESS);
+        quad(d, 0, 0, 16, 16, 0.5f, 0.5f, 0xFFFF0000, 0xFFFF0000, 0xFFFF0000, 0xFFFF0000);
+        quad(d, 4, 4, 12, 12, 0.6f, 0.6f, 0xFF00FF00, 0xFF00FF00, 0xFF00FF00, 0xFF00FF00);   // behind the red quad: hidden when the depth test is on
+        d->SetRenderTarget(0, back);
+        d->SetRenderState(D3DRS_ZENABLE, FALSE);
+        d->SetTexture(0, c.target);
+        d->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1); d->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        quad(d, 0, 0, 32, 32, 0.5f, 0.5f, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+        d->SetTexture(0, nullptr);
+        rt->Release(); back->Release();
+    });
     return cases;
 }
 }  // namespace
