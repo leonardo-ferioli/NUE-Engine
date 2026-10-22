@@ -296,7 +296,6 @@ int cmd_extract(Args& a) {
                 fs::path f = out / (safe_name(e.name) + (all_variants ? std::string(".") + nue_pack_variant_name(nue_pack_variant(e.variant)) : "") + "." + fmt);
                 std::error_code ec;
                 fs::create_directories(f.parent_path(), ec);
-                for (auto& ch : f.string()) (void)ch;
                 if (nue_tex_image_save_file(im, f.generic_string().c_str(), kind, 0) >= 0) ++written; else ++failed;
                 nue_tex_image_destroy(im);
             } else if (a.flag("--raw") && !a.flag("--textures")) {
@@ -311,7 +310,7 @@ int cmd_extract(Args& a) {
     nue_asset_container c = nullptr;
     if (!open_container(s, path, &c)) return 1;
     std::map<std::string, int> used;
-    if (!a.flag("--raw") || a.flag("--textures") || !a.flag("--raw")) {
+    {
         for (uint32_t i = 0; i < nue_asset_resource_count(c); ++i) {
             nue_asset_resource_info r;
             NUE_STRUCT_INIT(&r);
@@ -471,7 +470,7 @@ uint32_t find_texture(nue_asset_container c, const std::string& name) {
         NUE_STRUCT_INIT(&r);
         nue_asset_resource_get(c, i, &r);
         if (r.kind != NUE_ASSET_RES_TEXTURE) continue;
-        if (name.find('/') != std::string::npos ? lower(res_label(c, r)) == lower(name) : lower(r.name) == lower(name)) return i;
+        if (lower(r.name) == lower(name) || lower(res_label(c, r)) == lower(name) || lower(safe_name(res_label(c, r))) == lower(name)) return i;   // TEX, PACK/TEX or the extracted file name PACK_TEX
     }
     return NUE_ASSET_NO_NODE;
 }
