@@ -1,6 +1,6 @@
 # STATUS (kept honest; updated with every commit that changes it)
 
-Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, timers, ABI.md, init order). Legend: **tested** = implemented and covered by passing automated tests on this machine
+Last update: core block 3 (mixer engine, SDL3 backend, C++ wrapper, samples). Legend: **tested** = implemented and covered by passing automated tests on this machine (Windows x64 and x86/-m32, clang; null backend and SDL3 with its dummy drivers); **written** = code exists and compiles, NOT exercised by a test; **skeleton** = declarations or stubs only; **-** = nothing yet. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
 (Windows x64 and x86/-m32, clang, null backend); **written** = code exists, compiled, NOT exercised by a test; **skeleton** = declarations or stubs only;
 **-** = nothing. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
 
@@ -8,7 +8,7 @@ Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, time
 
 | Component | Version | Status |
 |---|---|---|
-| SDL3 | release-3.4.18 (commit 829a65d) | submodule added (shallow); **not built or used yet** (the SDL3 backend is not written) |
+| SDL3 | release-3.4.18 (commit 829a65d) | submodule, built static inside libnue, used by the SDL3 backend (tested with the dummy drivers) |
 
 ## Core + backends
 
@@ -26,7 +26,8 @@ Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, time
 | audio devices + streams (push, callback, volume, pause on background, latency query/change, position, stats) | audio | tested | - | test_audio |
 | audio conversion (format, channels, linear resampling, streaming resampler) | audio | tested | shared | test_audio |
 | audio stream conversion path (device format != app format) | audio | written (null device always accepts the app format, so untested) | - | only via nue_audio_convert |
-| **mixer engine** (voices, buses, effects, 3D, ring voices, render) | mixer | **skeleton** (only unit helpers dB/centibel/pan are implemented and tested) | n/a | test_diag (helpers) |
+| mixer engine: static / ring / callback voices, pan law, gain ramps, pitch + resampling, buses, effects (low/high-pass, echo, reverb, compressor, callback), 3D (attenuation models, cone, doppler, left-handed), voice limit + priority stealing, ring cursors + notification positions, deterministic output, stream-attached mode | mixer | tested (15 cases, 350 checks) | n/a | test_mixer |
+| mixer locking | mixer | one short mutex per mixer (render takes it per block), NOT lock-free; no allocation while mixing | n/a | - |
 | VFS: roots, overlay mounts, normalisation, case-insensitive resolution, `\`->`/` | storage | tested | n/a | test_storage |
 | files: open/read/write/seek/append/truncate/atomic save/load, 32-bit generation-checked ids, list/glob/stat/rename/remove | storage | tested | n/a | test_storage |
 | async reads (worker pool, priority, events, cancel), manifest verification, hashes | storage | tested | n/a | test_storage |
@@ -36,6 +37,8 @@ Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, time
 | power: info, thermal/power events, request bookkeeping, thread helpers + perf hints (platform ops forwarded) | power | tested without a platform layer (reports honestly "not honoured") | n/a | test_events |
 | system info + capability flags | system | tested (generic values) | n/a | test_diag |
 | gfx: renderer list, PREPARE mode lifecycle (resize/suspend/resume/listeners/destroy), NOOP renderer | gfx | tested | n/a | test_events |
+| SDL3 backend: displays + modes, windows (create, size, mode, DPI, safe area, native handle, attach HWND/X11 where SDL allows), cursor clip/relative, text input, keyboard/mouse/touch/gamepad event translation, gamepad state/rumble/LED/sensors/mappings, device sensors, audio devices + streams (SDL converts formats), lifecycle events, fullscreen policy under gamescope | all | - | tested with the dummy video/audio drivers (windows, events, audio callback, mixer on a real SDL stream, gamepad API without devices) | test_sdl3 |
+| SDL3 backend: real displays/GPU surfaces/devices, hot-plugged gamepads, IME, touch, sensors, X11/Wayland/Android/iOS behaviour | all | - | **written, not run** on any real device | - |
 | gfx MANAGED mode (bgfx init/reset/frame), caps | gfx | **not implemented** (returns NUE_ERR_UNSUPPORTED) | n/a | test_events |
 | memory info + budgets (policies, config overrides, eviction hooks, pressure events, per-class defaults) | memory | tested (simulated machines) | n/a | test_memory |
 | memory info from a real machine | memory | needs `memory_info`/`memory_info_ex` from the platform layers (generic layer reports nothing) | n/a | test_memory (sanity only) |
@@ -45,9 +48,9 @@ Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, time
 | init order (pre_init -> storage -> settings -> backend -> platform), appended platform-ops fields guarded by struct_size | core | tested | n/a | test_hooks, all suites |
 | diag: reports, notes, breadcrumbs, asserts, counters, frame stats, Chrome trace | diag | tested | n/a | test_diag |
 | diag: crash handler installation | diag | core side written; needs a platform layer (`crash_install`), none exist yet | n/a | test_diag (reports "unsupported") |
-| C++ wrapper (`nuepp`) | nuepp | **skeleton** (umbrella include only) | n/a | - |
-| samples (hello_window, hello_audio, hello_input) | - | **not written** | - | - |
-| `nue::entry` stub | entry | **not written** | - | - |
+| C++ wrapper (`nuepp`: Result/Expected, Context, Mutex/Thread/Timer, Window, Gfx, AudioStream, Mixer, File/vfs, config, Budget; builds without exceptions on non-Windows) | nuepp | tested (79 checks; -fno-exceptions only enforced off Windows) | n/a | test_wrapper |
+| samples (hello_window via `nue::entry`, hello_audio, hello_input) | - | built by CI and by me, **never run** (they open windows / make sound) | - | - |
+| `nue::entry` stub (`nue_main` -> `main`/SDL_main) | entry | built and linked into hello_window; **not run** | - | - |
 
 ## Platforms
 
@@ -63,7 +66,8 @@ Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, time
 * `docs/ABI.md` (native + legacy ABI) and `docs/REPLIES_core.md` (answers to the platform/texture sessions) are written; `src/legacy` and `include/nue_legacy` are reserved, empty.
 * Texture hook: `nue_texture_obj` target and `NUE_HAS_TEXTURE`; the module itself belongs to nue-texture.
 
-* SDL3 backend skeleton (window, input, audio, gamepad mappings, text input, sensors) is the next block, then the mixer engine, then the C++ wrapper and samples.
+* The SDL3 backend has no raw-joystick support for devices SDL cannot map as gamepads, no capture streams, no haptics (platform ops own phone vibration), no real-device validation.
+* `nue_gfx` MANAGED mode (bgfx) and the `NUE_WITH_GFX` module are the next block, together with the mmap-backed `nue_file_map`.
 * Real memory mapping, `NUE_CAP_MMAP_FILES` stays clear until then.
 * The null backend's audio device accepts any format; conversion inside streams is only exercised when a real backend negotiates another format.
 * Timestamp domain: the null backend in deterministic mode replaces the engine clock; the SDL3 backend will use the OS monotonic clock.
