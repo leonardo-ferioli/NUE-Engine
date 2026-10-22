@@ -201,3 +201,36 @@ nue_result ktx2_load(const uint8_t* data, size_t size, uint32_t flags, Image** o
 }
 
 }  // namespace nuetex
+
+#include <fstream>
+#include <filesystem>
+namespace nuetex {
+
+bool ktx2_read_meta(const char* utf8_path, KeyValues& kv, Ktx2Meta& meta) {
+#ifdef _WIN32
+    std::ifstream f(std::filesystem::u8path(utf8_path), std::ios::binary);
+#else
+    std::ifstream f(utf8_path, std::ios::binary);
+#endif
+    Header h;
+    if (!f || !f.read(reinterpret_cast<char*>(&h), sizeof h) || std::memcmp(h.ident, kIdent, 12) != 0) return false;
+    meta.vk_format = h.vk_format; meta.levels = h.level_count ? h.level_count : 1;
+    meta.layers = h.layer_count ? h.layer_count : 1; meta.faces = h.face_count ? h.face_count : 1;
+    if (!h.kvd_length || h.kvd_length > (1u << 22)) return true;
+    std::vector<uint8_t> kvd(h.kvd_length);
+    f.seekg(h.kvd_offset);
+    if (!f.read(reinterpret_cast<char*>(kvd.data()), kvd.size())) return false;
+    const uint8_t* p = kvd.data();
+    const uint8_t* end = p + kvd.size();
+    while (p + 4 <= end) {
+        uint32_t len; std::memcpy(&len, p, 4);
+        p += 4;
+        if (len == 0 || p + len > end) break;
+        const uint8_t* nul = static_cast<const uint8_t*>(std::memchr(p, 0, len));
+        if (nul) kv[std::string(reinterpret_cast<const char*>(p), nul - p)] = std::string(reinterpret_cast<const char*>(nul + 1), len - size_t(nul - p) - 1);
+        p += (len + 3) & ~3u;
+    }
+    return true;
+}
+
+}  // namespace nuetex

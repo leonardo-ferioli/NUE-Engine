@@ -51,6 +51,27 @@ this module replaces it.
 7. **SIMD** is chosen at build time (`NUE_TEXTURE_SIMD=auto|none|sse2|sse41|avx2|neon`, default SSE4.1 on x86, NEON on arm64): etcpak and astc-encoder select it at compile time.
    Desktop GPUs sample BC directly, so the lowest common denominator costs nothing where speed matters.
 
+## 2b. Cold conversion (the rule): nothing is encoded while the game runs
+
+Decision (user): conversion happens **cold**, ahead of play, and produces **all formats at once**. Run time only looks things up.
+
+* **Cook.** `nue_tex_importer_set_classes(imp, NUE_TEX_CLASS_MASK_ALL)` + the import pipeline (or `nue_tex_cook_image`, or `nue_texconv cook <textures> <cache>`) converts each texture for every device class
+  in one pass: the planner is run for each class, the distinct lossy targets are deduplicated, and each one is encoded once and stored. Example (test_cold, three textures): ETC2 RGB, ETC2 RGBA8, EAC RG11,
+  ASTC 4x4 and 6x5 (linear and sRGB) and PVRTC1 4bpp. Desktop BC, as-is and plain-decode targets need no file (the source bytes are used or decoded cheaply).
+  The planner is also run for the cases the D3D9 layer can ask for: alpha known or unknown, sRGB or linear (ETC2/BC/PVRTC twins share their bytes, ASTC is cooked for both).
+* **Device independent, movable.** A cache entry is keyed by the source content and the target format, never by the device or a path: cook once on a PC (all classes), copy the folder to the phone, done
+  (`a_cache_can_be_copied_to_another_machine`). Resumable: variants already present are skipped, so an interrupted cook continues. Safe to delete.
+* **Lookup by content.** Every entry records the hash of the source level behind each stored level. The context indexes the folder when it is created. `nue_tex_d3d9_convert_level` hashes the bytes the game
+  uploads (level format, size and data) and copies the cooked level: `NUE_OK`. Hash + copy costs a SHA-256 pass over the level (a few hundred MB/s) plus a memcpy: no codec runs.
+* **Misses never encode.** A level that is not in the cache (a texture the game builds itself, a partial rectangle, a new asset not yet cooked) returns `NUE_OK_PARTIAL` with a zero-block placeholder and is counted
+  (`nue_tex_runtime_stats.level_misses`, logged); `nue_tex_context_convert` / `nue_tex_request_async` return `NUE_ERR_NOT_FOUND`. `nue_tex_runtime_stats.runtime_encodes` stays 0.
+  Plain decodes to RGBA8 (cheap, 100+ MPixel/s) remain allowed as a fallback when the device cannot use the source format.
+* **Development switch.** `NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE` (context flag) restores on-the-spot encoding for tools and tests.
+* **Cost model.** Cook time = the encode throughput of section 7 times the number of distinct targets (about 3-6 per texture). 1500 textures of 256x256 with mips (about 98 MPixel) cost roughly 2 s of ETC2 plus 15 s of ASTC fast on 16
+  threads on the measured machine, times the number of variants; on a phone, cook on a PC instead. Disk: one KTX2 file per (texture, target); a variant is about as large as the DXT source (ETC2/ASTC 4x4) or smaller (ASTC 6x5).
+* **Caveat for the integration.** The lookup works only if the level bytes the game uploads are the bytes that were cooked (DXT data coming straight from the archive). If the game decompresses or edits a texture
+  before `UnlockRect`, that texture misses; `level_misses` and the log make this visible on the first run.
+
 ## 3. Build and layout
 
 * `src/texture/*.cpp` (module), `src/texture/third_party/<name>/` (vendored codecs, own folder and licence each), `tests/texture/`, `tools/nue_texconv/`.
@@ -151,11 +172,11 @@ Patch proposal (the legacy layer owners apply it; the data table `nue_tex_d3d9_f
    `info.gpu_format` (`nue_tex_format_to_bgfx`, srgb flag), `info.gpu_levels`, `info.gpu_width x gpu_height`. Render targets, depth and system-memory textures come back as `UPLOAD_AS_IS` (the layer keeps its path).
 3. `upload_level_region`: replace `convert_pixels`/`decode_dxt` with `nue_tex_d3d9_convert_level(tex, level, face, rect, src, pitch, dst, capacity, &pitch_out, &size)`. Source rectangles must be block aligned (as D3D9 itself requires for DXT locks);
    a partial rectangle that does not start on a *destination* block boundary returns `NUE_ERR_UNSUPPORTED` (send the whole level). Levels below `info.skip_mips` return `NUE_OK_NOOP`.
-4. `info.defer_to_worker`: slow encodes (ASTC/BC7 of large levels): upload a placeholder and replace it from `nue_tex_request_async`; ETC2/BC1 are fast enough inline.
+4. No encoding at run time (section 2b): `nue_tex_d3d9_convert_level` is a lookup by content in the cooked cache; `NUE_OK_PARTIAL` means a placeholder was written for a level the cache does not know (`info.defer_to_worker` is only a development hint now). Cook with `nue_texconv cook` or the import pipeline before play.
 5. `alpha_hint`: DXT1 with unknown alpha plans an alpha-capable target (ASTC 6x5), DXT1 known opaque plans ETC2 RGB8 (half the size of the alternative). The layer knows more than the module: pass what it saw.
 6. `plan.explanation` per texture belongs in the layer's texture report.
 
-Measured seam cost (`test_pipeline`, Release, one 128x128 DXT1 level -> ETC2): well under a millisecond; a whole-game cost is the import throughput in section 7.
+Seam cost at play time: SHA-256 of the level plus a copy (test_cold); the encode cost is paid once, cold, at the throughput of section 7.
 
 ## 10. Status
 
@@ -168,6 +189,7 @@ Measured seam cost (`test_pipeline`, Release, one 128x128 DXT1 level -> ETC2): w
 | **Gaps** | **decoders missing for ETC2 RGB-A1, PVRTC1 2bpp, PVRTC2, ATC (registry flags say so; the planner never plans to them); encoders missing for BC2, ETC2 RGB-A1, PVRTC 2bpp/PVRTC2 (no open encoder found); KTX2 supercompression (zstd/BasisLZ) refused, not misread** |
 | DDS, KTX2, PNG read, PNG write | implemented, round trips for mips/cube/array/volume, truncation fuzz, hand-built legacy D3D9 headers |
 | Mip generation | box (exact), triangle, Kaiser, Lanczos; linear-light; normal renorm; alpha coverage; wrap; premultiplied; 3D |
+| Cold conversion (cook all device classes, index by content, no run-time encode, movable cache) | implemented; `test_cold` (80 checks); `nue_texconv cook` run on a folder and re-run (everything already cooked) |
 | Cache | hit/miss/corrupt/trim/clear tested; LRU by file time; atomic writes. Not tested: concurrent processes sharing one directory |
 | Import pipeline, async requests | tested (resume via cache, pause, cancel, failures) |
 | Budget | tested (LRU, pinned, run-time policy change, presets); bridge to the engine budget manager tested in the engine build |

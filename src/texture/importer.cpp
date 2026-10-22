@@ -23,6 +23,7 @@ struct Importer {
     std::deque<Item> queue;
     std::thread feeder;
     bool started = false, cancelled = false, paused = false, stop = false;
+    uint32_t classes = 0;               // device classes to cook for (0 = the context's own device)
     uint32_t in_flight = 0;
     uint32_t total = 0, done = 0, skipped = 0, failed = 0;
     uint64_t source_bytes = 0, produced_bytes = 0;
@@ -73,10 +74,20 @@ struct Importer {
             sbytes = src->data.size();
             ConvertOptions o;
             o.source = src; o.usage = it.usage; o.flags = it.flags; o.alpha_info = NUE_TEX_ALPHA_INFO_UNKNOWN; o.policy = c->policy;
-            Image* res = nullptr;
-            r = context_convert(*c, o, &res, nullptr, &hit);
-            if (r < 0) { ok = false; log(4, "import %s: conversion failed (%d)", it.name.c_str(), (int)r); }
-            else { pbytes = res->data.size(); delete res; }
+            o.allow_encode = true; o.cooking = true;
+            const uint32_t cls = [&] { std::lock_guard<std::mutex> l(m); return classes; }();
+            if (cls) {                              // all formats at once: one variant per distinct target of the chosen device classes
+                nue_tex_cook_result cr; std::memset(&cr, 0, sizeof cr); cr.struct_size = sizeof cr;
+                r = cook_image(*c, o, cls, &cr);
+                if (r < 0) { ok = false; log(4, "import %s: %u variant(s) failed", it.name.c_str(), cr.failed); }
+                hit = cr.stored == 0 && cr.failed == 0;
+                pbytes = cr.bytes_written;
+            } else {
+                Image* res = nullptr;
+                r = context_convert(*c, o, &res, nullptr, &hit);
+                if (r < 0) { ok = false; log(4, "import %s: conversion failed (%d)", it.name.c_str(), (int)r); }
+                else { pbytes = res->data.size(); delete res; }
+            }
             delete src;
         }
         {
@@ -158,6 +169,14 @@ nue_result NUE_CALL nue_tex_importer_add(nue_tex_importer h, const nue_tex_impor
         ++imp->total;
     }
     imp->cv.notify_all();
+    return NUE_OK;
+}
+
+nue_result NUE_CALL nue_tex_importer_set_classes(nue_tex_importer h, uint32_t class_mask) {
+    auto* imp = reinterpret_cast<Importer*>(h);
+    if (!imp) return NUE_ERR_INVALID_HANDLE;
+    std::lock_guard<std::mutex> l(imp->m);
+    imp->classes = class_mask & NUE_TEX_CLASS_MASK_ALL;
     return NUE_OK;
 }
 

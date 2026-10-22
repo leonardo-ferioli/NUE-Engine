@@ -10,6 +10,8 @@ nue_result dds_load(const uint8_t* data, size_t size, uint32_t flags, Image** ou
 nue_result dds_save(const Image& im, uint32_t flags, std::vector<uint8_t>& out);
 nue_result ktx2_load(const uint8_t* data, size_t size, uint32_t flags, Image** out, KeyValues* kv);
 nue_result ktx2_save(const Image& im, const KeyValues* kv, std::vector<uint8_t>& out);
+struct Ktx2Meta { uint32_t vk_format = 0, levels = 0, layers = 1, faces = 1; };
+bool ktx2_read_meta(const char* utf8_path, KeyValues& kv, Ktx2Meta& meta);        // header + key/value block only (cheap index scan)
 nue_result png_load(const uint8_t* data, size_t size, uint32_t flags, Image** out);
 nue_result png_save(const Image& im, std::vector<uint8_t>& out);
 

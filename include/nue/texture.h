@@ -588,6 +588,11 @@ NUE_API void NUE_CALL nue_tex_budget_policy_preset(nue_tex_budget_preset preset,
 
 NUE_DEFINE_HANDLE(nue_tex_context);
 
+/* Context flags. By default NOTHING is encoded at run time: the lossy codecs (ASTC, ETC2, BC7...) are far too slow for a frame and a hitch is worse than a placeholder.
+ * Textures are converted COLD, once, by the import pipeline / nue_tex_cook_image / `nue_texconv cook` into the cache; at run time conversion is a cache lookup by content.
+ * Set ALLOW_RUNTIME_ENCODE only for development (missing variants are then encoded on the spot). */
+enum { NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE = 1u << 0 };
+
 typedef struct nue_tex_context_desc {
     uint32_t struct_size;
     const nue_tex_caps* caps;           /* required (copied) */
@@ -597,7 +602,8 @@ typedef struct nue_tex_context_desc {
     uint32_t worker_threads;            /* executor threads; 0 = auto */
     nue_tex_budget_policy budget;       /* texture memory budget policy (a preset or explicit bytes / fraction), see above; NUE_STRUCT_INIT = unlimited */
     const nue_tex_executor_desc* executor; /* NULL = own threads */
-    uint32_t reserved[4];
+    uint32_t flags;                     /* NUE_TEX_CONTEXT_* */
+    uint32_t reserved[3];
 } nue_tex_context_desc;
 NUE_API nue_result NUE_CALL nue_tex_context_create(const nue_tex_context_desc* desc, nue_tex_context* out);
 NUE_API void NUE_CALL nue_tex_context_destroy(nue_tex_context ctx);
@@ -617,7 +623,31 @@ typedef struct nue_tex_cache_stats {
 NUE_API nue_result NUE_CALL nue_tex_cache_get_stats(nue_tex_context ctx, nue_tex_cache_stats* out);
 NUE_API nue_result NUE_CALL nue_tex_cache_clear(nue_tex_context ctx);                 /* deletes every entry; always safe */
 NUE_API nue_result NUE_CALL nue_tex_cache_trim(nue_tex_context ctx, uint64_t max_bytes);   /* evict least recently used until under max_bytes */
-NUE_API nue_result NUE_CALL nue_tex_cache_scan(nue_tex_context ctx);                  /* rebuild the statistics from the directory (drops corrupt files) */
+NUE_API nue_result NUE_CALL nue_tex_cache_scan(nue_tex_context ctx);
+
+/* ---- Cold conversion: all formats at once, ahead of time ------------------------------------------------------------------------------------------------
+ * A cache entry is keyed by the source CONTENT and the target format, not by the device, so one cook produces the variants for every device class and the cache folder can be
+ * built once (on a PC, or at first start) and shipped or copied. Each entry also records the hash of every source level, so at run time the D3D9 layer finds the converted level
+ * from the bytes the game uploads (nue_tex_d3d9_convert_level) without knowing file names. */
+#define NUE_TEX_CLASS_BIT(device_class) (1u << (device_class))
+#define NUE_TEX_CLASS_MASK_ALL ((1u << NUE_TEX_DEVICE_COUNT) - 1u)
+typedef struct nue_tex_cook_result {
+    uint32_t struct_size;
+    uint32_t variants;                  /* distinct lossy targets the chosen classes need (BC/as-is/uncompressed targets need no file) */
+    uint32_t stored, already_cached, failed;
+    uint64_t bytes_written;
+    uint32_t reserved[4];
+} nue_tex_cook_result;
+
+typedef struct nue_tex_runtime_stats {
+    uint32_t struct_size;
+    uint64_t level_hits;                /* levels served from the cold cache by content */
+    uint64_t level_misses;              /* levels the cache did not know: a placeholder (zero blocks) was returned, NUE_OK_PARTIAL */
+    uint64_t runtime_encodes;           /* lossy encodes done at run time (only with NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE) */
+    uint64_t indexed_levels;            /* source levels known to the index */
+    uint32_t reserved[4];
+} nue_tex_runtime_stats;
+NUE_API nue_result NUE_CALL nue_tex_context_get_runtime_stats(nue_tex_context ctx, nue_tex_runtime_stats* out);                  /* rebuild the statistics from the directory (drops corrupt files) */
 
 /* Convert an image for this device: plan + (cache lookup | convert + cache store). `source_key` may be NULL (the key is computed from the bytes).
  * out_plan may be NULL. The result is owned by the caller. */
@@ -632,6 +662,8 @@ typedef struct nue_tex_convert_request {
 } nue_tex_convert_request;
 NUE_API nue_result NUE_CALL nue_tex_context_convert(nue_tex_context ctx, const nue_tex_convert_request* request, nue_tex_image* out_image, nue_tex_plan* out_plan,
                                                      nue_bool* out_cache_hit);
+/* Convert one image for every device class in `class_mask` (NUE_TEX_CLASS_MASK_ALL = everything), skipping variants that already exist, and store the results. [any] */
+NUE_API nue_result NUE_CALL nue_tex_cook_image(nue_tex_context ctx, const nue_tex_convert_request* request, uint32_t class_mask, nue_tex_cook_result* out);
 
 /* Asynchronous conversion for textures that show up at run time. The request is queued at `priority` (HIGH for something about to be drawn);
  * the callback gets the result on a worker thread and OWNS `image` (free it with nue_tex_image_destroy); `plan` is valid only during the call. The source
@@ -671,6 +703,8 @@ typedef void (NUE_CALL *nue_tex_import_cb)(void* userdata, const nue_tex_import_
 NUE_API nue_result NUE_CALL nue_tex_importer_create(nue_tex_context ctx, nue_tex_import_cb progress_cb, void* userdata, nue_tex_importer* out);
 NUE_API void NUE_CALL nue_tex_importer_destroy(nue_tex_importer imp);                  /* cancels and waits */
 NUE_API nue_result NUE_CALL nue_tex_importer_add(nue_tex_importer imp, const nue_tex_import_item* item);
+/* Which device classes the import cooks for: a mask of NUE_TEX_CLASS_BIT (NUE_TEX_CLASS_MASK_ALL = all formats at once). 0 (default) = only the context's own device. */
+NUE_API nue_result NUE_CALL nue_tex_importer_set_classes(nue_tex_importer imp, uint32_t class_mask);
 NUE_API nue_result NUE_CALL nue_tex_importer_start(nue_tex_importer imp);               /* background; items added later are still processed */
 NUE_API nue_result NUE_CALL nue_tex_importer_cancel(nue_tex_importer imp);
 NUE_API nue_result NUE_CALL nue_tex_importer_pause(nue_tex_importer imp, nue_bool paused);
@@ -770,7 +804,9 @@ NUE_API nue_result NUE_CALL nue_tex_d3d9_texture_create(nue_tex_context ctx, con
 NUE_API void NUE_CALL nue_tex_d3d9_texture_destroy(nue_tex_d3d9_texture texture);
 /* Convert a rectangle (x,y,w,h in texels of the SOURCE level; must be block aligned for block formats unless it reaches the level edge) of source level
  * `level`/`face` from `src` (rows of blocks, `src_pitch` bytes) to the GPU format. Returns the number of bytes written in *out_size and the GPU row
- * pitch in *out_pitch; dst_capacity from nue_tex_d3d9_level_gpu_size. NUE_OK_NOOP when level < skip_mips (nothing to upload). The GPU rectangle is
+ * pitch in *out_pitch; dst_capacity from nue_tex_d3d9_level_gpu_size. NUE_OK_NOOP when level < skip_mips (nothing to upload). When the plan needs a lossy encode this is a
+ * CACHE LOOKUP by the content of the level (cold conversion): NUE_OK = served from the cache; NUE_OK_PARTIAL = not in the cache, `dst` holds zero blocks (a placeholder) and the level is
+ * counted in nue_tex_runtime_stats.level_misses; with NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE the level is encoded on the spot instead. The GPU rectangle is
  * the source rectangle / 2^skip... (skip_mips > 0 only for whole-level uploads; the layer must pass the whole level then). */
 NUE_API nue_result NUE_CALL nue_tex_d3d9_convert_level(nue_tex_d3d9_texture texture, uint32_t level, uint32_t face, const nue_rect_i* rect,
                                                         const void* src, size_t src_pitch, void* dst, size_t dst_capacity, uint32_t* out_pitch, size_t* out_size);

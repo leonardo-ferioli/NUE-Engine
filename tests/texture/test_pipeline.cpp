@@ -200,7 +200,7 @@ TEST_CASE(executor_priorities_and_host_mode) {
 TEST_CASE(context_cache_hit_miss_corrupt_trim) {
     const std::string dir = temp_dir("cache");
     nue_tex_caps caps; nue_tex_caps_for_class(NUE_TEX_DEVICE_ANDROID_ASTC, &caps);
-    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.cache_dir = dir.c_str(); cd.worker_threads = 2;
+    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.cache_dir = dir.c_str(); cd.worker_threads = 2; cd.flags = NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE;
     nue_tex_context cx = nullptr;
     CHECK_EQ(nue_tex_context_create(&cd, &cx), NUE_OK);
     nue_tex_image src = encode_image(NUE_TEX_BC3_UNORM, 64, 64, 4);
@@ -257,7 +257,7 @@ struct AsyncResult { std::atomic<int> done{0}; nue_result r = 0; nue_tex_format 
 TEST_CASE(async_requests_and_cancel) {
     nue_tex_caps caps; nue_tex_caps_for_class(NUE_TEX_DEVICE_ANDROID_ASTC, &caps);
     nue_tex_executor_desc ed; NUE_STRUCT_INIT(&ed); ed.threads = 1;
-    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.executor = &ed;
+    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.executor = &ed; cd.flags = NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE;
     nue_tex_context cx = nullptr;
     CHECK_EQ(nue_tex_context_create(&cd, &cx), NUE_OK);
     nue_tex_image src = encode_image(NUE_TEX_BC1_UNORM, 32, 32, 1, 3, false);
@@ -416,7 +416,7 @@ TEST_CASE(budget_lru_eviction_and_policies) {
 TEST_CASE(d3d9_seam) {
     const uint32_t DXT1 = 'D' | ('X' << 8) | ('T' << 16) | ('1' << 24), DXT5 = 'D' | ('X' << 8) | ('T' << 16) | ('5' << 24);
     nue_tex_caps caps; nue_tex_caps_for_class(NUE_TEX_DEVICE_ANDROID_ASTC, &caps);
-    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.worker_threads = 2;
+    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.worker_threads = 2; cd.flags = NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE;      // development mode: encode on the spot
     nue_tex_context cx = nullptr;
     CHECK_EQ(nue_tex_context_create(&cd, &cx), NUE_OK);
     // DXT1 texture known to be opaque, full mip chain

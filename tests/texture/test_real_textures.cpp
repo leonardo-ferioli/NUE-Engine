@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     if (!dir || !*dir) { std::printf("skipped: no texture directory given (argument or NUE_TEX_REAL_DIR)\n"); return 0; }
     const char* cls = argc > 2 ? argv[2] : "android_astc";
     nue_tex_caps caps; nue_tex_caps_for_class(nue_tex_device_class_from_name(cls), &caps);
-    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps;
+    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd); cd.caps = &caps; cd.flags = NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE;
     nue_tex_context cx = nullptr;
     if (nue_tex_context_create(&cd, &cx) < 0) return 1;
     uint32_t n = 0, bad = 0, lossy = 0;

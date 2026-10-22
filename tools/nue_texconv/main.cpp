@@ -6,6 +6,8 @@
 //   nue_texconv compare <reference> <other>
 //   nue_texconv plan <file> --device CLASS [--priority balanced|quality|speed|memory] [--usage color|normal|data|hdr|ui] [--srgb] [--compress-raw]
 //   nue_texconv bench [--size N] [--threads N] [--seconds S]
+//   nue_texconv cook <srcdir> <cachedir> [--classes all|class,class,...] [--threads N] [--priority balanced|quality|speed|memory]
+//                                        cold conversion of every DDS/KTX2/PNG under srcdir into every device format at once (the cache can be copied to other machines)
 //   nue_texconv formats | classes | caps CLASS
 //   nue_texconv scan <dir> [--device CLASS]          plan every DDS/KTX2/PNG under a directory and print the totals (real game textures)
 #include "nue/texture.h"
@@ -181,6 +183,69 @@ static int cmd_scan(int argc, char** argv) {
     return 0;
 }
 
+static int cmd_cook(int argc, char** argv) {
+    if (argc < 4) return 2;
+    uint32_t mask = NUE_TEX_CLASS_MASK_ALL;
+    if (const char* c = arg_value(argc, argv, "--classes")) {
+        if (std::strcmp(c, "all") != 0) {
+            mask = 0;
+            std::string list = c;
+            size_t pos = 0;
+            while (pos <= list.size()) {
+                const size_t e = list.find(',', pos);
+                const std::string name = list.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+                bool found = false;
+                for (int i = 0; i < NUE_TEX_DEVICE_COUNT; ++i) if (name == nue_tex_device_class_name(nue_tex_device_class(i))) { mask |= NUE_TEX_CLASS_BIT(i); found = true; }
+                if (!found) { std::fprintf(stderr, "unknown device class '%s' (see: nue_texconv classes)\n", name.c_str()); return 2; }
+                if (e == std::string::npos) break;
+                pos = e + 1;
+            }
+        }
+    }
+    nue_tex_caps caps;
+    nue_tex_caps_for_class(NUE_TEX_DEVICE_ANDROID_ASTC, &caps);
+    nue_tex_policy pol; fill_policy(argc, argv, &pol);
+    nue_tex_context_desc cd; NUE_STRUCT_INIT(&cd);
+    cd.caps = &caps; cd.policy = &pol; cd.cache_dir = argv[3];
+    if (const char* t = arg_value(argc, argv, "--threads")) cd.worker_threads = (uint32_t)std::atoi(t);
+    nue_tex_context cx;
+    if (nue_tex_context_create(&cd, &cx) < 0) { std::fprintf(stderr, "cannot open the cache folder %s\n", argv[3]); return 1; }
+    nue_tex_importer imp;
+    nue_tex_importer_create(cx, [](void*, const nue_tex_import_progress* p) {
+        std::printf("\r%u/%u textures, %u already cooked, %u failed, %.0f s, eta %.0f s   ", p->done + p->failed, p->total, p->skipped_cached, p->failed, p->elapsed_seconds, p->eta_seconds);
+        std::fflush(stdout);
+    }, nullptr, &imp);
+    nue_tex_importer_set_classes(imp, mask);
+    std::vector<std::string> paths;
+    for (const auto& e : fs::recursive_directory_iterator(argv[2])) {
+        if (!e.is_regular_file()) continue;
+        std::string ext = e.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        if (ext == ".dds" || ext == ".ktx2" || ext == ".png") paths.push_back(e.path().string());
+    }
+    for (const std::string& p : paths) {
+        nue_tex_import_item it; NUE_STRUCT_INIT(&it);
+        std::string lower = fs::path(p).filename().string();
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        it.name = p.c_str(); it.path = p.c_str();
+        // name heuristic for normal maps (the content type is not stored in DDS files); a game integration passes the real usage
+        it.usage = (lower.find("normal") != std::string::npos || lower.find("_n.") != std::string::npos) ? NUE_TEX_USAGE_NORMAL_MAP : NUE_TEX_USAGE_COLOR;
+        nue_tex_importer_add(imp, &it);
+    }
+    std::printf("cooking %zu textures into %s\n", paths.size(), argv[3]);
+    nue_tex_importer_start(imp);
+    nue_tex_importer_wait(imp, -1);
+    nue_tex_import_progress p; NUE_STRUCT_INIT(&p);
+    nue_tex_importer_get_progress(imp, &p);
+    nue_tex_cache_stats st; NUE_STRUCT_INIT(&st);
+    nue_tex_cache_scan(cx);
+    nue_tex_cache_get_stats(cx, &st);
+    std::printf("\ndone: %u textures (%u failed), %.1f s; cache now %llu files, %.1f MB\n", p.done, p.failed, p.elapsed_seconds, (unsigned long long)st.entries, st.bytes / 1048576.0);
+    nue_tex_importer_destroy(imp);
+    nue_tex_context_destroy(cx);
+    return p.failed ? 1 : 0;
+}
+
 // ---------------------------------------------------------------------------------------------------- benchmark
 static std::vector<uint8_t> bench_image(uint32_t n) {
     std::vector<uint8_t> px(size_t(n) * n * 4);
@@ -286,6 +351,7 @@ int main(int argc, char** argv) {
     else if (cmd == "plan") rc = cmd_plan(argc, argv);
     else if (cmd == "scan") rc = cmd_scan(argc, argv);
     else if (cmd == "bench") rc = cmd_bench(argc, argv);
+    else if (cmd == "cook") rc = cmd_cook(argc, argv);
     else if (cmd == "formats") {
         nue_tex_format list[NUE_TEX_FORMAT_COUNT];
         const uint32_t n = nue_tex_format_list(list, NUE_TEX_FORMAT_COUNT);

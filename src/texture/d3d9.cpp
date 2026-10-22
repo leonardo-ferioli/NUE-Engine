@@ -130,6 +130,27 @@ nue_result NUE_CALL nue_tex_d3d9_convert_level(nue_tex_d3d9_texture th, uint32_t
     if (src_pitch < row_bytes && rows > 1) return NUE_ERR_INVALID_ARGUMENT;
     std::vector<uint8_t> packed(row_bytes * rows);
     for (uint32_t r = 0; r < rows; ++r) std::memcpy(&packed[r * row_bytes], static_cast<const uint8_t*>(src) + r * src_pitch, row_bytes);
+    Context& c = *t.c;
+    const bool lossy = t.info.action == NUE_TEX_ACTION_ENCODE || t.info.action == NUE_TEX_ACTION_TRANSCODE;
+    if (lossy && !(c.flags & NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE)) {
+        // Cold conversion: nothing is encoded now. The level is found by the content of the source bytes in the cache the import cooked.
+        const uint32_t lw = nue_tex_mip_extent(t.desc.width, level), lh = nue_tex_mip_extent(t.desc.height, level);
+        std::vector<uint8_t> cooked;
+        if (x == 0 && y == 0 && w == lw && h == lh && lookup_level(c, level_hash(t.src, w, h, packed.data(), packed.size()), t.info.gpu_format, cooked) && cooked.size() == gpu_size) {
+            std::memcpy(dst, cooked.data(), gpu_size);
+            ++c.level_hits;
+            if (out_pitch) *out_pitch = nue_tex_row_pitch(t.info.gpu_format, w);
+            if (out_size) *out_size = gpu_size;
+            return NUE_OK;
+        }
+        const uint64_t n = ++c.level_misses;
+        if (n <= 20 || (n & (n - 1)) == 0) log(4, "d3d9 texture %ux%u level %u (%s) is not in the cold cache (%llu so far): placeholder", t.desc.width, t.desc.height, level, nue_tex_format_name(t.src), (unsigned long long)n);
+        std::memset(dst, 0, gpu_size);
+        if (out_pitch) *out_pitch = nue_tex_row_pitch(t.info.gpu_format, w);
+        if (out_size) *out_size = gpu_size;
+        return NUE_OK_PARTIAL;
+    }
+    if (lossy) ++c.runtime_encodes;
     nue_result r;
     if (t.info.gpu_format == t.src) { std::memcpy(dst, packed.data(), packed.size()); r = NUE_OK; }
     else {
