@@ -5,8 +5,8 @@ compatibility layer). Nothing of the engine lives anywhere else.
 
 ## Where things are
 
-- Remote: `https://github.com/leonardo-ferioli/nue-engine` (private). Default branch: `main`.
-- Local clone of the main session: `C:\Users\Leonardo\Projects\nue-engine`.
+- Remote: `https://github.com/leonardo-ferioli/nue-engine`. Default branch: `main`.
+- Local clone of the main session: `<workspace>\nue-engine`.
 - Layout (repository root):
 
 ```
@@ -41,7 +41,7 @@ owner session (resolve names with ListAgents).
 Do not work in the main clone. The main session creates one worktree per session:
 
 ```
-git -C C:\Users\Leonardo\Projects\nue-engine worktree add ..\nue-engine-<area> <area>
+git -C <workspace>\nue-engine worktree add ..\nue-engine-<area> <area>
 ```
 
 You will be told the exact path. Commit with explicit `git add <paths>`, never `git add -A`. Do not switch branches in the main
