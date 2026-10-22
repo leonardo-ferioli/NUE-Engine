@@ -28,6 +28,21 @@
 * **State tables**: `nue_internal_push_event` is the single entry for events; it updates key/mouse/gamepad snapshots, the
   last-used-device tracker, runs watchers, then queues. Polling functions read the snapshots.
 
+## Modules and ownership plan
+
+| Module | Folder | Owner | Notes |
+|---|---|---|---|
+| native API, core, null + SDL3 backends, docs, SDK layout | `include/nue`, `include/nuepp`, `src/core`, `src/platform/sdl3`, `docs`, `cmake`, `tests` | nue-core | |
+| platform layers | `src/platform/{windows,linux,android,ios}` | one session each | `platform_ops.h` contract |
+| texture formats, transcoding, cache | `include/nue/texture.h`, `src/texture`, `tests/texture`, `tools/nue_texconv` | nue-texture | uses `nue_gpu_caps` and the `texture` memory budget |
+| legacy ABI (`libnue_legacy`): legacy_core, legacy_win32, legacy_d3d9 (nue_d3d9), legacy_dsound, legacy_dinput | `include/nue_legacy`, `src/legacy` | legacy sessions (d3d9-bgfx, platform-api) | built on the native ABI only; see `ABI.md` |
+
+## Memory
+
+No memory limit is a constant of the engine. `nue_memory_get_info` reports the machine (RAM, process cap, VRAM, pressure); budgets (`memory.h`) are named pools whose limit
+is a *policy* resolved against that report and overridable by `budget.<name>.*` config keys or the application. Defaults are fractions chosen per machine class.
+Owners (texture module, D3D9 layer, mixer, the game) report use and register eviction hooks; the engine runs the hooks on a failed request and on pressure events.
+
 ## Ownership
 
 * The context (`nue_init`) owns: log sinks, config store, VFS mounts, event queue, backend, platform layer, every window/stream/mixer/file
