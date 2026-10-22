@@ -123,4 +123,41 @@ inline void raspberry_pi3(MemFs& fs) {
     fs.add_dir("/sys/class/drm/card0/device/drm/renderD128");
 }
 
+// ---- SteamOS-specific data on top of steam_deck()
+
+inline void deck_amdgpu_sensors(MemFs& fs) {
+    const std::string d = "/sys/class/drm/card0/device/";
+    fs.add_file(d + "gpu_busy_percent", "37\n");
+    fs.add_file(d + "power_dpm_force_performance_level", "auto\n");
+    fs.add_file(d + "pp_dpm_sclk", "0: 200Mhz\n1: 1100Mhz *\n2: 1600Mhz\n");
+    fs.add_file(d + "pp_dpm_mclk", "0: 400Mhz\n1: 800Mhz *\n");
+    fs.add_file(d + "hwmon/hwmon4/power1_cap", "15000000\n");
+    fs.add_file(d + "hwmon/hwmon4/power1_average", "9250000\n");
+    fs.add_file(d + "hwmon/hwmon4/temp1_input", "61000\n");
+}
+
+inline void steamos_deck(MemFs& fs) {
+    steam_deck(fs);
+    deck_amdgpu_sensors(fs);
+    fs.add_file("/etc/os-release", "NAME=\"SteamOS\"\nPRETTY_NAME=\"SteamOS\"\nID=steamos\nID_LIKE=arch\nVARIANT_ID=steamdeck\nBUILD_ID=20240101.1\n");
+    fs.add_file("/proc/self/mountinfo",
+                "26 1 0:25 / / ro,relatime shared:1 - btrfs /dev/mapper/home rw\n"
+                "40 26 259:3 / /home rw,relatime shared:2 - ext4 /dev/nvme0n1p8 rw\n"
+                "77 26 179:1 / /run/media/deck/GAMES rw,nosuid shared:9 - ext4 /dev/mmcblk0p1 rw\n");
+    fs.add_file("/usr/bin/steam", "");
+    fs.add_file("/usr/bin/steamos-session-select", "");
+    fs.add_file("/home/deck/.local/share/Steam/steamapps/libraryfolders.vdf",
+                "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"/home/deck/.local/share/Steam\"\n\t\t\"label\"\t\t\"\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"1493710\"\t\t\"1000\"\n\t\t}\n\t}\n"
+                "\t\"1\"\n\t{\n\t\t\"path\"\t\t\"/run/media/deck/GAMES\"\n\t}\n}\n");
+    fs.add_file("/run/media/deck/GAMES/steamapps/appmanifest_1234567.acf",
+                "\"AppState\"\n{\n\t\"appid\"\t\t\"1234567\"\n\t\"installdir\"\t\t\"NUE Test Game\"\n}\n");
+    fs.add_dir("/run/media/deck/GAMES/steamapps/common/NUE Test Game");
+}
+
+inline void bazzite_desktop(MemFs& fs) {
+    fs.add_file("/etc/os-release", "NAME=\"Bazzite\"\nID=bazzite\nID_LIKE=\"fedora\"\nVARIANT_ID=\"steamdeck-gnome\"\n");
+    fs.add_file("/run/ostree-booted", "");
+    fs.add_file("/usr/bin/gamescope-session", "");
+}
+
 }  // namespace fixtures

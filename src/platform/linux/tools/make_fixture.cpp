@@ -9,7 +9,7 @@
 
 int main(int argc, char** argv) {
     if (argc != 3) {
-        std::printf("usage: make_fixture <steam_deck|intel_hybrid|hybrid_gpu_laptop|arm_big_little|raspberry_pi3> <outdir>\n");
+        std::printf("usage: make_fixture <steam_deck|intel_hybrid|hybrid_gpu_laptop|arm_big_little|raspberry_pi3|steamos_deck|bazzite_desktop> <outdir>\n");
         return 2;
     }
     nue::lx::MemFs fs;
@@ -19,6 +19,8 @@ int main(int argc, char** argv) {
     else if (n == "hybrid_gpu_laptop") fixtures::hybrid_gpu_laptop(fs);
     else if (n == "arm_big_little") fixtures::arm_big_little(fs);
     else if (n == "raspberry_pi3") fixtures::raspberry_pi3(fs);
+    else if (n == "steamos_deck") fixtures::steamos_deck(fs);
+    else if (n == "bazzite_desktop") fixtures::bazzite_desktop(fs);
     else { std::printf("unknown fixture %s\n", argv[1]); return 2; }
     namespace stdfs = std::filesystem;
     int count = 0;

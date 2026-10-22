@@ -1,5 +1,7 @@
 #include "lx_dbus.hpp"
 
+#include <unistd.h>
+
 #include <cstring>
 
 namespace nue::lx {
@@ -41,6 +43,12 @@ struct DBusConn::Api {
     void (*iter_get_basic)(void*, void*) = nullptr;
     dbus_bool_t (*iter_next)(void*) = nullptr;
     void (*iter_recurse)(void*, void*) = nullptr;
+    dbus_bool_t (*add_match)(Conn*, const char*, void*) = nullptr;
+    dbus_bool_t (*read_write)(Conn*, int) = nullptr;
+    Msg* (*pop_message)(Conn*) = nullptr;
+    int (*msg_type)(Msg*) = nullptr;
+    const char* (*msg_interface)(Msg*) = nullptr;
+    const char* (*msg_member)(Msg*) = nullptr;
 };
 
 bool DBusConn::open(BusType bus) {
@@ -68,9 +76,15 @@ bool DBusConn::open(BusType bus) {
     a.iter_get_basic = lib_.fn<decltype(a.iter_get_basic)>("dbus_message_iter_get_basic");
     a.iter_next = lib_.fn<decltype(a.iter_next)>("dbus_message_iter_next");
     a.iter_recurse = lib_.fn<decltype(a.iter_recurse)>("dbus_message_iter_recurse");
+    a.add_match = lib_.fn<decltype(a.add_match)>("dbus_bus_add_match");
+    a.read_write = lib_.fn<decltype(a.read_write)>("dbus_connection_read_write");
+    a.pop_message = lib_.fn<decltype(a.pop_message)>("dbus_connection_pop_message");
+    a.msg_type = lib_.fn<decltype(a.msg_type)>("dbus_message_get_type");
+    a.msg_interface = lib_.fn<decltype(a.msg_interface)>("dbus_message_get_interface");
+    a.msg_member = lib_.fn<decltype(a.msg_member)>("dbus_message_get_member");
     if (!a.error_init || !a.error_is_set || !a.error_free || !a.bus_get_private || !a.set_exit_on_disconnect || !a.conn_close ||
         !a.conn_unref || !a.new_method_call || !a.send_block || !a.msg_unref || !a.iter_init || !a.iter_init_append ||
-        !a.iter_append_basic || !a.iter_arg_type || !a.iter_get_basic || !a.iter_next || !a.iter_recurse) {
+        !a.iter_append_basic || !a.iter_arg_type || !a.iter_get_basic || !a.iter_next || !a.iter_recurse || !a.add_match || !a.read_write || !a.pop_message || !a.msg_type || !a.msg_interface || !a.msg_member) {
         error_ = "libdbus-1 is missing required symbols";
         close();
         return false;
@@ -99,6 +113,49 @@ void DBusConn::close() {
     delete api_;
     api_ = nullptr;
     lib_.close();
+}
+
+void DBusConn::read_args(void* msg, std::vector<DBusValue>& out) {
+    Api& a = *api_;
+    out.clear();
+    IterBuf it;
+    std::memset(it.raw, 0, sizeof it.raw);
+    if (a.iter_init(msg, it.raw)) {
+            do {
+                void* cur = it.raw;
+                IterBuf sub;
+                int t = a.iter_arg_type(cur);
+                IterBuf nest;
+                for (int depth = 0; t == 'v' && depth < 4; ++depth) {  // unwrap variants (portals nest them)
+                    IterBuf& dst = (cur == sub.raw) ? nest : sub;
+                    std::memset(dst.raw, 0, sizeof dst.raw);
+                    a.iter_recurse(cur, dst.raw);
+                    cur = dst.raw;
+                    t = a.iter_arg_type(cur);
+                }
+                DBusValue v;
+                v.type = static_cast<char>(t);
+                switch (t) {
+                    case 's':
+                    case 'o':
+                    case 'g': {
+                        const char* p = nullptr;
+                        a.iter_get_basic(cur, &p);
+                        v.s = p ? p : "";
+                        break;
+                    }
+                    case 'u': { uint32_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
+                    case 'b': { dbus_bool_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
+                    case 'i': { int32_t x = 0; a.iter_get_basic(cur, &x); v.i = x; break; }
+                    case 'x': { int64_t x = 0; a.iter_get_basic(cur, &x); v.i = x; break; }
+                    case 't': { uint64_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
+                    case 'd': { double x = 0; a.iter_get_basic(cur, &x); v.d = x; break; }
+                    case 'h': { int x = -1; a.iter_get_basic(cur, &x); v.i = x >= 0 ? ::dup(x) : -1; break; }  // we own a duplicate; the message keeps its own
+                    default: break;  // containers are reported by type only
+                }
+                out.push_back(std::move(v));
+            } while (a.iter_next(it.raw));
+    }
 }
 
 bool DBusConn::call(const std::string& dest, const std::string& path, const std::string& iface, const std::string& method,
@@ -151,46 +208,7 @@ bool DBusConn::call(const std::string& dest, const std::string& path, const std:
         return false;
     }
     a.error_free(err.raw);
-    if (reply) {
-        reply->clear();
-        IterBuf it;
-        std::memset(it.raw, 0, sizeof it.raw);
-        if (a.iter_init(r, it.raw)) {
-            do {
-                void* cur = it.raw;
-                IterBuf sub;
-                int t = a.iter_arg_type(cur);
-                IterBuf nest;
-                for (int depth = 0; t == 'v' && depth < 4; ++depth) {  // unwrap variants (portals nest them)
-                    IterBuf& dst = (cur == sub.raw) ? nest : sub;
-                    std::memset(dst.raw, 0, sizeof dst.raw);
-                    a.iter_recurse(cur, dst.raw);
-                    cur = dst.raw;
-                    t = a.iter_arg_type(cur);
-                }
-                DBusValue v;
-                v.type = static_cast<char>(t);
-                switch (t) {
-                    case 's':
-                    case 'o':
-                    case 'g': {
-                        const char* p = nullptr;
-                        a.iter_get_basic(cur, &p);
-                        v.s = p ? p : "";
-                        break;
-                    }
-                    case 'u': { uint32_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
-                    case 'b': { dbus_bool_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
-                    case 'i': { int32_t x = 0; a.iter_get_basic(cur, &x); v.i = x; break; }
-                    case 'x': { int64_t x = 0; a.iter_get_basic(cur, &x); v.i = x; break; }
-                    case 't': { uint64_t x = 0; a.iter_get_basic(cur, &x); v.u = x; break; }
-                    case 'd': { double x = 0; a.iter_get_basic(cur, &x); v.d = x; break; }
-                    default: break;  // containers are reported by type only
-                }
-                reply->push_back(std::move(v));
-            } while (a.iter_next(it.raw));
-        }
-    }
+    if (reply) read_args(r, *reply);
     a.msg_unref(r);
     return true;
 }
@@ -205,6 +223,43 @@ bool DBusConn::get_property(const std::string& dest, const std::string& path, co
     }
     out = r[0];
     return true;
+}
+
+bool DBusConn::add_match(const std::string& rule) {
+    if (!conn_) {
+        error_ = "not connected";
+        return false;
+    }
+    DBusErrorBuf err;
+    std::memset(err.raw, 0, sizeof err.raw);
+    api_->error_init(err.raw);
+    api_->add_match(conn_, rule.c_str(), err.raw);
+    const bool failed = api_->error_is_set(err.raw);
+    if (failed) error_ = err.message() ? err.message() : "add_match failed";
+    api_->error_free(err.raw);
+    return !failed;
+}
+
+int DBusConn::wait_signal(int timeout_ms, DBusSignal& out) {
+    if (!conn_) return -1;
+    Api& a = *api_;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        while (Msg* m = a.pop_message(conn_)) {
+            if (a.msg_type(m) == 4 /* DBUS_MESSAGE_TYPE_SIGNAL */) {
+                const char* i = a.msg_interface(m);
+                const char* n = a.msg_member(m);
+                out.interface = i ? i : "";
+                out.member = n ? n : "";
+                read_args(m, out.args);
+                a.msg_unref(m);
+                return 1;
+            }
+            a.msg_unref(m);
+        }
+        if (attempt == 1) break;
+        if (!a.read_write(conn_, timeout_ms)) return -1;  // disconnected
+    }
+    return 0;
 }
 
 bool DBusConn::name_has_owner(const std::string& name) {

@@ -47,6 +47,55 @@ typedef struct nue_linux_renderer_plan {
     uint32_t reserved[8];
 } nue_linux_renderer_plan;
 
+/* Which glyph set a HUD should draw for a controller (superset of nue_glyph_family: STEAM is the Steam Deck / Steam Controller set). */
+typedef enum nue_linux_glyph_family {
+    NUE_LINUX_GLYPHS_KEYBOARD_MOUSE = 0, NUE_LINUX_GLYPHS_XBOX, NUE_LINUX_GLYPHS_PLAYSTATION, NUE_LINUX_GLYPHS_NINTENDO,
+    NUE_LINUX_GLYPHS_STEAM, NUE_LINUX_GLYPHS_GENERIC
+} nue_linux_glyph_family;
+
+typedef enum nue_linux_steam_hardware {
+    NUE_LINUX_STEAM_HW_NONE = 0, NUE_LINUX_STEAM_HW_DECK_LCD, NUE_LINUX_STEAM_HW_DECK_OLED, NUE_LINUX_STEAM_HW_STEAM_MACHINE,
+    NUE_LINUX_STEAM_HW_STEAM_FRAME, NUE_LINUX_STEAM_HW_OTHER_VALVE
+} nue_linux_steam_hardware;
+
+typedef enum nue_linux_session_mode { NUE_LINUX_SESSION_UNKNOWN = 0, NUE_LINUX_SESSION_GAMING, NUE_LINUX_SESSION_DESKTOP } nue_linux_session_mode;
+
+typedef struct nue_linux_steamos_info {
+    uint32_t struct_size;
+    nue_linux_steam_hardware hardware;
+    nue_bool hardware_is_heuristic;         /* inferred (Steam Machine / Frame, or SteamDeck=1 without DMI), not matched to a known product */
+    nue_bool steamos_like;                  /* SteamOS or a derivative (Bazzite, ChimeraOS, HoloISO, Nobara, SteamFork, Jovian, ...) */
+    char flavor[48];                        /* "SteamOS", "Bazzite", ... or "" */
+    char distro_id[32];
+    char variant_id[32];
+    nue_bool immutable_root;                /* read-only / ostree root: install under $HOME or a Steam library */
+    nue_linux_session_mode session_mode;    /* gaming (gamescope session) or desktop */
+    nue_bool launched_by_steam, non_steam_shortcut, proton, steam_in_flatpak, steam_runtime_container;
+    uint64_t steam_game_id;
+    char steam_root[256];
+    uint32_t sd_card_count;
+    char first_sd_card[160];
+    int32_t panel_width, panel_height, panel_min_hz, panel_max_hz;   /* 0 when the panel is not known */
+    nue_bool panel_oled, hdr_available;
+    nue_bool steam_input_active;            /* a Steam virtual gamepad exists */
+    nue_bool physical_pads_hidden;          /* SDL_GAMECONTROLLER_IGNORE_DEVICES is set */
+    int32_t visible_gamepads;
+    nue_bool raw_deck_access, gyro_via_sdl, back_buttons_via_sdl;
+    nue_linux_glyph_family default_glyphs;
+    uint32_t reserved[8];
+} nue_linux_steamos_info;
+
+typedef struct nue_linux_frame_pacing {
+    uint32_t struct_size;
+    int32_t target_fps;
+    nue_bool present_vsync;                 /* present with FIFO / vsync */
+    nue_bool own_limiter;                   /* sleep to target_fps (nue_sleep_until_ns) */
+    nue_bool judder_expected;
+    int32_t suggested_steam_limit;          /* frame limit to select in the Steam quick access menu, 0 = none */
+    char notes[256];
+    uint32_t reserved[4];
+} nue_linux_frame_pacing;
+
 /* resolve_path flags */
 enum {
     NUE_LINUX_PATH_FOUND         = 1u << 0, /* the file or directory exists */
@@ -65,6 +114,23 @@ typedef struct nue_ext_linux_v1 {
     nue_result (*plan_renderer)(nue_bool live_probe, nue_linux_renderer_plan* out);
     /* Multi-line text, the same as the linux_probe sample prints. */
     nue_result (*describe)(nue_bool live_probe, char* buffer, size_t capacity, size_t* out_size);
+
+    /* ---- SteamOS and Steam (appended; check struct_size >= offsetof before use) ------------------------------------- */
+    nue_result (*get_steamos_info)(nue_linux_steamos_info* out);
+    /* Frame pacing next to gamescope for a game that runs at `game_fps`; display_hz is the refresh rate the window reports (0 unknown). */
+    nue_result (*plan_frame_pacing)(int32_t game_fps, double display_hz, nue_linux_frame_pacing* out);
+    /* A lower frame rate to use on low battery / thermal pressure (Deck panels step through 45 / 40 / 30); returns wanted_fps when no cap is needed. */
+    nue_result (*suggest_fps_cap)(int32_t wanted_fps, int32_t* out_fps);
+    /* Glyph family for a controller (nue_linux_glyph_family). */
+    nue_result (*controller_glyph)(uint32_t vendor_id, uint32_t product_id, int32_t* out_family);
+    /* Opens Steam's on-screen keyboard (steam://open/keyboard) when Steam is present. NUE_ERR_UNSUPPORTED without Steam. */
+    nue_result (*show_onscreen_keyboard)(void);
+    /* Directory for the engine's own shader / pipeline caches (inside Steam's per-app cache when launched by Steam). NUE_STRING_OUT. */
+    nue_result (*shader_cache_dir)(char* buffer, size_t capacity, size_t* out_size);
+    /* Install directory of a Steam app in any library (internal drive or SD card). NUE_ERR_NOT_FOUND if not installed. NUE_STRING_OUT. */
+    nue_result (*find_steam_app)(uint64_t app_id, char* buffer, size_t capacity, size_t* out_size);
+    /* Read-only snapshot of steamos-manager (TDP, GPU performance level, charge limit) and amdgpu sysfs as "key=value\n" lines. */
+    nue_result (*describe_power_tuning)(char* buffer, size_t capacity, size_t* out_size);
     uint32_t reserved[8];
 } nue_ext_linux_v1;
 

@@ -30,6 +30,7 @@
 #include "lx_report.hpp"
 #include "lx_signal_safe.hpp"
 #include "lx_session.hpp"
+#include "lx_steamos.hpp"
 #include "lx_sysinfo.hpp"
 #include "lx_text.hpp"
 #include "lx_xdg.hpp"
@@ -46,6 +47,7 @@
 #include "lx_gamemode.hpp"
 #include "lx_runtime.hpp"
 #include "lx_sched.hpp"
+#include "lx_steamos_runtime.hpp"
 #endif
 
 using namespace nue::lx;
@@ -117,6 +119,8 @@ struct State {
     XdgDirs xdg;
     std::vector<int> initial_affinity;
     bool runtime_enabled = false;
+    SteamOsInfo steamos;
+    std::string org = "nue", app = "app";  // from nue_init_desc, for the per-app directories
 
     // power
     std::mutex mtx;
@@ -142,6 +146,7 @@ struct State {
     bool profile_held = false;
     PowerProfile held_profile = PowerProfile::Balanced;
     std::string initial_cwd;
+    SuspendWatcher suspend;
     unsigned long timer_slack_saved = 50000;
     bool timer_slack_changed = false;
 #endif
@@ -838,6 +843,11 @@ nue_result p_init(const nue_backend_init* bi) {
     st->machine = read_machine_info(*st->fs);
     st->affinity = plan_affinity(st->machine.topo);
     st->xdg = resolve_xdg(*st->env, *st->fs, st->env->get_or("HOME"));
+    st->steamos = detect_steamos(*st->env, *st->fs, st->session);
+    if (bi && bi->desc) {
+        if (bi->desc->org_name && *bi->desc->org_name) st->org = bi->desc->org_name;
+        if (bi->desc->app_id && *bi->desc->app_id) st->app = bi->desc->app_id;
+    }
     st->initial_affinity = st->machine.topo.online_list;
 #if defined(NUE_LINUX_RUNTIME)
     st->runtime_enabled = !(bi && bi->deterministic);  // deterministic runs must not depend on the desktop's services
@@ -869,6 +879,10 @@ nue_result p_init(const nue_backend_init* bi) {
         }
         if (have_ppd || have_gm) set_cap(c, NUE_CAP_GAME_MODE);
         set_cap(c, NUE_CAP_KEEP_AWAKE);  // power_apply tries ScreenSaver + PowerManagement; the SDL backend adds its own inhibition
+        // Suspend / resume: logind tells us before the system sleeps (laptops, Steam Deck). The game is moved to BACKGROUND so
+        // audio and GPU go quiet, and back to FOREGROUND on resume.
+        if (st->suspend.start([](bool sleeping) { nue_internal_set_app_state(sleeping ? NUE_APP_STATE_BACKGROUND : NUE_APP_STATE_FOREGROUND); }))
+            set_cap(c, NUE_CAP_LIFECYCLE_PAUSE);
     }
     if (read_drm_devices(*st->fs).size() > 1) set_cap(c, NUE_CAP_GPU_PREFERENCE);
 #endif
@@ -892,6 +906,7 @@ void p_shutdown() {
     if (st->poller.joinable()) st->poller.join();
 #if defined(NUE_LINUX_RUNTIME)
     // Give back everything we asked the system for.
+    st->suspend.stop();
     st->inhibit_display.release();
     st->inhibit_system.release();
     if (st->profile_held) st->ppd.release();
@@ -1007,6 +1022,139 @@ nue_result x_describe(nue_bool live, char* buffer, size_t capacity, size_t* out_
     return out_string(build_system_report(*g->fs, *g->env, o), buffer, capacity, out_size);
 }
 
+// ---- SteamOS
+
+int glyph_code(GlyphFamily f) {
+    switch (f) {
+        case GlyphFamily::KeyboardMouse: return NUE_LINUX_GLYPHS_KEYBOARD_MOUSE;
+        case GlyphFamily::Xbox: return NUE_LINUX_GLYPHS_XBOX;
+        case GlyphFamily::PlayStation: return NUE_LINUX_GLYPHS_PLAYSTATION;
+        case GlyphFamily::Nintendo: return NUE_LINUX_GLYPHS_NINTENDO;
+        case GlyphFamily::Steam: return NUE_LINUX_GLYPHS_STEAM;
+        default: return NUE_LINUX_GLYPHS_GENERIC;
+    }
+}
+
+nue_result x_get_steamos_info(nue_linux_steamos_info* out) {
+    if (!g || !out) return NUE_ERR_INVALID_ARGUMENT;
+    const SteamOsInfo& s = g->steamos;
+    std::memset(out, 0, sizeof *out);
+    out->struct_size = sizeof *out;
+    out->hardware = static_cast<nue_linux_steam_hardware>(static_cast<int>(s.hardware));  // same order as the C enum
+    out->hardware_is_heuristic = s.hardware_is_heuristic;
+    out->steamos_like = s.steamos_like();
+    if (s.steamos_like()) copy_cstr(out->flavor, to_string(s.flavor));
+    copy_cstr(out->distro_id, s.distro_id);
+    copy_cstr(out->variant_id, s.variant_id);
+    out->immutable_root = s.immutable_root;
+    out->session_mode = static_cast<nue_linux_session_mode>(static_cast<int>(s.mode));
+    out->launched_by_steam = s.launched_by_steam;
+    out->non_steam_shortcut = s.non_steam_shortcut;
+    out->proton = s.proton;
+    out->steam_in_flatpak = s.steam_in_flatpak;
+    out->steam_runtime_container = s.runtime_container;
+    out->steam_game_id = s.game_id;
+    copy_cstr(out->steam_root, s.steam_root);
+    out->sd_card_count = static_cast<uint32_t>(s.sd_cards.size());
+    if (!s.sd_cards.empty()) copy_cstr(out->first_sd_card, s.sd_cards[0]);
+    const PanelInfo panel = panel_for(s.hardware);
+    out->panel_width = panel.width;
+    out->panel_height = panel.height;
+    out->panel_min_hz = panel.min_hz;
+    out->panel_max_hz = panel.max_hz;
+    out->panel_oled = panel.oled;
+    out->hdr_available = plan_display(s, g->session).hdr_available;
+    SteamInputPlan ip = plan_steam_input(s, g->session, *g->env, read_input_devices(*g->fs));
+    out->steam_input_active = ip.active;
+    out->physical_pads_hidden = ip.physical_hidden;
+    out->visible_gamepads = ip.visible_gamepads;
+    out->raw_deck_access = ip.raw_deck_access;
+    out->gyro_via_sdl = ip.gyro_via_sdl;
+    out->back_buttons_via_sdl = ip.back_buttons_via_sdl;
+    out->default_glyphs = static_cast<nue_linux_glyph_family>(glyph_code(ip.default_glyphs));
+    return NUE_OK;
+}
+
+nue_result x_plan_frame_pacing(int32_t game_fps, double display_hz, nue_linux_frame_pacing* out) {
+    if (!g || !out || game_fps <= 0) return NUE_ERR_INVALID_ARGUMENT;
+    FramePacingRequest r;
+    r.game_fps = game_fps;
+    r.display_hz = display_hz;
+    FramePacing p = plan_frame_pacing(g->steamos, g->session, r);
+    std::memset(out, 0, sizeof *out);
+    out->struct_size = sizeof *out;
+    out->target_fps = p.target_fps;
+    out->present_vsync = p.present_vsync;
+    out->own_limiter = p.own_limiter;
+    out->judder_expected = p.judder_expected;
+    out->suggested_steam_limit = p.suggested_steam_limit;
+    std::string notes;
+    for (const auto& n : p.notes) notes += (notes.empty() ? "" : "; ") + n;
+    copy_cstr(out->notes, notes);
+    return NUE_OK;
+}
+
+nue_result x_suggest_fps_cap(int32_t wanted_fps, int32_t* out_fps) {
+    if (!g || !out_fps) return NUE_ERR_INVALID_ARGUMENT;
+    nue_power_info pi;
+    read_power_now(*g, pi);
+    *out_fps = suggest_fps_cap(g->steamos, read_power(*g->fs), pi.thermal >= NUE_THERMAL_SERIOUS, wanted_fps);
+    return NUE_OK;
+}
+
+nue_result x_controller_glyph(uint32_t vendor_id, uint32_t product_id, int32_t* out_family) {
+    if (!g || !out_family) return NUE_ERR_INVALID_ARGUMENT;
+    SteamInputPlan ip = plan_steam_input(g->steamos, g->session, *g->env, read_input_devices(*g->fs));
+    const bool deck = g->steamos.hardware == SteamHardware::DeckLcd || g->steamos.hardware == SteamHardware::DeckOled;
+    *out_family = glyph_code(glyph_family_for(static_cast<uint16_t>(vendor_id), static_cast<uint16_t>(product_id), ip.active, deck));
+    return NUE_OK;
+}
+
+nue_result x_show_onscreen_keyboard() {
+#if defined(NUE_LINUX_RUNTIME)
+    if (!g) return NUE_ERR_NOT_INITIALIZED;
+    KeyboardRequest k = plan_onscreen_keyboard(g->steamos, *g->fs, *g->env);
+    if (k.argv.empty()) return NUE_ERR_UNSUPPORTED;
+    return spawn_detached(k.argv) ? NUE_OK : NUE_ERR_FAILED;
+#else
+    return NUE_ERR_UNSUPPORTED;
+#endif
+}
+
+nue_result x_shader_cache_dir(char* buffer, size_t capacity, size_t* out_size) {
+    if (!g) return NUE_ERR_NOT_INITIALIZED;
+    SteamOsPaths p = plan_steamos_paths(g->steamos, g->xdg, *g->env, sanitize_component(g->org.c_str(), "nue"), sanitize_component(g->app.c_str(), "app"));
+    if (p.shader_cache.empty()) return NUE_ERR_NOT_FOUND;
+    return out_string(p.shader_cache, buffer, capacity, out_size);
+}
+
+nue_result x_find_steam_app(uint64_t app_id, char* buffer, size_t capacity, size_t* out_size) {
+    if (!g) return NUE_ERR_NOT_INITIALIZED;
+    std::string dir = find_app_install(*g->fs, steam_library_paths(*g->fs, g->steamos.steam_root), app_id);
+    if (dir.empty()) return NUE_ERR_NOT_FOUND;
+    return out_string(dir, buffer, capacity, out_size);
+}
+
+nue_result x_describe_power_tuning(char* buffer, size_t capacity, size_t* out_size) {
+    if (!g) return NUE_ERR_NOT_INITIALIZED;
+    std::string text;
+    AmdGpuStatus a = read_amdgpu_status(*g->fs);
+    if (a.present) {
+        text += "amdgpu.card=" + a.card + "\namdgpu.busy_percent=" + std::to_string(a.busy_percent) + "\namdgpu.performance_level=" + a.perf_level +
+                "\namdgpu.sclk_mhz=" + std::to_string(a.sclk_mhz) + "\namdgpu.mclk_mhz=" + std::to_string(a.mclk_mhz) +
+                "\namdgpu.power_cap_w=" + std::to_string(a.power_cap_w) + "\namdgpu.power_now_w=" + std::to_string(a.power_now_w) +
+                "\namdgpu.temp_c=" + std::to_string(a.temp_c) + "\n";
+    }
+#if defined(NUE_LINUX_RUNTIME)
+    if (g->runtime_enabled) {
+        SteamOsManagerInfo m = query_steamos_manager();
+        text += std::string("steamos_manager.available=") + (m.available ? "1" : "0") + "\n";
+        for (const auto& kv : m.values) text += "steamos_manager." + kv.first + "=" + kv.second + "\n";
+    }
+#endif
+    return out_string(text, buffer, capacity, out_size);
+}
+
 nue_ext_linux_v1 g_ext;
 
 }  // namespace
@@ -1018,6 +1166,14 @@ extern "C" const void* nue_linux_get_extension_v1(void) {
     g_ext.get_session = x_get_session;
     g_ext.plan_renderer = x_plan_renderer;
     g_ext.describe = x_describe;
+    g_ext.get_steamos_info = x_get_steamos_info;
+    g_ext.plan_frame_pacing = x_plan_frame_pacing;
+    g_ext.suggest_fps_cap = x_suggest_fps_cap;
+    g_ext.controller_glyph = x_controller_glyph;
+    g_ext.show_onscreen_keyboard = x_show_onscreen_keyboard;
+    g_ext.shader_cache_dir = x_shader_cache_dir;
+    g_ext.find_steam_app = x_find_steam_app;
+    g_ext.describe_power_tuning = x_describe_power_tuning;
     return &g_ext;
 }
 

@@ -33,9 +33,9 @@ get_filename_component(NUE_LINUX_NUE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.."
 
 set(NUE_LINUX_LOGIC_SOURCES
   lx_text.cpp lx_fs.cpp lx_pathcase.cpp lx_xdg.cpp lx_sysinfo.cpp lx_session.cpp
-  lx_gpu.cpp lx_gpu_probe.cpp lx_policy.cpp lx_dl.cpp lx_diag.cpp lx_report.cpp)
+  lx_gpu.cpp lx_gpu_probe.cpp lx_policy.cpp lx_dl.cpp lx_diag.cpp lx_report.cpp lx_steamos.cpp)
 set(NUE_LINUX_RUNTIME_SOURCES
-  lx_dbus.cpp lx_gamemode.cpp lx_sched.cpp lx_storage.cpp lx_crash.cpp lx_runtime.cpp)
+  lx_dbus.cpp lx_gamemode.cpp lx_sched.cpp lx_storage.cpp lx_crash.cpp lx_runtime.cpp lx_steamos_runtime.cpp)
 
 add_library(nue_linux_logic STATIC ${NUE_LINUX_LOGIC_SOURCES})
 target_include_directories(nue_linux_logic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -53,7 +53,7 @@ else()
   target_compile_options(nue_linux_logic PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
-set(NUE_LINUX_TEST_SOURCES tests/test_main.cpp tests/test_pathcase.cpp tests/test_system.cpp tests/test_diag.cpp)
+set(NUE_LINUX_TEST_SOURCES tests/test_main.cpp tests/test_pathcase.cpp tests/test_system.cpp tests/test_diag.cpp tests/test_steamos.cpp)
 set(NUE_LINUX_EXTRA_LIBS)
 set(NUE_LINUX_EXTRA_DEFS)
 

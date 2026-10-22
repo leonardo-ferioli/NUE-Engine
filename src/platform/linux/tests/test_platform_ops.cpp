@@ -304,3 +304,69 @@ TEST(ops_extension_resolve_session_renderer_describe) {
     CHECK_EQ(x->describe(NUE_FALSE, &text[0], text.size(), &need), NUE_OK);
     CHECK(std::string(text.c_str()).find("Ubuntu 24.04 LTS") != std::string::npos);
 }
+
+TEST(ops_extension_steamos) {
+    Machine m(fixtures::steamos_deck);
+    m.env.vars["SteamDeck"] = "1";
+    m.env.vars["SteamGamepadUI"] = "1";
+    m.env.vars["SteamGameId"] = "1234567";
+    m.env.vars["SDL_GAMECONTROLLER_IGNORE_DEVICES"] = "0x28de/0x1205";
+    m.env.vars["MESA_SHADER_CACHE_DIR"] = "/home/deck/.local/share/Steam/steamapps/shadercache/1234567";
+    m.env.vars["PATH"] = "/usr/bin";
+    m.fs.advance_ns(10'000'000'000);
+    nue_init_desc d;
+    std::memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.org_name = "NUE";
+    d.app_id = "nfsu2";
+    m.bi.desc = &d;
+    CHECK(m.init());
+    const nue_ext_linux_v1* x;
+    {
+        std::lock_guard<std::mutex> l(stubs::mtx);
+        x = static_cast<const nue_ext_linux_v1*>(stubs::extensions["nue.linux.v1"]);
+    }
+    CHECK(x && x->get_steamos_info && x->plan_frame_pacing && x->suggest_fps_cap && x->controller_glyph && x->shader_cache_dir && x->find_steam_app);
+
+    nue_linux_steamos_info si;
+    NUE_STRUCT_INIT(&si);
+    CHECK_EQ(x->get_steamos_info(&si), NUE_OK);
+    CHECK(si.hardware == NUE_LINUX_STEAM_HW_DECK_LCD && !si.hardware_is_heuristic);
+    CHECK(si.steamos_like && std::string(si.flavor) == "SteamOS");
+    CHECK(si.immutable_root && si.session_mode == NUE_LINUX_SESSION_GAMING);
+    CHECK(si.launched_by_steam && si.steam_game_id == 1234567 && !si.non_steam_shortcut);
+    CHECK(si.panel_width == 1280 && si.panel_height == 800 && si.panel_max_hz == 60 && !si.panel_oled);
+    CHECK(si.steam_input_active && si.physical_pads_hidden && si.visible_gamepads == 1);
+    CHECK(si.default_glyphs == NUE_LINUX_GLYPHS_STEAM);
+    CHECK_EQ(si.sd_card_count, 1u);
+    CHECK_EQ(std::string(si.first_sd_card), std::string("/run/media/deck/GAMES"));
+
+    nue_linux_frame_pacing fp;
+    NUE_STRUCT_INIT(&fp);
+    CHECK_EQ(x->plan_frame_pacing(60, 60.0, &fp), NUE_OK);
+    CHECK(fp.present_vsync && !fp.own_limiter && !fp.judder_expected);
+    CHECK_EQ(x->plan_frame_pacing(0, 60.0, &fp), NUE_ERR_INVALID_ARGUMENT);
+
+    int32_t fps = 0;
+    CHECK_EQ(x->suggest_fps_cap(60, &fps), NUE_OK);
+    CHECK_EQ(fps, 60);  // fixture battery is at 64 %
+    m.fs.add_file("/sys/class/power_supply/BAT1/capacity", "9\n");
+    CHECK_EQ(x->suggest_fps_cap(60, &fps), NUE_OK);
+    CHECK_EQ(fps, 40);
+
+    int32_t glyph = -1;
+    CHECK_EQ(x->controller_glyph(0x054c, 0x0ce6, &glyph), NUE_OK);
+    CHECK_EQ(glyph, int32_t(NUE_LINUX_GLYPHS_PLAYSTATION));
+
+    char buf[256];
+    size_t need = 0;
+    CHECK_EQ(x->shader_cache_dir(buf, sizeof buf, &need), NUE_OK);
+    CHECK_EQ(std::string(buf), std::string("/home/deck/.local/share/Steam/steamapps/shadercache/1234567/nue"));
+    CHECK_EQ(x->find_steam_app(1234567, buf, sizeof buf, &need), NUE_OK);
+    CHECK_EQ(std::string(buf), std::string("/run/media/deck/GAMES/steamapps/common/NUE Test Game"));
+    CHECK_EQ(x->find_steam_app(5, buf, sizeof buf, &need), NUE_ERR_NOT_FOUND);
+
+    std::string tuning(512, 0);
+    CHECK_EQ(x->describe_power_tuning(&tuning[0], tuning.size(), &need), NUE_OK);
+    CHECK(std::string(tuning.c_str()).find("amdgpu.power_cap_w=15") != std::string::npos);
+}

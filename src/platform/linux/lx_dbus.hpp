@@ -51,6 +51,16 @@ public:
     bool get_property(const std::string& dest, const std::string& path, const std::string& iface, const std::string& prop,
                       DBusValue& out, int timeout_ms = 1500);
     bool name_has_owner(const std::string& name);
+
+    // Signals: add_match("type='signal',interface='org.freedesktop.login1.Manager',member='PrepareForSleep'") then
+    // wait_signal in a loop (blocks up to timeout_ms). Returns 1 with `out` filled, 0 on timeout, -1 if the bus went away.
+    // Unix-fd arguments ('h') come back as a duplicate in DBusValue::i that the caller must close.
+    bool add_match(const std::string& rule);
+    struct DBusSignal {
+        std::string interface, member;
+        std::vector<struct DBusValue> args;
+    };
+    int wait_signal(int timeout_ms, DBusSignal& out);
     const std::string& last_error() const { return error_; }
 
 private:
@@ -59,6 +69,7 @@ private:
     std::string error_;
     struct Api;
     Api* api_ = nullptr;
+    void read_args(void* msg, std::vector<DBusValue>& out);
 };
 
 }  // namespace nue::lx

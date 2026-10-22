@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "lx_policy.hpp"
+#include "lx_steamos.hpp"
 #include "lx_sysinfo.hpp"
 #include "lx_text.hpp"
 #include "lx_xdg.hpp"
@@ -27,6 +28,11 @@ struct Out {
 };
 const char* yn(bool b) { return b ? "yes" : "no"; }
 std::string cpus(const std::vector<int>& v) { return v.empty() ? "-" : format_cpulist(v); }
+std::string format_list(const std::vector<std::string>& v) {
+    std::string out;
+    for (const auto& x : v) out += (out.empty() ? "" : ", ") + x;
+    return out;
+}
 std::string hex(uint32_t v) {
     char b[16];
     std::snprintf(b, sizeof b, "0x%04x", v);
@@ -112,6 +118,42 @@ std::string build_system_report(const IFileSystem& fs, const IEnv& env, const Re
     for (const auto& e : rp.env) o.kv("set env", e.first + "=" + e.second);
     o.list("note", rp.notes);
     o.list("warning", rp.warnings);
+
+    SteamOsInfo steam = detect_steamos(env, fs, ses);
+    o.section("steamos / steam");
+    o.kv("hardware", std::string(to_string(steam.hardware)) + (steam.hardware_is_heuristic ? " (inferred)" : "") + (steam.hardware_reason.empty() ? "" : " - " + steam.hardware_reason));
+    o.kv("os flavour", steam.steamos_like() ? std::string(to_string(steam.flavor)) + " - " + steam.flavor_reason : std::string("not SteamOS-like"));
+    o.kv("immutable root", std::string(yn(steam.immutable_root)) + (steam.immutable_reason.empty() ? "" : " (" + steam.immutable_reason + ")"));
+    o.kv("session mode", std::string(to_string(steam.mode)) + (steam.mode_reason.empty() ? "" : " (" + steam.mode_reason + ")"));
+    o.kv("launched by steam", std::string(yn(steam.launched_by_steam)) +
+                                  (steam.launched_by_steam ? ", id " + std::to_string(steam.game_id) + (steam.non_steam_shortcut ? " (non-Steam shortcut)" : "") + (steam.proton ? ", Proton" : "") : ""));
+    o.kv("steam client", steam.steam_root.empty() ? std::string("not found") : steam.steam_root + (steam.steam_in_flatpak ? " (Flatpak)" : ""));
+    o.kv("sd cards", steam.sd_cards.empty() ? std::string("none") : format_list(steam.sd_cards));
+    {
+        PanelInfo panel = panel_for(steam.hardware);
+        if (panel.known) {
+            o.kv("panel", std::to_string(panel.width) + "x" + std::to_string(panel.height) + ", " + std::to_string(panel.min_hz) + "-" + std::to_string(panel.max_hz) + " Hz" + (panel.oled ? ", OLED" : ", LCD"));
+            std::string lims;
+            for (int l : panel.fps_limits) lims += (lims.empty() ? "" : ",") + std::to_string(l);
+            o.kv("frame limit steps", lims);
+        }
+        FramePacingRequest fr;
+        FramePacing fp = plan_frame_pacing(steam, ses, fr);
+        o.kv("frame pacing @60", std::string(fp.own_limiter ? "engine limiter" : "vsync only") + (fp.present_vsync ? " + vsync" : ""));
+        DisplayPlan dp = plan_display(steam, ses);
+        o.list("display", dp.notes);
+        SteamInputPlan ip = plan_steam_input(steam, ses, env, read_input_devices(fs));
+        o.kv("steam input", std::string(yn(ip.active)) + ", pads visible " + std::to_string(ip.visible_gamepads) + (ip.physical_hidden ? ", physical hidden" : "") + ", glyphs " + to_string(ip.default_glyphs));
+        o.list("input", ip.advice);
+        AmdGpuStatus gpu = read_amdgpu_status(fs);
+        if (gpu.present)
+            o.kv("amdgpu", "busy " + std::to_string(gpu.busy_percent) + "%, sclk " + std::to_string(gpu.sclk_mhz) + " MHz, level " + gpu.perf_level + ", cap " +
+                               std::to_string(static_cast<int>(gpu.power_cap_w)) + " W, " + std::to_string(gpu.temp_c) + " C");
+        SteamOsPaths sp = plan_steamos_paths(steam, xdg, env, "nue", "probe");
+        o.kv("shader cache", sp.shader_cache.empty() ? std::string("n/a") : sp.shader_cache);
+        o.list("paths", sp.notes);
+        o.list("note", steam.notes);
+    }
 
     o.section("audio / video / input policy");
     AudioAvailability av = detect_audio(env, fs, xdg);

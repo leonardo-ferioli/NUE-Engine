@@ -20,6 +20,7 @@
 #include "lx_gamemode.hpp"
 #include "lx_runtime.hpp"
 #include "lx_sched.hpp"
+#include "lx_steamos_runtime.hpp"
 #include "lx_storage.hpp"
 #include "lx_test.hpp"
 
@@ -223,4 +224,28 @@ TEST(rt_crash_handler_writes_report) {
     CHECK(text.find("SIGSEGV") != std::string::npos);
     CHECK(text.find("maps:") != std::string::npos);
     uninstall_crash_handler();
+}
+
+TEST(rt_steamos_services_fail_gracefully) {
+    SuspendWatcher w;
+    std::atomic<int> calls{0};
+    bool started = w.start([&](bool) { ++calls; });
+    if (started) {
+        CHECK(w.running());
+        w.stop();
+        CHECK(!w.running());
+    } else {
+        CHECK(!w.error().empty());  // no logind / no system bus: reported, not fatal
+    }
+    SteamOsManagerInfo m = query_steamos_manager();
+    CHECK(m.available || !m.error.empty());
+    CHECK(spawn_detached({"/bin/true"}));
+    CHECK(!spawn_detached({}));
+    CHECK(!spawn_detached({"/nonexistent/program"}));
+    SteamworksLite sw;
+    if (!sw.load({"/nonexistent-dir"})) {
+        CHECK(!sw.loaded() && !sw.steam_running() && !sw.initialized());
+        std::string err;
+        CHECK(!sw.init(err));
+    }
 }
