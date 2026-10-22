@@ -82,12 +82,10 @@ the others are planned and are written when a recompilation project needs them.
 | Microsoft | Xbox | 2001 | Console | `legacy_xbox` | Planned |
 | Microsoft | Xbox 360 | 2005 | Console | `legacy_x360` | Planned |
 | Microsoft | Xbox One | 2013 | Console | `legacy_xone` | Planned |
-| Microsoft | Xbox Series X and S | 2020 | Console | `legacy_xsx` | Planned |
 | Sony | PlayStation | 1994 | Console | `legacy_ps1` | Planned |
 | Sony | PlayStation 2 | 2000 | Console | `legacy_ps2` | Planned |
 | Sony | PlayStation 3 | 2006 | Console | `legacy_ps3` | Planned |
 | Sony | PlayStation 4 | 2013 | Console | `legacy_ps4` | Planned |
-| Sony | PlayStation 5 | 2020 | Console | `legacy_ps5` | Planned |
 | Sony | PSP | 2004 | Handheld | `legacy_psp` | Planned |
 | Nintendo | Nintendo 64 | 1996 | Console | `legacy_n64` | Planned |
 | Nintendo | GameCube | 2001 | Console | `legacy_gc` | Planned |
