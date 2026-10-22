@@ -324,6 +324,14 @@ std::string os_temp_dir() {
     return t;
 }
 
+uint32_t os_process_id() {
+#if defined(_WIN32)
+    return uint32_t(GetCurrentProcessId());
+#else
+    return uint32_t(::getpid());
+#endif
+}
+
 std::string os_getenv(const char* name) {
 #if defined(_WIN32)
     wchar_t wname[128] = {};

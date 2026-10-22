@@ -31,6 +31,8 @@ struct VfsState {
     std::vector<std::shared_ptr<FileObj>> files;          // slot i -> id low half i+1
     std::vector<uint16_t> generations;
     std::vector<uint32_t> free_slots;
+
+    std::string owned_temp;   // per-process scratch folder created by vfs_init (removed at shutdown); empty when the platform or portable mode provides it
 };
 
 VfsState& V() {
@@ -249,7 +251,7 @@ std::string root_from_platform(nue_root_kind kind, const InitInfo& info) {
 }  // namespace
 
 void vfs_init(const InitInfo& info) {
-    { VfsState& v = V(); std::lock_guard<std::mutex> lock(v.mutex); v.roots.clear(); v.dir_cache.clear(); }
+    { VfsState& v = V(); std::lock_guard<std::mutex> lock(v.mutex); v.roots.clear(); v.dir_cache.clear(); v.owned_temp.clear(); }
 
     // data (read-only): explicit path > platform rule > folder of the executable
     std::string data = info.game_data_path;
@@ -264,7 +266,12 @@ void vfs_init(const InitInfo& info) {
     std::string settings = root_from_platform(NUE_ROOT_SETTINGS, info);
     if (settings.empty()) settings = native_join(user, "settings");
     std::string temp = root_from_platform(NUE_ROOT_TEMP, info);
-    if (temp.empty()) temp = native_join(os_temp_dir(), "nue-" + info.org_name + "-" + info.app_id);
+    // Scratch space is cleared at start, so two processes must never share one: portable mode keeps it below the explicit user folder, otherwise
+    // it is a per-process folder in the system temp directory, removed again at shutdown.
+    if (temp.empty()) {
+        if (!info.user_data_path.empty()) temp = native_join(user, "temp");
+        else { temp = native_join(os_temp_dir(), "nue-" + info.org_name + "-" + info.app_id + "-" + std::to_string(os_process_id())); V().owned_temp = temp; }
+    }
 
     add_mount("user", user, NUE_MOUNT_CREATE_DIRECTORY, false);
     add_mount("cache", cache, NUE_MOUNT_CREATE_DIRECTORY, false);
@@ -283,9 +290,14 @@ void vfs_shutdown() {
         v.files.clear(); v.generations.clear(); v.free_slots.clear();
     }
     if (open_files) NUE_LOGW("storage", "%zu file handle(s) were still open at shutdown and were closed", open_files);
-    std::lock_guard<std::mutex> lock(v.mutex);
-    v.roots.clear();
-    v.dir_cache.clear();
+    std::string owned;
+    {
+        std::lock_guard<std::mutex> lock(v.mutex);
+        v.roots.clear();
+        v.dir_cache.clear();
+        owned.swap(v.owned_temp);
+    }
+    if (!owned.empty()) os_remove_dir_tree(owned);
 }
 
 }  // namespace nuei
