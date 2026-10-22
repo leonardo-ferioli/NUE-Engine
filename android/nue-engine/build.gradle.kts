@@ -26,7 +26,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf(
-                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_STL=c++_shared",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" // 16 KB page alignment on every NDK that knows the flag
                 )
                 cppFlags += listOf("-std=c++17")

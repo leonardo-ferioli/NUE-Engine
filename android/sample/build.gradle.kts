@@ -34,7 +34,7 @@ android {
             cmake {
                 val sdlInclude = rootProject.file(providers.gradleProperty("nue.sdl3.dir").get()).canonicalFile.resolve("include")
                 arguments += listOf(
-                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_STL=c++_shared",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                     "-DNUE_SDL3_INCLUDE=" + sdlInclude.absolutePath.replace("\\", "/")
                 )
