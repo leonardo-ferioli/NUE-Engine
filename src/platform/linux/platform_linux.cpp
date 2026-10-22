@@ -119,6 +119,7 @@ struct State {
     XdgDirs xdg;
     std::vector<int> initial_affinity;
     bool runtime_enabled = false;
+    bool hw_frozen = false;  // deterministic run on the real machine: never report its battery / thermal state
     SteamOsInfo steamos;
     std::string org = "nue", app = "app";  // from nue_init_desc, for the per-app directories
 
@@ -181,6 +182,14 @@ nue_thermal_state classify_thermal(double celsius, bool known) {
 void read_power_now(State& st, nue_power_info& p) {
     std::memset(&p, 0, sizeof p);
     p.struct_size = sizeof p;
+    if (st.hw_frozen) {  // reproducible runs: unknown power and thermal state, whatever the machine is doing
+        p.battery_percent = -1;
+        p.seconds_left = -1;
+        p.thermal_headroom = -1.0f;
+        p.state = NUE_POWER_UNKNOWN;
+        p.thermal = NUE_THERMAL_UNKNOWN;
+        return;
+    }
     PowerInfo pi = read_power(*st.fs);
     const bool have_battery = !pi.batteries.empty();
     p.battery_percent = have_battery ? pi.best_percent() : -1;
@@ -438,6 +447,11 @@ nue_result p_storage_root(nue_root_kind kind, const nue_init_desc* desc, char* b
     const std::string org = sanitize_component(desc ? desc->org_name : nullptr, "nue");
     const std::string app = sanitize_component(desc ? desc->app_id : nullptr, "app");
     std::string path;
+    // Portable mode: an explicit user_data_path keeps every writable root below it (core contract, tests/test_storage.cpp).
+    if (desc && desc->user_data_path && *desc->user_data_path && (kind == NUE_ROOT_CACHE || kind == NUE_ROOT_SETTINGS || kind == NUE_ROOT_TEMP)) {
+        const char* leaf = kind == NUE_ROOT_CACHE ? "cache" : kind == NUE_ROOT_SETTINGS ? "settings" : "temp";
+        return out_string(std::string(desc->user_data_path) + "/" + leaf, buffer, capacity, out_size);
+    }
     switch (kind) {
         case NUE_ROOT_DATA: {
             if (desc && desc->game_data_path && *desc->game_data_path) {
@@ -679,10 +693,10 @@ nue_result p_thread_set_priority(const nue_native_thread_ref* ref, nue_thread_pr
     const uint64_t rt_tid = static_cast<uint64_t>(tid > 0 ? tid : current_tid());
     RtKit rk;
     auto try_nice = [&](int want, int rtkit_nice) {
-        int n = std::max(want, lim.min_nice);
-        if (n >= cur_nice) return n == cur_nice ? true : set_thread_nice(n, tid);  // raising niceness is always allowed
-        if (set_thread_nice(n, tid)) return true;
-        return rk.make_high_priority(rt_tid, rtkit_nice);
+        if (want >= cur_nice) return want == cur_nice || set_thread_nice(want, tid);  // keeping or raising niceness is always allowed
+        const int n = std::max(want, lim.min_nice);
+        if (n < cur_nice && set_thread_nice(n, tid)) return true;  // RLIMIT_NICE / CAP_SYS_NICE permit the boost
+        return rk.make_high_priority(rt_tid, rtkit_nice);          // otherwise ask rtkit, which may refuse
     };
     switch (priority) {
         case NUE_THREAD_PRIORITY_DEFAULT:
@@ -953,6 +967,7 @@ nue_result p_init(const nue_backend_init* bi) {
     st->machine = read_machine_info(*st->fs);
     st->affinity = plan_affinity(st->machine.topo);
     st->xdg = resolve_xdg(*st->env, *st->fs, st->env->get_or("HOME"));
+    st->hw_frozen = bi && bi->deterministic && !g_test_fs;
     st->steamos = detect_steamos(*st->env, *st->fs, st->session);
     if (bi && bi->desc) {
         if (bi->desc->org_name && *bi->desc->org_name) st->org = bi->desc->org_name;
@@ -969,9 +984,10 @@ nue_result p_init(const nue_backend_init* bi) {
 
     uint64_t(&c)[2] = g_ops.capabilities;
     c[0] = c[1] = 0;
-    const bool battery = !read_power(*st->fs).batteries.empty();
-    if (battery) set_cap(c, NUE_CAP_BATTERY);
-    if (!read_thermal(*st->fs).empty()) set_cap(c, NUE_CAP_THERMAL_STATE);
+    if (!st->hw_frozen) {
+        if (!read_power(*st->fs).batteries.empty()) set_cap(c, NUE_CAP_BATTERY);
+        if (!read_thermal(*st->fs).empty()) set_cap(c, NUE_CAP_THERMAL_STATE);
+    }
 #if defined(NUE_LINUX_RUNTIME)
     set_cap(c, NUE_CAP_TIMER_RESOLUTION);  // needs power_apply, which only the runtime build provides
     set_cap(c, NUE_CAP_THREAD_PRIORITY);
