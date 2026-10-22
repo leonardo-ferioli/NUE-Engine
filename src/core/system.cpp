@@ -1,6 +1,7 @@
 // System information and capability flags.
 #include "internal/core_internal.h"
 
+#include <cstdio>
 #include <cstring>
 #include <thread>
 

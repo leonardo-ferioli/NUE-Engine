@@ -2,6 +2,7 @@
 #include "internal/vfs_internal.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <set>
@@ -18,7 +19,7 @@ struct Mount {
 
 struct DirCache {
     std::map<std::string, std::string> folded_to_actual;
-    int64_t built_ns = 0;
+    std::chrono::steady_clock::time_point built;   // real clock on purpose: nue_time_ns() may be a frozen virtual clock
 };
 
 struct VfsState {
@@ -49,37 +50,48 @@ bool native_exists(const std::string& p) { nue_stat st; return os_stat_path(p, &
 
 bool native_is_dir(const std::string& p) { nue_stat st; return os_stat_path(p, &st) && st.kind == NUE_ENTRY_DIRECTORY; }
 
-// Case-insensitive lookup of `name` inside `dir` through the directory cache.
+// Case-insensitive lookup of `name` inside `dir` through the directory cache. A miss triggers one fresh listing unless the cached one is younger than
+// kTrustMs (repeated lookups of names that do not exist must not list a big directory every time). Everything the VFS itself creates, renames or removes
+// invalidates the affected directories immediately, so only changes made behind the VFS's back can be missed, and only for kTrustMs.
 bool match_in_dir(const std::string& dir, const std::string& name, std::string* actual) {
+    constexpr int kTrustMs = 100;
     VfsState& v = V();
     const std::string key = fold_case_utf8(name);
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        {
-            std::lock_guard<std::mutex> lock(v.mutex);
-            auto it = v.dir_cache.find(dir);
-            if (it != v.dir_cache.end()) {
-                auto f = it->second.folded_to_actual.find(key);
-                if (f != it->second.folded_to_actual.end()) { *actual = f->second; return true; }
-                if (attempt == 1 || it->second.built_ns == nuei::now_ns()) return false;
-            }
-        }
-        // (re)build the listing
-        std::vector<OsDirEntry> entries;
-        if (!os_list_dir(dir, &entries)) return false;
-        DirCache dc;
-        for (const OsDirEntry& e : entries) dc.folded_to_actual.emplace(fold_case_utf8(e.name), e.name);
-        dc.built_ns = nuei::now_ns();
+    bool need_build = false;
+    {
         std::lock_guard<std::mutex> lock(v.mutex);
-        v.dir_cache[dir] = std::move(dc);
+        auto it = v.dir_cache.find(dir);
+        if (it != v.dir_cache.end()) {
+            auto f = it->second.folded_to_actual.find(key);
+            if (f != it->second.folded_to_actual.end()) { *actual = f->second; return true; }
+            auto age = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - it->second.built).count();
+            need_build = age >= kTrustMs;
+            if (!need_build) return false;
+        } else need_build = true;
     }
-    return false;
+    std::vector<OsDirEntry> entries;
+    if (!os_list_dir(dir, &entries)) return false;
+    DirCache dc;
+    for (const OsDirEntry& e : entries) dc.folded_to_actual.emplace(fold_case_utf8(e.name), e.name);
+    dc.built = std::chrono::steady_clock::now();
+    auto f = dc.folded_to_actual.find(key);
+    const bool found = f != dc.folded_to_actual.end();
+    if (found) *actual = f->second;
+    std::lock_guard<std::mutex> lock(v.mutex);
+    v.dir_cache[dir] = std::move(dc);
+    return found;
 }
 
-void invalidate_dir(const std::string& dir) { VfsState& v = V(); std::lock_guard<std::mutex> lock(v.mutex); v.dir_cache.erase(dir); }
 
+// Drops the cached listings of the parent of `native` and of every ancestor above it (a parent directory may have been created by this very operation).
 void invalidate_parent_of(const std::string& native) {
-    size_t slash = native.find_last_of('/');
-    if (slash != std::string::npos) invalidate_dir(native.substr(0, slash));
+    VfsState& v = V();
+    std::lock_guard<std::mutex> lock(v.mutex);
+    for (auto it = v.dir_cache.begin(); it != v.dir_cache.end();) {
+        const std::string& k = it->first;
+        bool ancestor = native.size() > k.size() && native.compare(0, k.size(), k) == 0 && native[k.size()] == '/';
+        if (ancestor) it = v.dir_cache.erase(it); else ++it;
+    }
 }
 
 std::vector<std::string> split_segments(const std::string& rel) {

@@ -59,9 +59,9 @@ TEST_CASE(crash_handler_needs_a_platform_layer) {
     Engine e;
     nue_crash_desc cd;
     NUE_STRUCT_INIT(&cd);
-    CHECK_EQ(nue_diag_install_crash_handler(&cd), NUE_ERR_UNSUPPORTED);
-    CHECK_EQ(nue_diag_uninstall_crash_handler(), NUE_OK_NOOP);
-    CHECK(!nue_has_capability(NUE_CAP_CRASH_HANDLER));
+    GENERIC_EQ(nue_diag_install_crash_handler(&cd), NUE_ERR_UNSUPPORTED);
+    GENERIC_EQ(nue_diag_uninstall_crash_handler(), NUE_OK_NOOP);
+    GENERIC(CHECK(!nue_has_capability(NUE_CAP_CRASH_HANDLER)));
 }
 
 TEST_CASE(test_crash_is_guarded) {
@@ -157,7 +157,7 @@ TEST_CASE(system_info_and_capabilities) {
     CHECK(nue_has_capability(NUE_CAP_AUDIO_OUTPUT));
     CHECK(nue_has_capability(NUE_CAP_ATTACH_NATIVE_WINDOW));
     CHECK(!nue_has_capability(NUE_CAP_TOUCH));
-    CHECK(!nue_has_capability(NUE_CAP_GAME_MODE));
+    GENERIC(CHECK(!nue_has_capability(NUE_CAP_GAME_MODE)));
     CHECK(!nue_has_capability(NUE_CAP_COUNT));
     CHECK_STR(nue_capability_name(NUE_CAP_TOUCH), "NUE_CAP_TOUCH");
     CHECK_STR(nue_capability_name(NUE_CAP_GFX_D3D9_LAYER), "NUE_CAP_GFX_D3D9_LAYER");

@@ -388,16 +388,19 @@ TEST_CASE(power_request_bookkeeping_without_platform_layer) {
     CHECK_EQ(applied, 0u);
     r.profile = NUE_PERF_HIGH;
     r.timer_resolution_us = 1000;
-    CHECK_EQ(nue_power_apply(&r, &applied), NUE_OK_NOOP);   // the generic layer honours nothing and says so
+    GENERIC_EQ(nue_power_apply(&r, &applied), NUE_OK_NOOP);   // the generic layer honours nothing and says so
     nue_power_request back;
     NUE_STRUCT_INIT(&back);
     nue_power_get_request(&back);
     CHECK_EQ(back.timer_resolution_us, 1000u);
-    CHECK_EQ(nue_thread_set_priority(nullptr, NUE_THREAD_PRIORITY_HIGH), NUE_ERR_UNSUPPORTED);
-    CHECK(!nue_has_capability(NUE_CAP_GAME_MODE));
+    GENERIC_EQ(nue_thread_set_priority(nullptr, NUE_THREAD_PRIORITY_HIGH), NUE_ERR_UNSUPPORTED);
+    GENERIC(CHECK(!nue_has_capability(NUE_CAP_GAME_MODE)));
     nue_perf_hint h;
-    CHECK_EQ(nue_perf_hint_create(nullptr, 0, 16666666, &h), NUE_OK_NOOP);
-    CHECK_EQ(nue_perf_hint_report(h, 10000000), NUE_OK_NOOP);
+    nue_result hr = nue_perf_hint_create(nullptr, 0, 16666666, &h);
+    GENERIC(CHECK_EQ(hr, NUE_OK_NOOP));
+    CHECK(NUE_SUCCEEDED(hr));
+    nue_result rr = nue_perf_hint_report(h, 10000000);
+    GENERIC(CHECK_EQ(rr, NUE_OK_NOOP));
     nue_perf_hint_destroy(h);
 }
 

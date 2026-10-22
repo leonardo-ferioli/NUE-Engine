@@ -29,8 +29,8 @@ TEST_CASE(refresh_request_and_frame_limit_are_stored_even_without_platform_suppo
     NUE_STRUCT_INIT(&wd);
     nue_window w;
     nue_window_create(&wd, &w);
-    CHECK_EQ(nue_window_request_refresh_rate(w, 45.0f), NUE_OK_NOOP);
-    CHECK_EQ(nue_window_set_frame_limit(w, 40.0f), NUE_OK_NOOP);
+    GENERIC_EQ(nue_window_request_refresh_rate(w, 45.0f), NUE_OK_NOOP);
+    GENERIC_EQ(nue_window_set_frame_limit(w, 40.0f), NUE_OK_NOOP);
     CHECK_NEAR(nue_window_get_frame_limit(w), 40.0, 1e-6);
     nue_window_set_frame_limit(w, 0.0f);
     CHECK_NEAR(nue_window_get_frame_limit(w), 0.0, 1e-6);
@@ -89,8 +89,8 @@ TEST_CASE(gpu_probe_without_a_platform_layer_is_an_honest_assumption) {
     nue_gpu_caps c;
     NUE_STRUCT_INIT(&c);
     nue_result r = nue_gpu_probe(&c);
-    CHECK_EQ(r, NUE_OK_PARTIAL);   // partial = assumptions only
-    CHECK(!c.probed);
+    GENERIC(CHECK_EQ(r, NUE_OK_PARTIAL));   // partial = assumptions only (a real platform probe answers NUE_OK)
+    GENERIC(CHECK(!c.probed));
     CHECK(c.format[NUE_FMT_RGBA8] & NUE_FMTSUP_RENDER_TARGET);
     CHECK_STR(nue_format_family_name(NUE_FMT_BC3), "BC3");
     CHECK_STR(nue_format_family_name(NUE_FMT_FAMILY_COUNT), "UNKNOWN");
@@ -106,7 +106,7 @@ TEST_CASE(gpu_probe_without_a_platform_layer_is_an_honest_assumption) {
     nue_gpu_caps lc;
     NUE_STRUCT_INIT(&lc);
     CHECK_EQ(nue_gfx_get_gpu_caps(g, &lc), NUE_OK_PARTIAL);   // no bgfx behind it yet
-    CHECK_EQ(lc.renderer, NUE_RENDERER_AUTO);
+    GENERIC(CHECK_EQ(lc.renderer, NUE_RENDERER_AUTO));
     nue_gfx_destroy(g);
 }
 
@@ -115,9 +115,9 @@ TEST_CASE(platform_class_flags_default_to_none_on_the_generic_layer) {
     nue_system_info si;
     NUE_STRUCT_INIT(&si);
     nue_system_get_info(&si);
-    CHECK_EQ(si.platform_flags, 0u);
-    CHECK_STR(si.platform_variant, "");
-    CHECK_EQ(nue_system_get_platform_flags(), 0u);
+    GENERIC(CHECK_EQ(si.platform_flags, 0u));
+    GENERIC(CHECK_STR(si.platform_variant, ""));
+    GENERIC_EQ(nue_system_get_platform_flags(), 0u);
 }
 
 TEST_CASE(power_info_new_fields_report_unknown) {
@@ -127,7 +127,7 @@ TEST_CASE(power_info_new_fields_report_unknown) {
     nue_power_get_info(&pi);
     CHECK_EQ(pi.tdp_watts_current, -1);
     CHECK_EQ(pi.tdp_watts_min, -1);
-    CHECK(!pi.suspend_supported);
+    GENERIC(CHECK(!pi.suspend_supported));
     // an old caller (smaller struct) still works and sees nothing beyond its size
     struct OldPowerInfo { uint32_t struct_size; } small = {sizeof(uint32_t) * 2};
     uint8_t buf[sizeof(nue_power_info)];
@@ -139,8 +139,9 @@ TEST_CASE(power_info_new_fields_report_unknown) {
     NUE_STRUCT_INIT(&r);
     r.tdp_watts = 12;
     nue_power_applied applied;
-    CHECK_EQ(nue_power_apply(&r, &applied), NUE_OK_NOOP);
-    CHECK_EQ(applied & NUE_POWER_APPLIED_TDP, 0u);
+    nue_result pr = nue_power_apply(&r, &applied);
+    GENERIC(CHECK_EQ(pr, NUE_OK_NOOP));
+    GENERIC(CHECK_EQ(applied & NUE_POWER_APPLIED_TDP, 0u));
 }
 
 TEST_CASE(screen_keyboard_request) {
@@ -149,8 +150,8 @@ TEST_CASE(screen_keyboard_request) {
     NUE_STRUCT_INIT(&wd);
     nue_window w;
     nue_window_create(&wd, &w);
-    CHECK_EQ(nue_text_input_show_screen_keyboard(w, NUE_TRUE), NUE_ERR_UNSUPPORTED);   // null backend/generic layer: no on-screen keyboard
-    CHECK_EQ(nue_text_input_show_screen_keyboard(w, NUE_FALSE), NUE_OK_NOOP);          // hiding is always fine
+    GENERIC_EQ(nue_text_input_show_screen_keyboard(w, NUE_TRUE), NUE_ERR_UNSUPPORTED);   // null backend/generic layer: no on-screen keyboard
+    GENERIC_EQ(nue_text_input_show_screen_keyboard(w, NUE_FALSE), NUE_OK_NOOP);          // hiding is always fine
     CHECK_EQ(nue_text_input_show_screen_keyboard(nullptr, NUE_TRUE), NUE_ERR_INVALID_HANDLE);
     nue_window_destroy(w);
 }

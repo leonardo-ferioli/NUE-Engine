@@ -114,7 +114,8 @@ enum {
     NUE_FMTSUP_BLEND = 1u << 4,         /* blendable as a render target */
     NUE_FMTSUP_SRGB = 1u << 5,          /* sRGB variant exists */
     NUE_FMTSUP_STORAGE = 1u << 6,       /* compute image store */
-    NUE_FMTSUP_MSAA = 1u << 7
+    NUE_FMTSUP_MSAA = 1u << 7,
+    NUE_FMTSUP_EMULATED = 1u << 8       /* the driver accepts the format but decompresses/transcodes at upload (e.g. ASTC or ETC2 on desktop GL): no memory saving, do not count it as one */
 };
 
 typedef struct nue_gpu_caps {
