@@ -284,6 +284,13 @@ if(NUE_ENTRY_SOURCES AND NUE_HAVE_SDL3)
     target_link_libraries(nue_entry PRIVATE "$<BUILD_INTERFACE:SDL3::SDL3-static>")
 endif()
 
+# ---------------------------------------------------------------------------------------------------- asset module (owned by the assets session)
+# Contract: src/assets/CMakeLists.txt defines the static library nue_assets (alias nue::assets) on top of nue::nue, plus tools/nue_pack and tests/assets.
+# Public header include/nue/assets.h (not included by nue.h: it needs the separate library).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/assets/CMakeLists.txt")
+    add_subdirectory(src/assets)
+endif()
+
 # ---------------------------------------------------------------------------------------------------- legacy ABI layer (libnue_legacy)
 # Contract: src/legacy/CMakeLists.txt defines the target `nue_legacy` (linking nue::nue) and an alias nue::legacy. Native games never link it.
 if(NUE_BUILD_LEGACY AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/legacy/CMakeLists.txt")
