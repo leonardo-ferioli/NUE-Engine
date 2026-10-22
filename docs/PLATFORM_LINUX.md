@@ -5,20 +5,19 @@ Owner: the Linux platform session. Code: `src/platform/linux/`. Targets: x86-64 
 
 ## Verification status (read this first)
 
-The development machine is Windows 11 without WSL and without a Linux sysroot, so **nothing Linux-specific has been compiled or run on Linux yet**.
+The development machine is Windows 11 without WSL. Zig 0.17 (bundled clang + glibc 2.31 headers) was installed with the user's consent, so the Linux code is now **cross-compiled and linked** for x86-64 and arm64, but **nothing has been run on Linux yet** (no WSL, no Linux machine).
 
 | What | State |
 |---|---|
 | Portable logic (`nue_linux_logic`): path resolver, XDG, `/proc` `/sys` parsers, session detection, GPU/renderer policy, audio/video/input policy, report | compiled with clang 23 for the Windows host and **run**: 39 unit tests / 430 checks, all pass |
 | Platform ops table pure entries (`system_info`, `memory_info`, `system_locale`, `storage_root`, `power_info`, `pump` events, `nue.linux.v1` extension) | compiled for the Windows host and **run** against in-memory Steam Deck / Intel hybrid / arm64 / hybrid-GPU machines: 10 tests / 106 checks, all pass |
 | `linux_probe` | **run** on the Windows host against generated machine fixtures (`make_fixture` + `--root`), real output checked by eye |
-| Linux-only runtime (`nue_linux_runtime`: D-Bus, GameMode, power profiles, rtkit, scheduling, timers, storage, io_uring, crash handler) and the runtime entries of the ops table (`power_apply`, thread priority/affinity/core class, `sleep_until`, GPU preference, crash, syslog) | **written only**: never compiled against real glibc/kernel headers, never run. Unit tests exist (`tests/test_runtime_linux.cpp`) and are built only on Linux |
-| Live Vulkan / EGL / GL probe (`probe_vulkan`, hand-declared ABI structs with `static_assert`s) | written; compiles on the host as a stub; the real path is **not compiled** |
+| Linux-only runtime (`nue_linux_runtime`: D-Bus, GameMode, power profiles, rtkit, scheduling, timers, storage, io_uring, crash handler) and the runtime entries of the ops table (`power_apply`, thread priority/affinity/core class, `sleep_until`, GPU preference, crash, syslog) | **compiled and linked** with `zig c++` (glibc 2.31 headers) for `x86_64-linux-gnu` and `aarch64-linux-gnu`, zero warnings under `-Wall -Wextra`; test and probe ELF executables produced; **never run**. Unit tests exist (`tests/test_runtime_linux.cpp`) and are built only on Linux |
+| Live Vulkan / EGL / GL probe (`probe_vulkan`, hand-declared ABI structs with `static_assert`s) | compiled for both Linux targets (hand-declared Vulkan structs pass their `static_assert`s); **never run** |
 | Window, input, audio on a real X11/Wayland/PipeWire session, gamescope, Steam Deck hardware, Flatpak, AppImage | **not possible here**, not tried |
 | Integration into the `nue` CMake build with SDL3 | CMake fragment written to the contract in `PORTING.md`; **not built** (SDL3 submodule is empty in this tree) |
 
-What is needed to turn "written" into "compiled": either WSL2 with a distribution (also gives "run"), or a cross toolchain (`zig cc` or clang + sysroot; toolchain
-files are in `src/platform/linux/cmake/`). See "Building and testing".
+What is needed to turn "compiled" into "run": WSL2 with a distribution or a Linux machine. The cross build is reproducible with `cmake/toolchain-linux-zig.cmake` (see "Building and testing").
 
 ## Architecture
 
@@ -168,7 +167,7 @@ build-lx/make_fixture steam_deck fixtures/deck && build-lx/linux_probe --root fi
 On Linux (everything, including the runtime tests): `cmake --preset linux-x64 && cmake --build --preset linux-x64 && ctest --preset linux-x64`, or the standalone command above.
 The tests set `SDL_VIDEODRIVER=dummy` / `SDL_AUDIODRIVER=dummy` (core's ctest) and the Linux tests never open a window, a sound device or the GPU. `linux_probe --live` opens libvulkan and enumerates devices only.
 
-Cross-compiling from Windows (not yet exercised): `toolchain-linux-zig.cmake` (needs `zig` on `PATH`; `-DNUE_ZIG_TARGET=x86_64-linux-gnu.2.31` or `aarch64-linux-gnu.2.31`; the suffix pins glibc)
+Cross-compiling from Windows (exercised: builds `nue_linux_tests`, `nue_linux_ops_tests`, `linux_probe`, `make_fixture` for both targets; the integrated `nue` build with SDL3 was not tried): `toolchain-linux-zig.cmake` (needs `zig` on `PATH`; `-DNUE_ZIG_TARGET=x86_64-linux-gnu.2.31` or `aarch64-linux-gnu.2.31`; the suffix pins glibc)
 or `toolchain-linux-clang.cmake` with `-DNUE_LINUX_SYSROOT=...`. Both give "compiled", neither gives "run"; running needs WSL2 or a Linux machine.
 
 ## Packaging notes (untested)
@@ -182,7 +181,7 @@ or `toolchain-linux-clang.cmake` with `-DNUE_LINUX_SYSROOT=...`. Both give "comp
 
 ## Known gaps and next steps
 
-1. Compile and run the Linux-only code (needs WSL2 or a cross toolchain: see above); until then every "-" in the table is an open risk.
+1. Run the Linux-only code (needs WSL2 or a Linux machine): every "-" in the "R" column is an open risk. The CI Linux job of the new repository will run the host tests of this directory.
 2. SDL3 integration points in the core: pre-init hook and window policy (REQUESTS_linux.md 1 and 2).
 3. Dark-mode query via `org.freedesktop.portal.Settings` is planned (`system_info.dark_mode` stays 0).
 4. `NUE_CAP_AUDIO_LOW_LATENCY` and the audio device list belong to the SDL3 backend; the layer only provides the driver/latency policy.

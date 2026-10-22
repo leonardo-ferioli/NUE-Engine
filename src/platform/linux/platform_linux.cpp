@@ -28,6 +28,7 @@
 #include "lx_pathcase.hpp"
 #include "lx_policy.hpp"
 #include "lx_report.hpp"
+#include "lx_signal_safe.hpp"
 #include "lx_session.hpp"
 #include "lx_sysinfo.hpp"
 #include "lx_text.hpp"

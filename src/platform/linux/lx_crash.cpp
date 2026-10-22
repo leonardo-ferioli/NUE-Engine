@@ -266,19 +266,14 @@ bool write_stack_report(const char* dir) {
     w.str(g_app);
     w.chr(' ');
     w.str(g_version);
-    w.str(" stack report (not a crash)
-pid = ");
+    w.str(" stack report (not a crash)\npid = ");
     w.dec(::getpid());
-    w.str("
-tid = ");
+    w.str("\ntid = ");
     w.dec(current_tid());
-    w.chr('
-');
+    w.chr('\n');
     put_w(fd, w);
 #if defined(NUE_HAVE_BACKTRACE)
-    put(fd, "
-backtrace (calling thread):
-");
+    put(fd, "\nbacktrace (calling thread):\n");
     void* frames[64];
     int n = backtrace(frames, 64);
     backtrace_symbols_fd(frames, n, fd);
