@@ -82,6 +82,24 @@ platforms NUE runs on, stays the same.
 Only the Direct3D 9 layer exists today. The rest is design, listed in the [roadmap](docs/ROADMAP.md), and
 [how to write a legacy layer](docs/LEGACY_LAYERS.md) says what each one is made of.
 
+<details>
+<summary><b>Every console in scope</b> (all planned, written when a project needs them)</summary>
+
+<br>
+
+| Maker | Consoles |
+|---|---|
+| Microsoft | Xbox, Xbox 360, Xbox One, Xbox Series X and S |
+| Sony | PlayStation, PlayStation 2, PlayStation 3, PlayStation 4, PlayStation 5, PSP (handheld), PlayStation Vita (handheld) |
+| Nintendo | NES, SNES, Nintendo 64, GameCube, Wii, Wii U, Switch, Game Boy and Game Boy Color (handheld), Game Boy Advance (handheld), Nintendo DS (handheld), Nintendo 3DS (handheld) |
+| Sega | Master System, Mega Drive and Genesis, Saturn, Dreamcast, Game Gear (handheld) |
+| Atari | 2600, Jaguar, Lynx (handheld) |
+| Others | 3DO, Neo Geo, PC Engine, WonderSwan, N-Gage and similar |
+
+The full table with years and notes is in the [roadmap](docs/ROADMAP.md#console-catalogue).
+
+</details>
+
 ## Built for reverse engineering
 
 Writing a layer means finding out what a game really asks of its platform. NUE is built around a loop that makes that quick:

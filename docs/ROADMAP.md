@@ -38,6 +38,48 @@ describes what a layer is made of and how to build one.
 
 Everything in between is in scope when a project needs it. Nothing in this table is started except the Direct3D 9 layer.
 
+## Console catalogue
+
+Every console below is in scope, and each one needs its own legacy layer. All of them are **planned**: none is started, and a layer
+is only written when a recompilation project needs it. Handhelds are marked.
+
+| Maker | Console | Year | Notes |
+|---|---|---|---|
+| Microsoft | Xbox | 2001 | Direct3D 8 class graphics |
+| Microsoft | Xbox 360 | 2005 | |
+| Microsoft | Xbox One | 2013 | DirectX 11 and 12 flavours |
+| Microsoft | Xbox Series X and S | 2020 | |
+| Sony | PlayStation | 1994 | Command-stream graphics |
+| Sony | PlayStation 2 | 2000 | |
+| Sony | PlayStation 3 | 2006 | |
+| Sony | PlayStation 4 | 2013 | |
+| Sony | PlayStation 5 | 2020 | |
+| Sony | PSP | 2004 | Handheld |
+| Sony | PlayStation Vita | 2011 | Handheld |
+| Nintendo | NES | 1983 | |
+| Nintendo | SNES | 1990 | |
+| Nintendo | Nintendo 64 | 1996 | RSP and RDP display lists, big-endian |
+| Nintendo | GameCube | 2001 | |
+| Nintendo | Wii | 2006 | |
+| Nintendo | Wii U | 2012 | |
+| Nintendo | Switch | 2017 | Handheld and console |
+| Nintendo | Game Boy and Game Boy Color | 1989 | Handheld |
+| Nintendo | Game Boy Advance | 2001 | Handheld |
+| Nintendo | Nintendo DS | 2004 | Handheld |
+| Nintendo | Nintendo 3DS | 2011 | Handheld |
+| Sega | Master System | 1985 | |
+| Sega | Mega Drive and Genesis | 1988 | |
+| Sega | Saturn | 1994 | |
+| Sega | Dreamcast | 1998 | |
+| Sega | Game Gear | 1990 | Handheld |
+| Atari | 2600 | 1977 | |
+| Atari | Jaguar | 1993 | |
+| Atari | Lynx | 1989 | Handheld |
+| Other | 3DO, Neo Geo, PC Engine, WonderSwan, N-Gage and similar | | As projects need them |
+
+Consoles that share an architecture family can share most of a layer, so the table is a list of targets and not a list of
+separate pieces of work.
+
 ## What every layer needs from the engine
 
 Each new source platform leans on the same shared parts, so those come first:
