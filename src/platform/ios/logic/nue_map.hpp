@@ -9,12 +9,6 @@
 #include "lifecycle.hpp"
 #include "power.hpp"
 
-// API 0.1.1 (memory.h, gpu caps, new events) is detected by header presence so this file also builds against the 0.1.0 draft.
-#if __has_include("nue/memory.h")
-#  define NUE_IOS_API_011 1
-#else
-#  define NUE_IOS_API_011 0
-#endif
 
 namespace nue::ios {
 
@@ -62,7 +56,6 @@ std::string storage_subpath(int kind, const char* org, const char* app_id);
 // Sanitises a folder component: letters, digits, '-', '_', '.' kept; anything else becomes '_'; empty -> fallback; never "." or "..".
 std::string sanitize_component(const char* s, const char* fallback);
 
-#if NUE_IOS_API_011
 // ---- lifecycle / memory (API 0.1.1) ----
 // The iOS layer owns the lifecycle (platform_ops.owns_lifecycle): the state machine's state becomes the NUE app state.
 nue_app_state map_app_state(LifecycleState);
@@ -77,7 +70,6 @@ nue_format_support format_support(nue_format_family family, const MetalProbe& pr
 void fill_gpu_caps(nue_gpu_caps* out, const MetalProbe& probe, const DeviceCaps& caps);
 // Payload of NUE_EVENT_MEMORY_PRESSURE.
 nue_event_memory make_memory_payload(MemoryPressure level, uint64_t available_bytes);
-#endif
 
 // ---- crash ----
 const char* signal_reason(int sig);   // static strings, async-signal-safe

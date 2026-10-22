@@ -1,7 +1,7 @@
 # NUE platform layer for iOS: included by nue_engine/CMakeLists.txt when the target OS is iOS (see docs/PORTING.md).
 #   target_sources(nue_platform_obj ...) adds: adapter (nue_platform_ios_get_ops), glue (nue_ios.h services), pure logic.
 # Never configured on iOS: written without macOS/Xcode access (see docs/PLATFORM_IOS.md).
-enable_language(OBJCXX)   # the .mm files; requires CMake >= 3.21 (the root requires 3.21)
+# OBJCXX (the .mm files) is enabled by the root CMakeLists on Apple (check_language + enable_language).
 set(CMAKE_OBJCXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 

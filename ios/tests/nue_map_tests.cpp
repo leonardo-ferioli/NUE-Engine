@@ -101,7 +101,6 @@ int main() {
     CHECK(std::strstr(signal_reason(11), "SIGSEGV") && std::strstr(signal_reason(6), "SIGABRT") && std::strcmp(signal_reason(1234), "signal") == 0);
     CHECK(os_log_type_for(NUE_LOG_DEBUG) == 2 && os_log_type_for(NUE_LOG_INFO) == 1 && os_log_type_for(NUE_LOG_ERROR) == 0x10 && os_log_type_for(NUE_LOG_FATAL) == 0x11);
 
-#if NUE_IOS_API_011
     // ---- API 0.1.1 ----
     CHECK(map_app_state(LifecycleState::active) == NUE_APP_STATE_FOREGROUND && map_app_state(LifecycleState::inactive) == NUE_APP_STATE_INACTIVE);
     CHECK(map_app_state(LifecycleState::background) == NUE_APP_STATE_BACKGROUND && map_app_state(LifecycleState::not_running) == NUE_APP_STATE_TERMINATING);
@@ -152,7 +151,6 @@ int main() {
     nue_gpu_caps gm; std::memset(&gm, 0, sizeof gm); gm.struct_size = sizeof gm;
     fill_gpu_caps(&gm, mac, derive_caps(mac));
     CHECK(gm.format[NUE_FMT_BC1] != 0 && gm.format[NUE_FMT_BC7] != 0 && gm.format[NUE_FMT_PVRTC1] == 0 && gm.format[NUE_FMT_DEPTH24_STENCIL8] != 0);
-#endif
 
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;

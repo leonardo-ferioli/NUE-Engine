@@ -125,8 +125,7 @@ started other audio, is not forwarded and the game stays paused until the player
 `memory_info_ex` reports process used (task footprint), the estimated jetsam limit (footprint + `os_proc_available_memory`, 0 = none known when the
 OS gives no figure), the unified-memory flag and the pressure level. `gpu_probe` fills `nue_gpu_caps` from the Metal probe (BC unavailable,
 ASTC LDR from Apple2, ASTC HDR from Apple6, ETC2/EAC from Apple2, PVRTC1 on every iPhone/iPad GPU, D24S8 absent) without any device or context;
-32-bit float filtering is not claimed. `window_request_refresh` sets the exact ProMotion frame-rate range. All of this is compiled only when the core
-headers are 0.1.1 or newer (`NUE_IOS_API_011`, detected with `__has_include("nue/memory.h")`).
+32-bit float filtering is not claimed. `window_request_refresh` sets the exact ProMotion frame-rate range.
 
 Verification: `platform_ios.mm` was syntax-checked with clang on Windows as Objective-C++ (ARC, blocks) against the **real** NUE headers
 (`nue/*.h`, `platform_ops.h`) and hand-written stand-ins for the few Foundation / UIKit / Darwin declarations it uses. That caught one real

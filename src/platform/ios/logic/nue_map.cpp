@@ -127,7 +127,6 @@ nue_rect_i safe_area_rect(float w, float h, float l, float t, float r, float b) 
 }
 
 
-#if NUE_IOS_API_011
 nue_app_state map_app_state(LifecycleState s) {
     switch (s) {
     case LifecycleState::active: return NUE_APP_STATE_FOREGROUND;
@@ -225,7 +224,6 @@ void fill_gpu_caps(nue_gpu_caps* g, const MetalProbe& p, const DeviceCaps& c) {
     g->tessellation = fam >= 3 ? NUE_TRUE : NUE_FALSE;
     g->dedicated_memory_bytes = 0;   // unified memory
 }
-#endif
 
 std::string sanitize_component(const char* s, const char* fallback) {
     std::string r;

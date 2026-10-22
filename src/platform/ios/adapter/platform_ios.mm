@@ -57,12 +57,10 @@ std::atomic<int> g_last_pressure{0};   // MemoryPressure as int, for memory_info
 
 void push_memory_pressure(MemoryPressure level, int64_t available) {
     g_last_pressure = static_cast<int>(level);
-#if NUE_IOS_API_011
     nue_event ev{};
     ev.type = NUE_EVENT_MEMORY_PRESSURE;
     ev.payload.memory = make_memory_payload(level, available > 0 ? static_cast<uint64_t>(available) : 0);
     nue_internal_push_event(&ev);
-#endif
     if (level == MemoryPressure::high || level == MemoryPressure::critical) {
         // Kept for hosts that only listen to the older "release caches" event.
         nue_event low{};
@@ -84,18 +82,15 @@ void on_ios_event(const NueIosEvent* e, void*) {
         break;
     case NUE_IOS_EVENT_LIFECYCLE: {
         NUE_LOGD(kTag, "lifecycle state %d actions 0x%x", (int)e->a, (unsigned)e->b);
-#if NUE_IOS_API_011
         // This layer owns the lifecycle (owns_lifecycle): the state machine's state is the NUE app state. The core emits
         // PAUSING / PAUSED / RESUMING / RESUMED from it, synchronously, so the game stops audio and GPU work inside this call.
         nue_internal_set_app_state(map_app_state(static_cast<LifecycleState>(e->a)));
-#endif
         // UIApplicationDidReceiveMemoryWarning: the OS is asking for memory now.
         if (static_cast<uint32_t>(e->b) & act_emit_low_memory) push_memory_pressure(MemoryPressure::high, nue_ios_memory_available());
         break;
     }
     case NUE_IOS_EVENT_AUDIO_INTERRUPTION:
         NUE_LOGI(kTag, "audio interruption %s", e->a ? "began" : "ended");
-#if NUE_IOS_API_011
         {
             // "ended" without shouldResume (the user started other audio) is not forwarded: the game stays paused until the player acts.
             if (e->a || e->b) {
@@ -104,17 +99,14 @@ void on_ios_event(const NueIosEvent* e, void*) {
                 nue_internal_push_event(&ev);
             }
         }
-#endif
         break;
     case NUE_IOS_EVENT_AUDIO_ROUTE:
         NUE_LOGI(kTag, "audio route changed (kind %d%s)", (int)e->a, e->b ? ", device removed" : "");
-#if NUE_IOS_API_011
         {
             nue_event ev{};
             ev.type = NUE_EVENT_AUDIO_ROUTE_CHANGED;   // payload.audio_device: output (is_capture = 0), device_id 0 = the new default
             nue_internal_push_event(&ev);
         }
-#endif
         break;
     default:
         break;
@@ -595,7 +587,6 @@ int64_t ext_available_memory(void) { return nue_ios_memory_available(); }
 
 const nue_ext_ios_v1 g_ext = {sizeof(nue_ext_ios_v1), ext_probe_gpu, ext_configure_layer, ext_game_mode_declared, ext_available_memory};
 
-#if NUE_IOS_API_011
 nue_result ios_memory_info_ex(nue_memory_info* m) {
     if (!m) return NUE_ERR_INVALID_ARGUMENT;
     static uint64_t working_set = [] {
@@ -629,7 +620,6 @@ nue_result ios_window_request_refresh(const nue_native_window*, float refresh_hz
     apply_fps(frame_limit_fps > 0 ? frame_limit_fps : refresh_hz);
     return NUE_OK;
 }
-#endif
 
 // ---------------------------------------------------------------------------------------------------------------------------- lifecycle of the layer
 nue_result ios_init(const nue_backend_init* init) {
@@ -696,14 +686,12 @@ const nue_platform_ops g_ops = {
     /* haptics */ ios_haptics_available, ios_haptics_vibrate,
     /* crash */ ios_crash_install, ios_crash_uninstall, ios_crash_write_dump, /* release_input */ nullptr,
     /* log */ ios_log_write,
-#if NUE_IOS_API_011
     /* pre_init: not needed (SDL_AUDIO_CATEGORY is read when the device opens, after config load, so init sets it) */ nullptr,
     /* owns_lifecycle: this layer drives NUE_EVENT_APP_* from UIApplication notifications; the backend must not */ NUE_TRUE,
     /* memory_info_ex */ ios_memory_info_ex,
     /* gpu_probe */ ios_gpu_probe,
     /* window_request_refresh */ ios_window_request_refresh,
     /* screen_keyboard: SDL3 text input covers it */ nullptr,
-#endif
 };
 
 }  // namespace
