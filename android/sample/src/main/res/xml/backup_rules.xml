@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 6-11 auto backup (25 MB limit): saves and settings only. -->
+<full-backup-content>
+    <include domain="file" path="saves" />
+    <include domain="file" path="config" />
+</full-backup-content>

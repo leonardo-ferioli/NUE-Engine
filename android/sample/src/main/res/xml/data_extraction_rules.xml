@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: back up / transfer only saves and settings, never the ~1.2 GB of imported game data. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="saves" />
+        <include domain="file" path="config" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="saves" />
+        <include domain="file" path="config" />
+    </device-transfer>
+</data-extraction-rules>
