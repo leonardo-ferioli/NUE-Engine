@@ -67,13 +67,23 @@ uint64_t storage_bytes(TextureStorage, uint32_t width, uint32_t height);
 
 const char* texture_storage_name(TextureStorage);
 
-// Process memory budget the engine should plan against.
+// Process memory budget the engine should plan against. Nothing here is a fixed size: the numbers come from the device (physical memory,
+// os_proc_available_memory, the current footprint) and from a policy the application can override at run time.
 struct MemoryBudget {
-    uint64_t hard_limit;      // do not exceed (the 2 GB goal, or less on small devices)
+    uint64_t hard_limit;      // do not exceed; 0 = unknown (no information from the OS and no override): callers must not assume a value
     uint64_t texture_share;   // bytes available for textures
     uint64_t soft_limit;      // start shedding caches
 };
-// physical_memory: NSProcessInfo.physicalMemory; os_available: os_proc_available_memory() at start-up (0 = unknown).
-MemoryBudget plan_memory_budget(uint64_t physical_memory, uint64_t os_available, uint64_t goal_bytes = 2048ull << 20);
+// Tunable policy. Defaults are starting points, not measurements; every field can be changed through configuration.
+struct MemoryPolicy {
+    uint64_t override_hard_limit = 0;   // bytes; non-zero wins over everything (a game that knows its own need, or a test)
+    uint32_t headroom_percent = 90;     // fraction of "footprint + available" treated as the usable limit (the OS kills at the limit itself)
+    uint32_t physical_percent = 55;     // fallback when the OS gives no figure: share of physical RAM
+    uint32_t soft_percent = 85;         // soft limit as a share of the hard limit
+    uint32_t texture_percent = 25;      // texture share of the hard limit
+};
+// physical_memory: NSProcessInfo.physicalMemory; os_available: os_proc_available_memory() (0 = unknown); footprint: the process's current
+// phys_footprint (0 = unknown). The jetsam limit is estimated as footprint + os_available, because os_proc_available_memory is the room LEFT.
+MemoryBudget plan_memory_budget(uint64_t physical_memory, uint64_t os_available, uint64_t footprint, const MemoryPolicy& policy = {});
 
 }  // namespace nue::ios

@@ -85,14 +85,19 @@ const char* texture_storage_name(TextureStorage s) {
     return "?";
 }
 
-MemoryBudget plan_memory_budget(uint64_t physical, uint64_t os_available, uint64_t goal) {
+MemoryBudget plan_memory_budget(uint64_t physical, uint64_t os_available, uint64_t footprint, const MemoryPolicy& p) {
     MemoryBudget b{};
-    uint64_t hard = goal;
-    if (physical != 0) hard = std::min<uint64_t>(hard, physical * 55 / 100);   // jetsam kills well before physical RAM; ~55 % is a safe ceiling
-    if (os_available != 0) hard = std::min<uint64_t>(hard, os_available);       // what the OS says we can still allocate right now
+    uint64_t hard = 0;
+    if (p.override_hard_limit != 0) {
+        hard = p.override_hard_limit;
+    } else if (os_available != 0) {
+        hard = (footprint + os_available) / 100 * p.headroom_percent;   // estimated jetsam limit, with headroom
+    } else if (physical != 0) {
+        hard = physical / 100 * p.physical_percent;                      // no OS figure: a share of physical RAM
+    }
     b.hard_limit = hard;
-    b.soft_limit = hard * 85 / 100;
-    b.texture_share = hard * 25 / 100;
+    b.soft_limit = hard / 100 * p.soft_percent;
+    b.texture_share = hard / 100 * p.texture_percent;
     return b;
 }
 

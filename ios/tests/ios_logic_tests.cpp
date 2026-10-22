@@ -137,12 +137,25 @@ static void test_caps() {
     CHECK(storage_bytes(TextureStorage::astc6x6, 256, 256) < storage_bytes(TextureStorage::astc4x4, 256, 256));
     CHECK(storage_bytes(TextureStorage::rgba8, 4, 4) == 64);
 
-    auto b = plan_memory_budget(4ull << 30, 0);
-    CHECK(b.hard_limit == 2048ull << 20 && b.soft_limit < b.hard_limit && b.texture_share < b.soft_limit);
-    b = plan_memory_budget(3ull << 30, 0);   // 55 % of 3 GB = 1.65 GB < 2 GB goal
-    CHECK(b.hard_limit == (3ull << 30) * 55 / 100);
-    b = plan_memory_budget(6ull << 30, 900ull << 20);   // OS says only 900 MB left
-    CHECK(b.hard_limit == 900ull << 20);
+    // The limit is derived from the OS, never from a fixed size: footprint + room left, with headroom.
+    MemoryPolicy pol0;
+    auto b = plan_memory_budget(6ull << 30, 1500ull << 20, 300ull << 20);
+    CHECK(b.hard_limit == (1800ull << 20) / 100 * pol0.headroom_percent);
+    CHECK(b.soft_limit < b.hard_limit && b.texture_share < b.soft_limit);
+    // More room reported -> bigger limit (no cap at any constant).
+    auto big = plan_memory_budget(16ull << 30, 6000ull << 20, 500ull << 20);
+    CHECK(big.hard_limit > b.hard_limit && big.hard_limit > (4ull << 30));
+    // No OS figure: share of physical RAM; nothing at all: unknown (0), never a made-up number.
+    b = plan_memory_budget(3ull << 30, 0, 0);
+    CHECK(b.hard_limit == (3ull << 30) / 100 * pol0.physical_percent);
+    b = plan_memory_budget(0, 0, 0);
+    CHECK(b.hard_limit == 0 && b.soft_limit == 0 && b.texture_share == 0);
+    // Overrides and policy fields.
+    MemoryPolicy custom; custom.override_hard_limit = 1000ull << 20;
+    CHECK(plan_memory_budget(8ull << 30, 5000ull << 20, 100ull << 20, custom).hard_limit == 1000ull << 20);
+    MemoryPolicy tight; tight.headroom_percent = 50; tight.texture_percent = 10; tight.soft_percent = 70;
+    b = plan_memory_budget(0, 1000ull << 20, 0, tight);
+    CHECK(b.hard_limit == (1000ull << 20) / 100 * 50 && b.texture_share == b.hard_limit / 100 * 10 && b.soft_limit == b.hard_limit / 100 * 70);
 }
 
 static void test_paths() {

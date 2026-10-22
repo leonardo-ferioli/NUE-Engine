@@ -119,7 +119,7 @@ La app de ejemplo pinta un texto sobre un fondo de color animado. Comprueba y an
 | Pulsar Inicio y volver | `state` pasa por `background` y vuelve a `active`; el fondo sigue animado |
 | Bajar el Centro de Control | `state: inactive` mientras está abierto |
 | Línea `gpu:` | nombre del chip, `AppleFamily` 4–9, `BC:0`, `DXT->ASTC4x4` |
-| Línea `memory:` | `avail` entre cientos de MB y ~2 GB; cambia si abres otras apps |
+| Línea `memory:` | `avail` = memoria que iOS aún permite usar (depende del dispositivo); baja si abres otras apps |
 | Modo bajo consumo | `lpm:1` y `advised max fps: 30` |
 | Conectar un mando Xbox/PlayStation | `pads: 1` y `last input: gamepad` |
 | Inclinar el dispositivo en horizontal | `steering` cambia de signo al girar a derecha/izquierda; **anota si el signo es el contrario en alguno de los dos horizontales** |

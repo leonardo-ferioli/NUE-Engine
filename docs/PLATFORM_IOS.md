@@ -201,10 +201,13 @@ the engine in one `NUE_IOS_EVENT_LIFECYCLE` event (`a` = new state, `b` = action
 * **Battery**: level and state in `NUE_IOS_EVENT_POWER`.
 * **Keep awake**: `nue_ios_set_keep_awake` -> `idleTimerDisabled` (the engine should enable it during play and release it in menus).
 * **Thread QoS**: `nue_ios_set_thread_qos(0..3)` = user-interactive (game/render thread), user-initiated, utility (streaming/IO), background.
-* **Memory budget**: `plan_memory_budget` plans against the 2 GB goal, capped to 55 % of physical RAM and to what `os_proc_available_memory`
-  reports; soft limit 85 % of that, texture share 25 %. A 4 GB device plans for the full 2 GB goal (55 % of 4 GB is 2.2 GB), but the real jetsam limit for a normal app is
-  lower on many models: the increased-memory-limit entitlement (see `NueSample.entitlements`) may be needed and needs a paid profile. The figures
-  are heuristics until measured on hardware.
+* **Memory budget**: there is no fixed limit. `plan_memory_budget` estimates the jetsam limit as *current footprint + `os_proc_available_memory()`*
+  (the call reports the room left, not the total) and plans against 90 % of it; the soft limit (start shedding caches) is 85 % of that and the
+  texture share 25 %. With no OS figure it falls back to 55 % of physical RAM, and with no information at all the budget is 0 = unknown (callers
+  must not invent a size). All percentages live in `MemoryPolicy`, and the application can override the whole limit with the config key
+  `ios.memory_limit_mb` (0 = derive from the OS) or `NueIosConfig.memory_limit_override_bytes`. The pressure thresholds (`MemoryThresholds`:
+  moderate < 400 MB left, high < 250 MB, critical < 120 MB) are likewise a starting policy. The increased-memory-limit entitlement (see
+  `NueSample.entitlements`) raises what the OS grants and needs a paid profile. All figures are heuristics until measured on hardware.
 
 ## 6. Storage (`logic/storage.*`, `apple/nue_ios_storage.mm`)
 
@@ -277,7 +280,7 @@ the engine in one `NUE_IOS_EVENT_LIFECYCLE` event (`a` = new state, `b` = action
   texture budget, and as **RGBA8** (exact, 8x DXT1) only for textures of 32x32 pixels or fewer. The decision is pure arithmetic; the
   transcoder (BC -> ASTC without visible loss) belongs to the graphics layer. This is the one point where fidelity and memory conflict, so it is
   reported to nue-core / d3d9 rather than decided silently (see REQUESTS_ios.md).
-* Memory: whole process inside about 2 GB (see section 5); the shader cache is a candidate for `MTLBinaryArchive` (iOS 14+, flag provided).
+* Memory: planned from the device and configurable, not a fixed size (see section 5); the shader cache is a candidate for `MTLBinaryArchive` (iOS 14+, flag provided).
 
 ## 10. Diagnostics (`apple/nue_ios_diag.mm`)
 

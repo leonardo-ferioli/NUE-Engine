@@ -149,7 +149,10 @@ int nue_ios_probe_gpu(NueIosGpuInfo* out) {
     p.physical_memory = [NSProcessInfo processInfo].physicalMemory;
 
     DeviceCaps c = derive_caps(p);
-    MemoryBudget b = plan_memory_budget(p.physical_memory, static_cast<uint64_t>(std::max<int64_t>(0, nue_ios_available_memory())));
+    MemoryPolicy policy;
+    policy.override_hard_limit = nue::ios::detail::config().memory_limit_override_bytes;
+    MemoryBudget b = plan_memory_budget(p.physical_memory, static_cast<uint64_t>(std::max<int64_t>(0, nue_ios_available_memory())),
+                                        static_cast<uint64_t>(std::max<int64_t>(0, nue_ios_memory_footprint())), policy);
     TexturePolicy pol = choose_texture_policy(c, b.texture_share, 0);
 
     out->highest_apple_family = p.highest_apple_family;

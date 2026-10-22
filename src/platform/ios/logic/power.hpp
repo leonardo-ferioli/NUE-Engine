@@ -12,7 +12,7 @@ ThermalLevel thermal_from_raw(int ns_process_info_thermal_state);
 const char* thermal_name(ThermalLevel);
 
 // Remaining process memory as reported by os_proc_available_memory() (bytes before the jetsam limit).
-// Thresholds are deliberately generous: NFSU2 on this engine has to live inside roughly 2 GB in total.
+// Thresholds are about the room LEFT, not about a total size, and are a starting policy: the caller may pass its own MemoryThresholds.
 struct MemoryThresholds {
     uint64_t moderate_below = 400ull << 20;
     uint64_t high_below = 250ull << 20;

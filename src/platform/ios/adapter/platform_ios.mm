@@ -573,6 +573,7 @@ nue_result ios_init(const nue_backend_init* init) {
         cfg.enable_crash_handler = 0;   // the core installs crash handling through crash_install
         cfg.enable_motion = 0;          // sensors come from SDL3
         cfg.target_fps = 60;
+        cfg.memory_limit_override_bytes = static_cast<uint64_t>(std::max<int64_t>(0, nue_config_get_int("ios.memory_limit_mb", 0))) << 20;   // 0 = derive from the OS
         cfg.adapter_mode = 1;
         cfg.on_event = on_ios_event;
         nue_ios_init(&cfg);

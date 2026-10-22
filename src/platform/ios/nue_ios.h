@@ -51,6 +51,7 @@ typedef struct NueIosConfig {
     int enable_crash_handler;      /* install signal handlers + MetricKit subscriber */
     int enable_memory_poll;        /* poll os_proc_available_memory about every second while active */
     uint16_t target_fps;           /* game's wanted frame rate (60); 0 = display maximum */
+    uint64_t memory_limit_override_bytes;   /* non-zero: the process budget to plan against; 0 = derive it from the OS (footprint + os_proc_available_memory) */
     int adapter_mode;              /* 1 when running under the NUE core (SDL3 owns audio, input and display events): the backend then only OBSERVES audio,
                                       does not install GameController/CoreMotion handlers and does not publish SAFE_AREA/DISPLAY events. 0 = standalone (sample app) */
     NueIosEventFn on_event;
@@ -190,6 +191,8 @@ int nue_ios_system_info(NueIosSystemInfo* out);
 int nue_ios_locale(char* buf, size_t size);
 /* Available memory in bytes: os_proc_available_memory(), or free+inactive pages when that is 0 (Simulator). -1 unknown. */
 int64_t nue_ios_memory_available(void);
+/* Current process footprint (task_vm_info.phys_footprint) in bytes, -1 unknown. Any thread. */
+int64_t nue_ios_memory_footprint(void);
 
 /* ---- diagnostics ----------------------------------------------------------------------------------------------------------------------- */
 

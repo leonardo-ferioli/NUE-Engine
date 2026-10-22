@@ -90,6 +90,13 @@ int64_t nue_ios_memory_available(void) {
     return static_cast<int64_t>((static_cast<uint64_t>(vm.free_count) + vm.inactive_count + vm.speculative_count) * page);
 }
 
+int64_t nue_ios_memory_footprint(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return -1;
+    return static_cast<int64_t>(info.phys_footprint);
+}
+
 int nue_ios_safe_area(void* ui_window, float out_ltrb[4], float* width, float* height) {
     UIWindow* w = (__bridge UIWindow*)ui_window;
     if (![w isKindOfClass:[UIWindow class]] || !out_ltrb) return -1;
