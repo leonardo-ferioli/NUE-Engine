@@ -14,6 +14,7 @@
 #include "nue/input.h"
 #include "nue/window.h"
 #include "nue/power.h"
+#include "nue/memory.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +33,11 @@ NUE_API nue_result NUE_CALL nue_null_touch(uint64_t finger_id, float x, float y,
 NUE_API nue_result NUE_CALL nue_null_set_app_state(nue_app_state state);         /* produces the PAUSING/PAUSED/RESUMING/RESUMED sequence */
 NUE_API nue_result NUE_CALL nue_null_set_thermal_state(nue_thermal_state state);
 NUE_API nue_result NUE_CALL nue_null_set_power(nue_power_state state, int32_t battery_percent);
+/* Simulate the machine's memory (budgets resolve against it) and the OS signals around it. Pass NULL to go back to the real machine. */
+NUE_API nue_result NUE_CALL nue_null_set_memory(const nue_memory_info* info_or_null);
+NUE_API nue_result NUE_CALL nue_null_signal_memory_pressure(nue_memory_pressure level, uint64_t available_bytes);
+NUE_API nue_result NUE_CALL nue_null_system_suspend(nue_bool suspending);          /* NUE_EVENT_SYSTEM_SUSPENDING / NUE_EVENT_SYSTEM_RESUMED */
+NUE_API nue_result NUE_CALL nue_null_audio_interruption(nue_bool begin);           /* NUE_EVENT_AUDIO_INTERRUPTED / RESUMED */
 NUE_API nue_result NUE_CALL nue_null_set_display(uint32_t width, uint32_t height, float refresh_hz, float content_scale);
 NUE_API nue_result NUE_CALL nue_null_resize_window(nue_window window, int32_t width, int32_t height);   /* as if the user dragged the border */
 NUE_API nue_result NUE_CALL nue_null_request_close(nue_window window);

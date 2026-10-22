@@ -56,9 +56,31 @@ typedef struct nue_system_info {
     char locale[32];                        /* BCP-47 "en-US" */
     nue_bool dark_mode;
     uint32_t reserved[8];
+    /* appended in 0.1.1 */
+    uint32_t platform_flags;                /* nue_platform_flags */
+    char platform_variant[64];              /* "SteamOS 3.6", "Bazzite", "ChimeraOS", "Steam Deck OLED", "" when none applies */
+    char runtime_name[48];                  /* "Steam Linux Runtime 3.0 (sniper)", "Flatpak", "Wine 9.0", "" */
 } nue_system_info;
 
-NUE_API nue_result NUE_CALL nue_system_get_info(nue_system_info* out);       /* [any] cached; memory fields refreshed on each call */
+typedef uint32_t nue_platform_flags;
+enum {
+    NUE_PLATFORM_HANDHELD         = 1u << 0,    /* handheld form factor (Steam Deck, ROG Ally, phones count through device_class) */
+    NUE_PLATFORM_STEAMOS          = 1u << 1,    /* SteamOS or a SteamOS-like distribution (Bazzite, ChimeraOS, HoloISO, Nobara Steam edition...) */
+    NUE_PLATFORM_STEAM_DECK       = 1u << 2,    /* the hardware is a Steam Deck (LCD or OLED: see platform_variant) */
+    NUE_PLATFORM_STEAM_MACHINE    = 1u << 3,
+    NUE_PLATFORM_STEAM_FRAME      = 1u << 4,
+    NUE_PLATFORM_GAMESCOPE        = 1u << 5,    /* running inside a gamescope session (nested or as the compositor) */
+    NUE_PLATFORM_STEAM_GAMING_MODE= 1u << 6,    /* the Steam gaming-mode session (console-like UI): fullscreen mode switches are the compositor's job */
+    NUE_PLATFORM_STEAM_RUNTIME    = 1u << 7,    /* inside a Steam Linux Runtime container (pressure-vessel) */
+    NUE_PLATFORM_FLATPAK          = 1u << 8,
+    NUE_PLATFORM_READ_ONLY_ROOT   = 1u << 9,    /* the root file system is immutable (SteamOS, Bazzite): write only below user/cache/settings roots */
+    NUE_PLATFORM_REMOVABLE_STORAGE= 1u << 10,   /* an SD card / external library path exists (see the "nue.linux.v1" extension for the list) */
+    NUE_PLATFORM_COMPAT_LAYER     = 1u << 11,   /* Wine / Proton / Rosetta-like layer */
+    NUE_PLATFORM_TV_UI            = 1u << 12    /* couch / TV session: assume controller-only navigation and large text */
+};
+
+NUE_API nue_result NUE_CALL nue_system_get_info(nue_system_info* out);
+NUE_API nue_platform_flags NUE_CALL nue_system_get_platform_flags(void);                  /* [any] cheap; same value as nue_system_info.platform_flags */       /* [any] cached; memory fields refreshed on each call */
 NUE_API nue_result NUE_CALL nue_system_get_memory(uint64_t* out_total, uint64_t* out_available);   /* [any] cheap refresh */
 
 /* Capability flags (64 bit mask pair). Names are stable identifiers; values are never reused. */
