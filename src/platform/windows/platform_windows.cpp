@@ -685,6 +685,7 @@ nue_result win_storage_root(nue_root_kind kind, const nue_init_desc* desc, char*
             break;
         }
         case NUE_ROOT_TEMP: {
+            if (desc && desc->user_data_path && desc->user_data_path[0]) return NUE_ERR_UNSUPPORTED;   // portable mode: temp lives below the user folder too
             std::wstring t;
             if (!known_folder_path(KnownFolder::Temp, t).ok) return NUE_ERR_BACKEND;
             path = t + L"\\" + path_from_utf8(sanitize_file_name(org)) + L"\\" + path_from_utf8(sanitize_file_name(app));

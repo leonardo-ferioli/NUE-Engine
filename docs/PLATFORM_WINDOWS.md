@@ -54,7 +54,7 @@ Opt-in tests (environment variables, all verified once on the development machin
 | `pre_init`, `window_request_refresh`, `screen_keyboard` | NULL: nothing process-wide must precede SDL_Init on Windows (DPI policy stays with the host's manifest), no compositor frame-rate API, SDL text input brings up the touch keyboard | - |
 | `perf_hint_*`, `window_set_gpu_preference`, `haptics_*`, `import`, `window_safe_area` | NULL: Windows has no equivalent / the SDL3 backend covers it | - |
 
-Storage rule worth stating: when `user_data_path` is given (portable mode, tests), `storage_root` answers UNSUPPORTED for cache and settings so that the core
+Storage rule worth stating: when `user_data_path` is given (portable mode, tests), `storage_root` answers UNSUPPORTED for cache, settings and temp so that the core
 puts them under `<user>/cache` and `<user>/settings`; otherwise they go to `%LocalAppData%` and `%AppData%`. Without it the core tests wrote into the real profile.
 
 ## Capability table
