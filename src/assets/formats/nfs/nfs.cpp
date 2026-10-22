@@ -57,12 +57,9 @@ int32_t NUE_CALL probe(void*, const void* head, size_t head_size, uint64_t total
         const uint32_t id = rd32(h + off), size = rd32(h + off + 4);
         if (id == 0xFFFFFFFFu || off + 8 + size > total) return 0;
         ++checked;
-        if (id & 0x80000000u) {                          // descend into the first child if it is visible: its header must fit the parent
-            if (size >= 8 && off + 16 <= head_size) {
-                const uint32_t csize = rd32(h + off + 12);
-                if (uint64_t(csize) + 8 > size) return 0;
-            }
-            off += 8;
+        if (id & 0x80000000u) {                          // descend into the first child when it is visible and fits; otherwise the group is opaque
+            bool descend = size >= 8 && off + 16 <= head_size && uint64_t(rd32(h + off + 12)) + 8 <= size;
+            off += descend ? 8 : 8 + uint64_t(size);
         } else {
             off += 8 + uint64_t(size);
         }

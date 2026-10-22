@@ -302,14 +302,15 @@ nue_result plan_tpk(nue_asset_container c, const Tpk& t, TpkPlan* out) {
         uint32_t code = 0;
         nue_tex_image use = edits[k], converted = nullptr;
         if (!ct_for_format(d.format, &ct, &code)) {
-            // keep the family the game stored: DXT stays DXT, everything else becomes BGRA8
-            const nue_tex_format target = (x.ct == kCtDxt1 || x.ct == kCtDxt3 || x.ct == kCtDxt5) ? format_of_ct(x.ct) : NUE_TEX_BGRA8_UNORM;
+            // keep the family the game stored: DXT1 stays BC1, DXT3/DXT5 become BC3 (the texture module has no BC2 encoder; DXT5 is the same size and
+            // a D3D9 format every driver accepts), everything else becomes BGRA8
+            const nue_tex_format target = x.ct == kCtDxt1 ? NUE_TEX_BC1_UNORM : (x.ct == kCtDxt3 || x.ct == kCtDxt5) ? NUE_TEX_BC3_UNORM : NUE_TEX_BGRA8_UNORM;
             nue_tex_encode_params ep;
             nue_tex_encode_params_default(&ep);
             nue_tex_mip_params mp;
             nue_tex_mip_params_default(&mp);
             r = nue_tex_image_convert(edits[k], target, 0, &ep, &mp, &converted);
-            if (r < 0) return r;
+            if (r < 0) { nue_set_last_error("nfs: texture '%s': cannot convert %s to %s (%s)", x.name, nue_tex_format_name(d.format), nue_tex_format_name(target), nue_result_name(r)); return r; }
             use = converted;
             ct_for_format(target, &ct, &code);
             r = nue_tex_image_get_desc(use, &d);
