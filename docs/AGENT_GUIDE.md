@@ -53,6 +53,10 @@ clone. To bring in other areas' work: `git merge origin/main` (or the owner's br
 - `cmake --preset <name>`, `cmake --build --preset <name>`, `ctest --preset <name>`.
 - Tests must run with the null or dummy backends: no window, no sound, no GPU needed. Never open the game.
 
+## CI is paused
+
+GitHub Actions is paused for now (spending limit). Do not rely on it: build and test locally with the presets and the null/dummy backends, and say in your report exactly what you compiled and ran. The workflow files stay in the repository for when CI is switched back on. The main session still pushes your branch.
+
 ## CI and releases (GitHub Actions, `.github/workflows/ci.yml`)
 
 - Runs on every push and pull request: Windows x86 and x64, Linux x64 (with SDL dummy drivers), Android arm64 (NDK, build only),
