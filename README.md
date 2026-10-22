@@ -70,35 +70,54 @@ platforms NUE runs on, stays the same.
   <img alt="The legacy layer changes with the source platform while the native ABI and the platform layers stay the same" src="assets/legacy-layers.gif" width="860">
 </p>
 
-| Source platform | Layer | State |
-|---|---|---|
-| Windows, Direct3D 9 | `legacy_d3d9` | In development |
-| Windows, Win32, DirectSound, DirectInput | `legacy_win32`, `legacy_dsound`, `legacy_dinput` | Planned |
-| Xbox One | `legacy_d3d11` | Planned |
-| PlayStation family | one layer per console API | Planned |
-| Nintendo 64 | `legacy_rdp` | Planned |
-| Handhelds | one layer per system | Planned |
+Every platform below is in scope, one by one, and each one gets its own legacy layer. Only the Direct3D 9 layer exists today. All
+the others are planned and are written when a recompilation project needs them.
 
-Only the Direct3D 9 layer exists today. The rest is design, listed in the [roadmap](docs/ROADMAP.md), and
-[how to write a legacy layer](docs/LEGACY_LAYERS.md) says what each one is made of.
+| Maker | Platform | Year | Kind | Layer | State |
+|---|---|---|---|---|---|
+| Microsoft | Windows, Direct3D 9 | - | PC | `legacy_d3d9` | In development |
+| Microsoft | Windows, Win32 subset | - | PC | `legacy_win32` | Planned |
+| Microsoft | Windows, DirectSound | - | PC | `legacy_dsound` | Planned |
+| Microsoft | Windows, DirectInput | - | PC | `legacy_dinput` | Planned |
+| Microsoft | Xbox | 2001 | Console | `legacy_xbox` | Planned |
+| Microsoft | Xbox 360 | 2005 | Console | `legacy_x360` | Planned |
+| Microsoft | Xbox One | 2013 | Console | `legacy_xone` | Planned |
+| Microsoft | Xbox Series X and S | 2020 | Console | `legacy_xsx` | Planned |
+| Sony | PlayStation | 1994 | Console | `legacy_ps1` | Planned |
+| Sony | PlayStation 2 | 2000 | Console | `legacy_ps2` | Planned |
+| Sony | PlayStation 3 | 2006 | Console | `legacy_ps3` | Planned |
+| Sony | PlayStation 4 | 2013 | Console | `legacy_ps4` | Planned |
+| Sony | PlayStation 5 | 2020 | Console | `legacy_ps5` | Planned |
+| Sony | PSP | 2004 | Handheld | `legacy_psp` | Planned |
+| Sony | PlayStation Vita | 2011 | Handheld | `legacy_vita` | Planned |
+| Nintendo | NES | 1983 | Console | `legacy_nes` | Planned |
+| Nintendo | SNES | 1990 | Console | `legacy_snes` | Planned |
+| Nintendo | Nintendo 64 | 1996 | Console | `legacy_n64` | Planned |
+| Nintendo | GameCube | 2001 | Console | `legacy_gc` | Planned |
+| Nintendo | Wii | 2006 | Console | `legacy_wii` | Planned |
+| Nintendo | Wii U | 2012 | Console | `legacy_wiiu` | Planned |
+| Nintendo | Switch | 2017 | Console and handheld | `legacy_switch` | Planned |
+| Nintendo | Game Boy | 1989 | Handheld | `legacy_gb` | Planned |
+| Nintendo | Game Boy Color | 1998 | Handheld | `legacy_gbc` | Planned |
+| Nintendo | Game Boy Advance | 2001 | Handheld | `legacy_gba` | Planned |
+| Nintendo | Nintendo DS | 2004 | Handheld | `legacy_nds` | Planned |
+| Nintendo | Nintendo 3DS | 2011 | Handheld | `legacy_3ds` | Planned |
+| Sega | Master System | 1985 | Console | `legacy_sms` | Planned |
+| Sega | Mega Drive / Genesis | 1988 | Console | `legacy_md` | Planned |
+| Sega | Game Gear | 1990 | Handheld | `legacy_gg` | Planned |
+| Sega | Saturn | 1994 | Console | `legacy_saturn` | Planned |
+| Sega | Dreamcast | 1998 | Console | `legacy_dc` | Planned |
+| Atari | Atari 2600 | 1977 | Console | `legacy_a2600` | Planned |
+| Atari | Lynx | 1989 | Handheld | `legacy_lynx` | Planned |
+| Atari | Jaguar | 1993 | Console | `legacy_jaguar` | Planned |
+| Others | PC Engine | 1987 | Console | `legacy_pce` | Planned |
+| Others | Neo Geo | 1990 | Console | `legacy_neogeo` | Planned |
+| Others | 3DO | 1993 | Console | `legacy_3do` | Planned |
+| Others | WonderSwan | 1999 | Handheld | `legacy_ws` | Planned |
+| Others | N-Gage | 2003 | Handheld | `legacy_ngage` | Planned |
 
-<details>
-<summary><b>Every console in scope</b> (all planned, written when a project needs them)</summary>
-
-<br>
-
-| Maker | Consoles |
-|---|---|
-| Microsoft | Xbox, Xbox 360, Xbox One, Xbox Series X and S |
-| Sony | PlayStation, PlayStation 2, PlayStation 3, PlayStation 4, PlayStation 5, PSP (handheld), PlayStation Vita (handheld) |
-| Nintendo | NES, SNES, Nintendo 64, GameCube, Wii, Wii U, Switch, Game Boy and Game Boy Color (handheld), Game Boy Advance (handheld), Nintendo DS (handheld), Nintendo 3DS (handheld) |
-| Sega | Master System, Mega Drive and Genesis, Saturn, Dreamcast, Game Gear (handheld) |
-| Atari | 2600, Jaguar, Lynx (handheld) |
-| Others | 3DO, Neo Geo, PC Engine, WonderSwan, N-Gage and similar |
-
-The full table with years and notes is in the [roadmap](docs/ROADMAP.md#console-catalogue).
-
-</details>
+The design is in the [roadmap](docs/ROADMAP.md) and [how to write a legacy layer](docs/LEGACY_LAYERS.md) says what each one is made of.
+Consoles that share an architecture can share most of a layer, so this is a list of targets and not a list of separate pieces of work.
 
 ## Built for reverse engineering
 

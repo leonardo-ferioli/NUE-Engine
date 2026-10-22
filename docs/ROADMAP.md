@@ -27,55 +27,58 @@ describes what a layer is made of and how to build one.
 
 ## Source platforms
 
-| Family | What a layer has to answer | State |
-|---|---|---|
-| Windows, Direct3D 9 | Direct3D 9, plus a Win32 subset, DirectSound and DirectInput | Direct3D 9 in development, the rest planned |
-| Other Direct3D versions | The graphics API of the game's era | Planned, as projects need them |
-| Xbox One | Its DirectX 11 and 12 flavours, audio, input and system services | Planned |
-| PlayStation family | The console's graphics API, audio, input and system services | Planned |
-| Nintendo 64 | The reality co-processor display lists (RSP and RDP), audio, controller, big-endian memory | Planned |
-| Handhelds | PSP, Vita, DS, 3DS, GBA and similar, each with its own graphics and system layer | Planned |
-
-Everything in between is in scope when a project needs it. Nothing in this table is started except the Direct3D 9 layer.
+Every platform is listed one by one in the [console catalogue](#console-catalogue) below. What a layer has to answer is the same list
+for each of them: a graphics API or command stream, audio, input, system services and a memory map. Nothing in the catalogue is
+started except the Direct3D 9 layer.
 
 ## Console catalogue
 
-Every console below is in scope, and each one needs its own legacy layer. All of them are **planned**: none is started, and a layer
-is only written when a recompilation project needs it. Handhelds are marked.
+Every platform below is in scope, listed one by one, and each one needs its own legacy layer. Layer names follow `legacy_<code>`.
+All are **planned** except the Direct3D 9 layer: none of the others is started, and a layer is only written when a recompilation
+project needs it.
 
-| Maker | Console | Year | Notes |
-|---|---|---|---|
-| Microsoft | Xbox | 2001 | Direct3D 8 class graphics |
-| Microsoft | Xbox 360 | 2005 | |
-| Microsoft | Xbox One | 2013 | DirectX 11 and 12 flavours |
-| Microsoft | Xbox Series X and S | 2020 | |
-| Sony | PlayStation | 1994 | Command-stream graphics |
-| Sony | PlayStation 2 | 2000 | |
-| Sony | PlayStation 3 | 2006 | |
-| Sony | PlayStation 4 | 2013 | |
-| Sony | PlayStation 5 | 2020 | |
-| Sony | PSP | 2004 | Handheld |
-| Sony | PlayStation Vita | 2011 | Handheld |
-| Nintendo | NES | 1983 | |
-| Nintendo | SNES | 1990 | |
-| Nintendo | Nintendo 64 | 1996 | RSP and RDP display lists, big-endian |
-| Nintendo | GameCube | 2001 | |
-| Nintendo | Wii | 2006 | |
-| Nintendo | Wii U | 2012 | |
-| Nintendo | Switch | 2017 | Handheld and console |
-| Nintendo | Game Boy and Game Boy Color | 1989 | Handheld |
-| Nintendo | Game Boy Advance | 2001 | Handheld |
-| Nintendo | Nintendo DS | 2004 | Handheld |
-| Nintendo | Nintendo 3DS | 2011 | Handheld |
-| Sega | Master System | 1985 | |
-| Sega | Mega Drive and Genesis | 1988 | |
-| Sega | Saturn | 1994 | |
-| Sega | Dreamcast | 1998 | |
-| Sega | Game Gear | 1990 | Handheld |
-| Atari | 2600 | 1977 | |
-| Atari | Jaguar | 1993 | |
-| Atari | Lynx | 1989 | Handheld |
-| Other | 3DO, Neo Geo, PC Engine, WonderSwan, N-Gage and similar | | As projects need them |
+| Maker | Platform | Year | Kind | Layer | State |
+|---|---|---|---|---|---|
+| Microsoft | Windows, Direct3D 9 | - | PC | `legacy_d3d9` | In development |
+| Microsoft | Windows, Win32 subset | - | PC | `legacy_win32` | Planned |
+| Microsoft | Windows, DirectSound | - | PC | `legacy_dsound` | Planned |
+| Microsoft | Windows, DirectInput | - | PC | `legacy_dinput` | Planned |
+| Microsoft | Xbox | 2001 | Console | `legacy_xbox` | Planned |
+| Microsoft | Xbox 360 | 2005 | Console | `legacy_x360` | Planned |
+| Microsoft | Xbox One | 2013 | Console | `legacy_xone` | Planned |
+| Microsoft | Xbox Series X and S | 2020 | Console | `legacy_xsx` | Planned |
+| Sony | PlayStation | 1994 | Console | `legacy_ps1` | Planned |
+| Sony | PlayStation 2 | 2000 | Console | `legacy_ps2` | Planned |
+| Sony | PlayStation 3 | 2006 | Console | `legacy_ps3` | Planned |
+| Sony | PlayStation 4 | 2013 | Console | `legacy_ps4` | Planned |
+| Sony | PlayStation 5 | 2020 | Console | `legacy_ps5` | Planned |
+| Sony | PSP | 2004 | Handheld | `legacy_psp` | Planned |
+| Sony | PlayStation Vita | 2011 | Handheld | `legacy_vita` | Planned |
+| Nintendo | NES | 1983 | Console | `legacy_nes` | Planned |
+| Nintendo | SNES | 1990 | Console | `legacy_snes` | Planned |
+| Nintendo | Nintendo 64 | 1996 | Console | `legacy_n64` | Planned |
+| Nintendo | GameCube | 2001 | Console | `legacy_gc` | Planned |
+| Nintendo | Wii | 2006 | Console | `legacy_wii` | Planned |
+| Nintendo | Wii U | 2012 | Console | `legacy_wiiu` | Planned |
+| Nintendo | Switch | 2017 | Console and handheld | `legacy_switch` | Planned |
+| Nintendo | Game Boy | 1989 | Handheld | `legacy_gb` | Planned |
+| Nintendo | Game Boy Color | 1998 | Handheld | `legacy_gbc` | Planned |
+| Nintendo | Game Boy Advance | 2001 | Handheld | `legacy_gba` | Planned |
+| Nintendo | Nintendo DS | 2004 | Handheld | `legacy_nds` | Planned |
+| Nintendo | Nintendo 3DS | 2011 | Handheld | `legacy_3ds` | Planned |
+| Sega | Master System | 1985 | Console | `legacy_sms` | Planned |
+| Sega | Mega Drive / Genesis | 1988 | Console | `legacy_md` | Planned |
+| Sega | Game Gear | 1990 | Handheld | `legacy_gg` | Planned |
+| Sega | Saturn | 1994 | Console | `legacy_saturn` | Planned |
+| Sega | Dreamcast | 1998 | Console | `legacy_dc` | Planned |
+| Atari | Atari 2600 | 1977 | Console | `legacy_a2600` | Planned |
+| Atari | Lynx | 1989 | Handheld | `legacy_lynx` | Planned |
+| Atari | Jaguar | 1993 | Console | `legacy_jaguar` | Planned |
+| Others | PC Engine | 1987 | Console | `legacy_pce` | Planned |
+| Others | Neo Geo | 1990 | Console | `legacy_neogeo` | Planned |
+| Others | 3DO | 1993 | Console | `legacy_3do` | Planned |
+| Others | WonderSwan | 1999 | Handheld | `legacy_ws` | Planned |
+| Others | N-Gage | 2003 | Handheld | `legacy_ngage` | Planned |
 
 Consoles that share an architecture family can share most of a layer, so the table is a list of targets and not a list of
 separate pieces of work.
