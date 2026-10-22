@@ -38,6 +38,7 @@ nue_power_applied requested_mask(const nue_power_request& r) {
     if (r.target_frame_time_us) m |= NUE_POWER_APPLIED_FRAME_TIME;
     if (r.disable_power_throttling) m |= NUE_POWER_APPLIED_THROTTLING;
     if (r.prefer_low_latency_audio) m |= NUE_POWER_APPLIED_AUDIO;
+    if (NUE_STRUCT_HAS(&r, nue_power_request, tdp_watts) && r.tdp_watts) m |= NUE_POWER_APPLIED_TDP;
     return m;
 }
 
@@ -49,11 +50,13 @@ void fill_info(nue_power_info* out) {
     out->thermal = NUE_THERMAL_UNKNOWN;
     out->game_mode = NUE_GAME_MODE_UNKNOWN;
     out->thermal_headroom = -1.0f;
+    out->tdp_watts_current = out->tdp_watts_min = out->tdp_watts_max = -1;
     const nue_platform_ops* p = nuei::platform();
     if (p && p->power_info) {
         nue_power_info tmp;
         NUE_STRUCT_INIT(&tmp);
         tmp.battery_percent = -1; tmp.seconds_left = -1; tmp.thermal_headroom = -1.0f;
+        tmp.tdp_watts_current = tmp.tdp_watts_min = tmp.tdp_watts_max = -1;
         if (NUE_SUCCEEDED(p->power_info(&tmp))) *out = tmp;
         out->struct_size = sizeof(*out);
     }

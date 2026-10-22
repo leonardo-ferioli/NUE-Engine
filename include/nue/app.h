@@ -106,12 +106,18 @@ typedef enum nue_event_type {
     NUE_EVENT_AUDIO_DEVICE_ADDED = 0x800,
     NUE_EVENT_AUDIO_DEVICE_REMOVED,
     NUE_EVENT_AUDIO_DEFAULT_CHANGED,    /* streams opened on the default device are rerouted by the engine; this is informational */
+    NUE_EVENT_AUDIO_INTERRUPTED,        /* phone call, Siri, another app took the audio session: pause music/game audio state (device_id = 0) */
+    NUE_EVENT_AUDIO_RESUMED,            /* the interruption ended */
+    NUE_EVENT_AUDIO_ROUTE_CHANGED,      /* output route changed (headphones unplugged, Bluetooth): payload.audio_device.is_capture = 0, device_id = new default or 0 */
 
     /* power / thermal / game mode */
     NUE_EVENT_POWER_CHANGED = 0x900,    /* battery level, charging state or power source */
     NUE_EVENT_THERMAL_CHANGED,          /* payload.power.thermal */
     NUE_EVENT_LOW_POWER_MODE_CHANGED,
     NUE_EVENT_GAME_MODE_CHANGED,
+    NUE_EVENT_MEMORY_PRESSURE,          /* payload.memory: level and the bytes still available to the process (budgets are trimmed automatically, see memory.h) */
+    NUE_EVENT_SYSTEM_SUSPENDING,        /* the whole device is about to sleep (laptop lid, Steam Deck suspend): save, stop audio, release exclusive resources */
+    NUE_EVENT_SYSTEM_RESUMED,           /* the device woke up: clocks, network and displays may have changed */
 
     /* asynchronous operations */
     NUE_EVENT_IO_COMPLETE = 0xA00,      /* payload.user.data1 = request id */
@@ -138,6 +144,7 @@ typedef struct nue_event_input_dev { uint32_t device_kind; uint32_t glyph_family
 typedef struct nue_event_audio_dev { uint32_t device_id; uint8_t is_capture; } nue_event_audio_dev;
 typedef struct nue_event_power     { uint32_t thermal; uint32_t power_state; int32_t percent; uint8_t low_power; uint8_t game_mode; } nue_event_power;
 typedef struct nue_event_user      { int32_t code; uint64_t data1; uint64_t data2; uint64_t data3; } nue_event_user;
+typedef struct nue_event_memory    { uint32_t level; uint64_t available_bytes; } nue_event_memory;   /* level = nue_memory_pressure */
 
 /* Fixed 64-byte event. The union never grows; new event kinds fit in 40 bytes or are fetched through a follow-up query. */
 typedef struct nue_event {
@@ -158,6 +165,7 @@ typedef struct nue_event {
         nue_event_input_dev  input_device;
         nue_event_audio_dev  audio_device;
         nue_event_power      power;
+        nue_event_memory     memory;
         nue_event_user       user;
         uint8_t              raw[48];
     } payload;

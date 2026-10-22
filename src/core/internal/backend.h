@@ -31,6 +31,7 @@ typedef struct nue_backend_init {
     const nue_init_desc* desc;              /* the caller's descriptor (flags, loop model, app strings) */
     nue_bool headless;
     nue_bool deterministic;
+    nue_bool platform_owns_lifecycle;   /* the platform layer pushes NUE_EVENT_APP_* itself: do not derive app state from window events */
 } nue_backend_init;
 
 /* ------------------------------------------------------------------------------------------------ video */

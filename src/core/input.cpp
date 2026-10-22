@@ -58,7 +58,10 @@ NUE_API nue_result NUE_CALL nue_gamepad_get_info(nue_gamepad_id id, nue_gamepad_
     for (auto& g : v) NUE_STRUCT_INIT(&g);
     uint32_t got = 0;
     if (count) { i->gamepad_enum(v.data(), count, &got); v.resize(std::min(got, count)); }
-    for (const auto& g : v) if (g.id == id) return copy_struct_out(&g, sizeof(g), out, &out->struct_size);
+    for (auto& g : v) if (g.id == id) {
+        if (nuei::glyph_override() >= 0) g.glyphs = nue_glyph_family(nuei::glyph_override());
+        return copy_struct_out(&g, sizeof(g), out, &out->struct_size);
+    }
     return nuei::fail(NUE_ERR_NOT_FOUND, "gamepad %u is not connected", id);
 }
 
@@ -154,6 +157,20 @@ NUE_API nue_result NUE_CALL nue_sensor_set_enabled(nue_sensor_kind kind, nue_boo
 NUE_API nue_result NUE_CALL nue_sensor_get(nue_sensor_kind kind, float out_values[3], int64_t* out_timestamp_ns) {
     NO_INPUT_OR_RETURN(i);
     return i->sensor_get ? i->sensor_get(kind, out_values, out_timestamp_ns) : NUE_ERR_UNSUPPORTED;
+}
+
+NUE_API nue_result NUE_CALL nue_text_input_show_screen_keyboard(nue_window window, nue_bool show) {
+    nue_native_window nat;
+    NUE_STRUCT_INIT(&nat);
+    nue_result r = nue_window_get_native(window, &nat);
+    if (NUE_FAILED(r)) return r;
+    const nue_platform_ops* p = nuei::platform();
+    auto fn = p ? NUE_PLATFORM_ENTRY(p, screen_keyboard) : nullptr;
+    if (fn) return fn(&nat, show);
+    const nue_backend* b = nuei::backend();
+    if (b && b->input && b->input->screen_keyboard && b->input->screen_keyboard() && b->video && b->video->window_text_input)
+        return b->video->window_text_input(nuei::window_impl_or_null(window), show, nullptr, 0);
+    return show ? NUE_ERR_UNSUPPORTED : NUE_OK_NOOP;
 }
 
 NUE_API nue_bool NUE_CALL nue_text_input_has_screen_keyboard(void) { const nue_backend_input* i = inp(); return i && i->screen_keyboard ? i->screen_keyboard() : NUE_FALSE; }

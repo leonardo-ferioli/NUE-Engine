@@ -23,6 +23,9 @@ struct InitInfo {
     nue_init_desc desc{};  // raw copy (pointers inside are not valid after nue_init returns; use the strings above)
 };
 
+// Platform tables are versioned by struct_size: a layer compiled against an older header has fewer entries. Use this for fields appended after 0.1.0.
+#define NUE_PLATFORM_ENTRY(ops, field) (NUE_STRUCT_HAS((ops), nue_platform_ops, field) ? (ops)->field : nullptr)
+
 bool initialized();
 const InitInfo& init_info();
 const nue_backend* backend();         // nullptr before init
@@ -65,11 +68,15 @@ void vfs_init(const InitInfo& info);
 void vfs_shutdown();
 
 void io_shutdown();
+void timers_run_due(int64_t now_ns);   // deterministic mode: fire timers whose time has come (called by the virtual clock)
 void audio_shutdown();                // streams
 void mixer_shutdown_all();
 void windows_shutdown();              // destroys windows still open
 void gfx_shutdown_all();
 void power_init();
+void memory_init();                   // after events_init: installs the pressure watcher
+void memory_shutdown();
+void memory_null_set(const nue_memory_info* info_or_null);   // null backend: simulate the machine (nullptr = back to the real one)
 void power_shutdown();
 void power_poll_and_notify();         // compare power/thermal/game-mode state with the last poll and raise events
 void diag_init(const InitInfo& info);
@@ -81,6 +88,7 @@ void extensions_shutdown();
 // Updates the polled-state tables from an event; may append derived events (INPUT_DEVICE_CHANGED) to `derived`.
 void input_on_event(const nue_event& event, std::vector<nue_event>& derived);
 void input_state_reset();
+int32_t glyph_override();             // -1 = none (nue_input_set_glyph_override)
 void windows_after_pump();            // refresh window snapshots after the backend pumped
 void* window_impl_or_null(nue_window w);   // backend private pointer of a live window, else nullptr
 void windows_add_destroy_hook(void (*fn)(nue_window));   // called before a window is destroyed (gfx contexts bound to it let go)

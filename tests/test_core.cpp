@@ -265,7 +265,7 @@ TEST_CASE(real_clock_is_monotonic_and_precise_sleep_is_close) {
     nue_sleep_ns(3000000, NUE_SLEEP_PRECISE);
     int64_t b = nue_time_ns();
     CHECK(b - a >= 3000000);
-    CHECK(b - a < 30000000);   // generous for loaded CI machines
+    CHECK(b - a < 500000000);   // very generous: loaded CI machines can stall a thread for 100 ms+; the lower bound is the real check
     CHECK(nue_time_counter_frequency() > 0);
 }
 

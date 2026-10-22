@@ -633,6 +633,7 @@ int32_t nue_null_advance_time_internal(int64_t ns) {
         int64_t step = std::min<int64_t>(left, 10000000);   // 10 ms
         n.virtual_ns += step;
         advance_devices(n, step);
+        nuei::timers_run_due(n.virtual_ns.load());
         left -= step;
     }
     return 0;
@@ -833,6 +834,34 @@ NUE_API nue_result NUE_CALL nue_null_set_app_state(nue_app_state state) {
 
 NUE_API nue_result NUE_CALL nue_null_set_thermal_state(nue_thermal_state state) { NULL_ONLY_OR_RETURN(); nuei::power_null_set_thermal(state); return NUE_OK; }
 NUE_API nue_result NUE_CALL nue_null_set_power(nue_power_state state, int32_t percent) { NULL_ONLY_OR_RETURN(); nuei::power_null_set_power(state, percent); return NUE_OK; }
+
+NUE_API nue_result NUE_CALL nue_null_set_memory(const nue_memory_info* info) {
+    NULL_ONLY_OR_RETURN();
+    nuei::memory_null_set(info);
+    return NUE_OK;
+}
+
+NUE_API nue_result NUE_CALL nue_null_signal_memory_pressure(nue_memory_pressure level, uint64_t available_bytes) {
+    NULL_ONLY_OR_RETURN();
+    nue_event e;
+    std::memset(&e, 0, sizeof(e));
+    e.payload.memory.level = uint32_t(level);
+    e.payload.memory.available_bytes = available_bytes;
+    push(NUE_EVENT_MEMORY_PRESSURE, 0, &e);
+    return NUE_OK;
+}
+
+NUE_API nue_result NUE_CALL nue_null_system_suspend(nue_bool suspending) {
+    NULL_ONLY_OR_RETURN();
+    push(suspending ? NUE_EVENT_SYSTEM_SUSPENDING : NUE_EVENT_SYSTEM_RESUMED, 0);
+    return NUE_OK;
+}
+
+NUE_API nue_result NUE_CALL nue_null_audio_interruption(nue_bool begin) {
+    NULL_ONLY_OR_RETURN();
+    push(begin ? NUE_EVENT_AUDIO_INTERRUPTED : NUE_EVENT_AUDIO_RESUMED, 0);
+    return NUE_OK;
+}
 
 NUE_API nue_result NUE_CALL nue_null_set_display(uint32_t width, uint32_t height, float refresh_hz, float content_scale) {
     NULL_ONLY_OR_RETURN();

@@ -39,6 +39,7 @@ void compute_caps(uint64_t out[2]) {
         if (p->import && p->import->pick_folder) set_bit(out, NUE_CAP_DATA_IMPORT_PICKER);
         if (p->haptics_available && p->haptics_available()) set_bit(out, NUE_CAP_HAPTICS);
         if (p->window_safe_area) set_bit(out, NUE_CAP_SAFE_AREA);
+        if (NUE_PLATFORM_ENTRY(p, screen_keyboard)) set_bit(out, NUE_CAP_SCREEN_KEYBOARD);
     }
 }
 
@@ -115,6 +116,13 @@ NUE_API nue_result NUE_CALL nue_system_get_info(nue_system_info* out) {
     std::memcpy(out, &s, keep < sizeof(s) ? keep : sizeof(s));
     out->struct_size = keep;
     return NUE_OK;
+}
+
+NUE_API nue_platform_flags NUE_CALL nue_system_get_platform_flags(void) {
+    nue_system_info si;
+    NUE_STRUCT_INIT(&si);
+    nue_system_get_info(&si);
+    return si.platform_flags;
 }
 
 NUE_API nue_bool NUE_CALL nue_has_capability(nue_capability cap) {

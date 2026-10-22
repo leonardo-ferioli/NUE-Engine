@@ -18,7 +18,7 @@
 #define NUE_BUILD_TYPE_STRING "unknown"
 #endif
 #ifndef NUE_VERSION_STRING_LITERAL
-#define NUE_VERSION_STRING_LITERAL "0.1.0"
+#define NUE_VERSION_STRING_LITERAL "0.1.1"
 #endif
 
 namespace {
@@ -181,8 +181,12 @@ NUE_API nue_result NUE_CALL nue_init(const nue_init_desc* user_desc) {
     info.flags = desc.flags;
     info.log_level = desc.log_level ? desc.log_level : NUE_LOG_INFO;
     info.event_queue_capacity = desc.event_queue_capacity ? desc.event_queue_capacity : 4096;
-    info.desc.app_name = info.desc.app_id = info.desc.org_name = info.desc.app_version = nullptr;   // pointers die with the call
-    info.desc.game_data_path = info.desc.user_data_path = info.desc.config_file = info.desc.log_file = nullptr;
+    // the desc copy points into the strings owned by InitInfo (valid until shutdown), never into the caller's memory
+    info.desc.app_name = info.app_name.c_str(); info.desc.app_id = info.app_id.c_str(); info.desc.org_name = info.org_name.c_str();
+    info.desc.app_version = info.app_version.c_str();
+    info.desc.game_data_path = info.game_data_path.empty() ? nullptr : info.game_data_path.c_str();
+    info.desc.user_data_path = info.user_data_path.empty() ? nullptr : info.user_data_path.c_str();
+    info.desc.config_file = info.config_file.c_str(); info.desc.log_file = info.log_file.c_str();
     info.desc.allocator = nullptr;
 
     if (desc.allocator && desc.allocator->struct_size >= sizeof(uint32_t) * 2 + sizeof(void*)) {
@@ -230,39 +234,51 @@ NUE_API nue_result NUE_CALL nue_init(const nue_init_desc* user_desc) {
     binit.desc = &info.desc;
     binit.headless = headless ? NUE_TRUE : NUE_FALSE;
     binit.deterministic = g_deterministic.load() ? NUE_TRUE : NUE_FALSE;
-    nue_result r = c.backend->init(&binit);
+    binit.platform_owns_lifecycle = (NUE_STRUCT_HAS(c.platform, nue_platform_ops, owns_lifecycle) && c.platform->owns_lifecycle) ? NUE_TRUE : NUE_FALSE;
+
+    auto abort_init = [&](bool vfs_up, bool backend_up) {
+        if (backend_up) {
+            if (c.platform->shutdown) c.platform->shutdown();
+            c.backend->shutdown();
+        }
+        if (vfs_up) nuei::vfs_shutdown();
+        nuei::config_shutdown();
+        nuei::log_shutdown();
+        g_backend = nullptr; g_platform = nullptr;
+        c.backend = nullptr; c.platform = nullptr;
+    };
+
+    // Order matters: platform policy first (environment and SDL hints must precede SDL_Init), then storage + settings (the platform may read
+    // them in init, e.g. ios.audio_mix), then the backend, the platform layer proper and the event queue.
+    nue_result r;
+    if (NUE_STRUCT_HAS(c.platform, nue_platform_ops, pre_init) && c.platform->pre_init) {
+        r = c.platform->pre_init(&binit);
+        if (NUE_FAILED(r)) NUE_LOGW("core", "platform layer '%s' pre_init failed: %s (continuing)", c.platform->name, nue_get_last_error_message());
+    }
+    nuei::vfs_init(info);
+    nuei::log_open_file_sink(info);
+    if (!(info.flags & NUE_INIT_NO_CONFIG_LOAD) && !info.config_file.empty() && nue_vfs_exists(info.config_file.c_str())) {
+        nue_result lr = nue_config_load(info.config_file.c_str());
+        if (NUE_FAILED(lr)) NUE_LOGW("core", "settings file '%s' could not be read: %s", info.config_file.c_str(), nue_get_last_error_message());
+    }
+    r = c.backend->init(&binit);
     if (NUE_FAILED(r)) {
         NUE_LOGE("core", "backend '%s' failed to start: %s", c.backend->name, nue_get_last_error_message());
-        g_backend = nullptr; g_platform = nullptr;
-        nuei::log_shutdown();
+        abort_init(true, false);
         return r;
     }
     if (c.platform->init) {
         r = c.platform->init(&binit);
         if (NUE_FAILED(r)) NUE_LOGW("core", "platform layer '%s' init failed: %s (continuing without it)", c.platform->name, nue_get_last_error_message());
     }
-
     r = nuei::events_init(info.event_queue_capacity);
-    if (NUE_FAILED(r)) {
-        if (c.platform->shutdown) c.platform->shutdown();
-        c.backend->shutdown();
-        g_backend = nullptr; g_platform = nullptr;
-        nuei::log_shutdown();
-        return r;
-    }
+    if (NUE_FAILED(r)) { abort_init(true, true); return r; }
     c.event_thread = nuei::current_thread_id();
     c.refcount = 1;
     g_initialized = true;
 
-    nuei::vfs_init(info);
-    nuei::log_open_file_sink(info);
+    nuei::memory_init();
     nuei::power_init();
-    if (!(info.flags & NUE_INIT_NO_CONFIG_LOAD) && !info.config_file.empty()) {
-        if (nue_vfs_exists(info.config_file.c_str())) {
-            nue_result lr = nue_config_load(info.config_file.c_str());
-            if (NUE_FAILED(lr)) NUE_LOGW("core", "settings file '%s' could not be read: %s", info.config_file.c_str(), nue_get_last_error_message());
-        }
-    }
     nuei::diag_init(info);
     NUE_LOGI("core", "NUE %s started: app '%s' (%s), backend %s, platform layer %s, %s, %d-bit", nue_get_version_string(), info.app_name.c_str(),
              info.app_id.c_str(), c.backend->name, c.platform->name, headless ? "headless" : "windowed", NUE_POINTER_SIZE * 8);
@@ -283,6 +299,7 @@ NUE_API void NUE_CALL nue_shutdown(void) {
     nuei::io_shutdown();
     nuei::windows_shutdown();
     nuei::power_shutdown();
+    nuei::memory_shutdown();
     if (c.platform && c.platform->shutdown) c.platform->shutdown();
     nuei::events_shutdown();
     if (c.backend) c.backend->shutdown();

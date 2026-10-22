@@ -1,6 +1,6 @@
 # STATUS (kept honest; updated with every commit that changes it)
 
-Last update: core block 1 (core + null backend + tests). Legend: **tested** = implemented and covered by passing automated tests on this machine
+Last update: core block 2 (API 0.1.1: memory budgets, platform-class hooks, timers, ABI.md, init order). Legend: **tested** = implemented and covered by passing automated tests on this machine
 (Windows x64 and x86/-m32, clang, null backend); **written** = code exists, compiled, NOT exercised by a test; **skeleton** = declarations or stubs only;
 **-** = nothing. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
 
@@ -37,6 +37,12 @@ Last update: core block 1 (core + null backend + tests). Legend: **tested** = im
 | system info + capability flags | system | tested (generic values) | n/a | test_diag |
 | gfx: renderer list, PREPARE mode lifecycle (resize/suspend/resume/listeners/destroy), NOOP renderer | gfx | tested | n/a | test_events |
 | gfx MANAGED mode (bgfx init/reset/frame), caps | gfx | **not implemented** (returns NUE_ERR_UNSUPPORTED) | n/a | test_events |
+| memory info + budgets (policies, config overrides, eviction hooks, pressure events, per-class defaults) | memory | tested (simulated machines) | n/a | test_memory |
+| memory info from a real machine | memory | needs `memory_info`/`memory_info_ex` from the platform layers (generic layer reports nothing) | n/a | test_memory (sanity only) |
+| timers (`nue_timer_*`), frame limiter | core | tested (virtual clock + a real-time smoke test) | shared | test_hooks |
+| refresh-rate / frame-limit requests, screen keyboard, glyph override, TDP fields, platform class flags, suspend/audio-interruption events | window/input/power/system/app | tested at API level; real effect needs the platform layers (`window_request_refresh`, `screen_keyboard`, `system_info`, `power_*`) | - | test_hooks |
+| GPU capability probe (`nue_gpu_probe`) | gfx | conservative per-platform assumption, `probed = false` (tested); real probe needs the platform `gpu_probe` | n/a | test_hooks |
+| init order (pre_init -> storage -> settings -> backend -> platform), appended platform-ops fields guarded by struct_size | core | tested | n/a | test_hooks, all suites |
 | diag: reports, notes, breadcrumbs, asserts, counters, frame stats, Chrome trace | diag | tested | n/a | test_diag |
 | diag: crash handler installation | diag | core side written; needs a platform layer (`crash_install`), none exist yet | n/a | test_diag (reports "unsupported") |
 | C++ wrapper (`nuepp`) | nuepp | **skeleton** (umbrella include only) | n/a | - |
@@ -53,6 +59,9 @@ Last update: core block 1 (core + null backend + tests). Legend: **tested** = im
 | iOS arm64 | `src/platform/ios` | owned by nue-ios; not built by the core session |
 
 ## Known gaps / decisions pending
+
+* `docs/ABI.md` (native + legacy ABI) and `docs/REPLIES_core.md` (answers to the platform/texture sessions) are written; `src/legacy` and `include/nue_legacy` are reserved, empty.
+* Texture hook: `nue_texture_obj` target and `NUE_HAS_TEXTURE`; the module itself belongs to nue-texture.
 
 * SDL3 backend skeleton (window, input, audio, gamepad mappings, text input, sensors) is the next block, then the mixer engine, then the C++ wrapper and samples.
 * Real memory mapping, `NUE_CAP_MMAP_FILES` stays clear until then.

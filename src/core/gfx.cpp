@@ -288,3 +288,16 @@ NUE_API nue_result NUE_CALL nue_gfx_remove_listener(nue_gfx g, nue_gfx_listener_
 }
 
 }  // extern "C"
+
+extern "C" {
+
+NUE_API nue_result NUE_CALL nue_gfx_get_gpu_caps(nue_gfx g, nue_gpu_caps* out) {
+    if (!known(g)) return nuei::fail(NUE_ERR_INVALID_HANDLE, "invalid gfx handle");
+    nue_result r = nue_gpu_probe(out);
+    if (NUE_FAILED(r)) return r;
+    if (g->renderer != NUE_RENDERER_NOOP) out->renderer = g->renderer;
+    // The live renderer's caps (bgfx) are merged here once the MANAGED module exists; until then the platform probe is the answer.
+    return g->bgfx_initialized ? r : NUE_OK_PARTIAL;
+}
+
+}  // extern "C"

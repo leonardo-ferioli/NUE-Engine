@@ -92,6 +92,50 @@ typedef struct nue_gfx_caps {
     uint32_t reserved[8];
 } nue_gfx_caps;
 
+/* ---- GPU texture / limits capabilities (for nue_texture, the Direct3D 9 layer and quality policies) -------------------------------------- */
+
+/* One entry per format family the game can ask for. Compressed block formats are families, not single formats: a family is usable when every
+ * format the texture module maps to it is. Exact per-format detail lives in nue_texture (texture.h). */
+typedef enum nue_format_family {
+    NUE_FMT_RGBA8 = 0, NUE_FMT_BGRA8, NUE_FMT_RGB565, NUE_FMT_RGBA4444, NUE_FMT_RGB5A1, NUE_FMT_R8, NUE_FMT_RG8, NUE_FMT_R16F, NUE_FMT_RGBA16F, NUE_FMT_RGBA32F,
+    NUE_FMT_RGB10A2, NUE_FMT_DEPTH16, NUE_FMT_DEPTH24_STENCIL8, NUE_FMT_DEPTH32F, NUE_FMT_DEPTH32F_STENCIL8,
+    NUE_FMT_BC1, NUE_FMT_BC2, NUE_FMT_BC3, NUE_FMT_BC4, NUE_FMT_BC5, NUE_FMT_BC6H, NUE_FMT_BC7,      /* DXT1/3/5 = BC1/2/3 */
+    NUE_FMT_ETC1, NUE_FMT_ETC2_RGB, NUE_FMT_ETC2_RGBA, NUE_FMT_EAC_R11, NUE_FMT_EAC_RG11,
+    NUE_FMT_ASTC_LDR, NUE_FMT_ASTC_HDR, NUE_FMT_PVRTC1, NUE_FMT_PVRTC2, NUE_FMT_ATC,
+    NUE_FMT_FAMILY_COUNT
+} nue_format_family;
+
+typedef uint32_t nue_format_support;
+enum {
+    NUE_FMTSUP_SAMPLE = 1u << 0,        /* can be sampled in shaders */
+    NUE_FMTSUP_FILTER = 1u << 1,        /* linear filtering */
+    NUE_FMTSUP_MIPMAPS = 1u << 2,       /* mip chains / automatic generation */
+    NUE_FMTSUP_RENDER_TARGET = 1u << 3,
+    NUE_FMTSUP_BLEND = 1u << 4,         /* blendable as a render target */
+    NUE_FMTSUP_SRGB = 1u << 5,          /* sRGB variant exists */
+    NUE_FMTSUP_STORAGE = 1u << 6,       /* compute image store */
+    NUE_FMTSUP_MSAA = 1u << 7
+};
+
+typedef struct nue_gpu_caps {
+    uint32_t struct_size;
+    nue_bool probed;                    /* NUE_TRUE: asked the driver/OS; NUE_FALSE: conservative per-platform assumption (no device yet) */
+    nue_renderer renderer;              /* the API the answers refer to (NUE_RENDERER_AUTO when assumed) */
+    nue_format_support format[NUE_FMT_FAMILY_COUNT];
+    uint32_t max_texture_2d, max_texture_3d, max_texture_cube, max_array_layers, max_anisotropy, max_render_targets, max_msaa_samples;
+    nue_bool unified_memory;            /* CPU and GPU share memory (phones, Apple silicon, APUs): GPU budget and RAM budget are one pool */
+    nue_bool npot_mipmaps, texture_compare, compute, instancing, tessellation;
+    uint64_t dedicated_memory_bytes;    /* 0 unknown */
+    uint32_t reserved[8];
+} nue_gpu_caps;
+
+/* Capabilities of the GPU the engine will use, WITHOUT needing a gfx context (first run import planning, settings screens). The platform layer
+ * probes the OS (DXGI, Vulkan, EGL, Metal); where it cannot, a conservative table by platform is returned with probed = NUE_FALSE. [any] */
+NUE_API nue_result NUE_CALL nue_gpu_probe(nue_gpu_caps* out);
+/* Capabilities as reported by the live renderer (bgfx caps merged over the probe). Needs bgfx_initialized. */
+NUE_API nue_result NUE_CALL nue_gfx_get_gpu_caps(nue_gfx gfx, nue_gpu_caps* out);
+NUE_API const char* NUE_CALL nue_format_family_name(nue_format_family family);
+
 /* Renderers that are compiled in and plausible on this machine, best first; *out_count = total. [any] */
 NUE_API nue_result NUE_CALL nue_gfx_list_renderers(nue_renderer* out, uint32_t capacity, uint32_t* out_count);
 NUE_API const char* NUE_CALL nue_renderer_name(nue_renderer renderer);

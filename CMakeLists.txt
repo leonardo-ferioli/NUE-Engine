@@ -13,7 +13,7 @@
 # src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
 cmake_minimum_required(VERSION 3.21)
 
-project(nue VERSION 0.1.0 LANGUAGES C CXX)
+project(nue VERSION 0.1.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,6 +43,7 @@ option(NUE_BUILD_SHARED "Build libnue as a shared library (nue.dll / libnue.so)"
 option(NUE_BUILD_TESTS "Build the ctest suite (console only, null backend / SDL dummy drivers)" ${NUE_IS_TOP_LEVEL})
 option(NUE_BUILD_SAMPLES "Build the samples (they open windows when run: never run them from CI)" ${NUE_IS_TOP_LEVEL})
 option(NUE_BACKEND_SDL3 "Compile the SDL3 backend (needs third_party/SDL, see docs/PORTING.md)" ON)
+option(NUE_BUILD_LEGACY "Build the legacy ABI layer (src/legacy -> libnue_legacy) when it exists; native games never link it" ON)
 option(NUE_WITH_GFX "Compile the bgfx graphics module (nue_gfx); needs bgfx.cmake" OFF)
 option(NUE_STATIC_CRT "MSVC/clang-cl/Windows: link the C runtime statically (no redistributable next to the game)" OFF)
 option(NUE_INSTALL "Generate install and package-config rules" ${NUE_IS_TOP_LEVEL})
@@ -68,6 +69,19 @@ else()
     message(FATAL_ERROR "NUE: unsupported platform ${CMAKE_SYSTEM_NAME}")
 endif()
 message(STATUS "NUE: target OS ${NUE_OS}, pointer size ${CMAKE_SIZEOF_VOID_P}, build type ${CMAKE_BUILD_TYPE}")
+
+# Apple platform layers are Objective-C++: enable the languages when the toolchain has them (the iOS/macOS fragment may rely on it).
+if(APPLE)
+    include(CheckLanguage)
+    check_language(OBJC)
+    if(CMAKE_OBJC_COMPILER)
+        enable_language(OBJC)
+    endif()
+    check_language(OBJCXX)
+    if(CMAKE_OBJCXX_COMPILER)
+        enable_language(OBJCXX)
+    endif()
+endif()
 
 if(NOT NUE_GIT_COMMIT)
     find_package(Git QUIET)
@@ -154,6 +168,21 @@ if(NOT _nue_platform_sources)
     target_sources(nue_platform_obj PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_platform_empty.cpp")
 endif()
 
+# ---------------------------------------------------------------------------------------------------- texture module (owned by the nue-texture session)
+# Contract: src/texture/CMakeLists.txt adds its sources with target_sources(nue_texture_obj PRIVATE ...) and may link libraries with
+# target_link_libraries(nue_texture_obj PUBLIC ...). Its public header is include/nue/texture.h (included by nue.h when present).
+add_library(nue_texture_obj OBJECT)
+target_link_libraries(nue_texture_obj PUBLIC nue_internal)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/texture/CMakeLists.txt")
+    add_subdirectory(src/texture)
+    target_compile_definitions(nue_internal INTERFACE NUE_HAS_TEXTURE=1)
+endif()
+get_target_property(_nue_texture_sources nue_texture_obj SOURCES)
+if(NOT _nue_texture_sources)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nue_texture_empty.cpp" "// texture module not present\nnamespace nue_empty_texture {}\n")
+    target_sources(nue_texture_obj PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_texture_empty.cpp")
+endif()
+
 # ---------------------------------------------------------------------------------------------------- SDL3 backend (shared by all platforms)
 add_library(nue_backend_sdl3_obj OBJECT)
 target_link_libraries(nue_backend_sdl3_obj PUBLIC nue_internal)
@@ -181,6 +210,7 @@ add_library(nue::nue ALIAS nue)
 target_sources(nue PRIVATE
     $<TARGET_OBJECTS:nue_core_obj>
     $<TARGET_OBJECTS:nue_platform_obj>
+    $<TARGET_OBJECTS:nue_texture_obj>
     $<TARGET_OBJECTS:nue_backend_sdl3_obj>)
 if(TARGET nue_gfx_obj)
     target_sources(nue PRIVATE $<TARGET_OBJECTS:nue_gfx_obj>)
@@ -200,6 +230,17 @@ target_link_libraries(nue PRIVATE "$<BUILD_INTERFACE:nue_internal>")
 if(NUE_HAVE_SDL3)
     target_link_libraries(nue PRIVATE SDL3::SDL3-static)
 endif()
+# Libraries/frameworks the platform and texture fragments asked for: libraries linked PUBLIC to an OBJECT library do not travel with
+# $<TARGET_OBJECTS>, so they are forwarded to the final library here (iOS frameworks, Android liblog, Linux libs...).
+foreach(_obj nue_platform_obj nue_texture_obj)
+    get_target_property(_deps ${_obj} INTERFACE_LINK_LIBRARIES)
+    if(_deps)
+        list(FILTER _deps EXCLUDE REGEX "nue_internal")
+        if(_deps)
+            target_link_libraries(nue PRIVATE ${_deps})
+        endif()
+    endif()
+endforeach()
 if(WIN32)
     target_link_libraries(nue PRIVATE winmm ole32 advapi32 shell32 user32 dbghelp)
 elseif(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -219,6 +260,12 @@ else()
     target_sources(nue_entry PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_entry_empty.cpp")
 endif()
 target_link_libraries(nue_entry PUBLIC nue::nue PRIVATE "$<BUILD_INTERFACE:nue_internal>")
+
+# ---------------------------------------------------------------------------------------------------- legacy ABI layer (libnue_legacy)
+# Contract: src/legacy/CMakeLists.txt defines the target `nue_legacy` (linking nue::nue) and an alias nue::legacy. Native games never link it.
+if(NUE_BUILD_LEGACY AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/legacy/CMakeLists.txt")
+    add_subdirectory(src/legacy)
+endif()
 
 # ---------------------------------------------------------------------------------------------------- tests, samples
 if(NUE_BUILD_TESTS)
@@ -241,6 +288,11 @@ if(NUE_INSTALL)
             INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(DIRECTORY include/nue include/nuepp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
             FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    if(TARGET nue_legacy)
+        install(TARGETS nue_legacy EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(DIRECTORY include/nue_legacy DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    endif()
     # Extension headers published by platform layers (optional): src/platform/<os>/include/nue_ext_*.h
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${NUE_OS}/include")
         install(DIRECTORY src/platform/${NUE_OS}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/nue/ext

@@ -27,6 +27,24 @@ platform ever needs a different backend for a subsystem (a native WASAPI exclusi
 4. Rows in `docs/STATUS.md` for your OS (send the text to the core session or ask to edit).
 5. Your own tests under `src/platform/<os>/tests/` (console only). Register them from your CMakeLists with `add_executable` + `add_test`, linking `nue::nue`.
 
+## Initialisation order (what a platform layer can rely on)
+
+`nue_init` runs: log -> `pre_init` (platform; set environment/SDL hints here, `storage_root` must already work) -> storage roots (`vfs_init`) ->
+log file sink -> settings file load (`config_get_*` already sees the saved values) -> backend `init` -> platform `init` -> event queue -> memory/power
+-> diagnostics (crash handler). Capability bits are read lazily on every query, so a layer may still set `capabilities[]` inside `init`.
+
+Table fields appended after 0.1.0 (`pre_init`, `owns_lifecycle`, `memory_info_ex`, `gpu_probe`, `window_request_refresh`, `screen_keyboard`) are guarded by
+`struct_size`; always set `struct_size = sizeof(nue_platform_ops)` of the header you compiled against.
+`owns_lifecycle = NUE_TRUE` (Android Activity, iOS app delegate): you push `NUE_EVENT_APP_*`; backends will not derive app state from window events.
+Events that must reach watchers synchronously (`SURFACE_LOST`, `APP_PAUSING`) do: `nue_internal_push_event` runs watchers on the calling thread before it returns,
+and `nue_gfx_set_auto_events` makes `nue_gfx` suspend its swapchain inside that call. Fill the real `window_id` on surface events.
+
+## Link dependencies and other modules
+
+Libraries or frameworks a fragment links `PUBLIC` to `nue_platform_obj` (or `nue_texture_obj`) are forwarded by the root CMake to the final `nue` library
+(this is how iOS frameworks reach the app). On Apple the root enables OBJC/OBJCXX when the toolchain has them.
+`src/texture/CMakeLists.txt` (nue-texture) uses `target_sources(nue_texture_obj ...)`; `src/legacy/CMakeLists.txt` defines the target `nue_legacy` (see `ABI.md`).
+
 ## Rules
 
 * Do not edit files outside your folder. Need a core change? `docs/REQUESTS_<os>.md` or a message; the core answers quickly.

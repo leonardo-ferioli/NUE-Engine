@@ -211,6 +211,28 @@ NUE_API void NUE_CALL nue_sleep_ns(int64_t ns, nue_sleep_mode mode) {
     nue_sleep_until_ns(nuei::now_ns() + ns, mode);
 }
 
+// ---- frame limiter ------------------------------------------------------------------------------------------------------------
+
+static std::mutex g_limiter_mutex;
+static int64_t g_limiter_next = 0;
+
+NUE_API void NUE_CALL nue_frame_limiter_reset(void) { std::lock_guard<std::mutex> lock(g_limiter_mutex); g_limiter_next = 0; }
+
+NUE_API int64_t NUE_CALL nue_frame_limiter_wait(double target_fps) {
+    const int64_t start = nuei::now_ns();
+    if (!(target_fps > 0)) { std::lock_guard<std::mutex> lock(g_limiter_mutex); g_limiter_next = 0; return 0; }
+    const int64_t period = int64_t(1e9 / target_fps);
+    int64_t target;
+    {
+        std::lock_guard<std::mutex> lock(g_limiter_mutex);
+        if (g_limiter_next == 0 || start > g_limiter_next + 4 * period) g_limiter_next = start;   // first frame or a long stall: restart the schedule
+        target = g_limiter_next;
+        g_limiter_next += period;
+    }
+    if (target > start) nue_sleep_until_ns(target, NUE_SLEEP_PRECISE);
+    return nuei::now_ns() - start;
+}
+
 // ---- threads ------------------------------------------------------------------------------------------------------------------
 
 NUE_API nue_result NUE_CALL nue_thread_create(const nue_thread_desc* desc, nue_thread_fn fn, void* userdata, nue_thread* out_thread) {

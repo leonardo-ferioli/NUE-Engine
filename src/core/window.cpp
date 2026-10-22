@@ -13,6 +13,7 @@ struct nue_window_s {
     void* impl = nullptr;
     nue_window_snapshot snap;
     bool attached = false;
+    float refresh_request = 0, frame_limit = 0;
 };
 
 namespace {
@@ -327,6 +328,35 @@ NUE_API nue_result NUE_CALL nue_window_warp_mouse(nue_window w, float x, float y
 NUE_API nue_bool NUE_CALL nue_window_get_relative_mouse(nue_window w) {
     nue_window_snapshot s;
     return get_snapshot(w, &s) && s.relative_mouse ? NUE_TRUE : NUE_FALSE;
+}
+
+static nue_result refresh_request_impl(nue_window w, const float* hz, const float* limit) {
+    if (nuei::require_init() < 0) return NUE_ERR_NOT_INITIALIZED;
+    nue_native_window nat;
+    NUE_STRUCT_INIT(&nat);
+    float new_hz, new_limit;
+    {
+        WindowTable& t = wt();
+        std::lock_guard<std::mutex> lock(t.mutex);
+        nue_window_s* s = find_locked(t, w);
+        if (!s) return nuei::fail(NUE_ERR_INVALID_HANDLE, "invalid window handle");
+        if (hz) s->refresh_request = *hz < 0 ? 0 : *hz;
+        if (limit) s->frame_limit = *limit < 0 ? 0 : *limit;
+        new_hz = s->refresh_request; new_limit = s->frame_limit; nat = s->snap.native;
+    }
+    const nue_platform_ops* p = nuei::platform();
+    auto fn = p ? NUE_PLATFORM_ENTRY(p, window_request_refresh) : nullptr;
+    if (!fn) return NUE_OK_NOOP;   // stored: nue_frame_limiter_wait can pace in software
+    return fn(&nat, new_hz, new_limit);
+}
+
+NUE_API nue_result NUE_CALL nue_window_request_refresh_rate(nue_window w, float hz) { return refresh_request_impl(w, &hz, nullptr); }
+NUE_API nue_result NUE_CALL nue_window_set_frame_limit(nue_window w, float fps) { return refresh_request_impl(w, nullptr, &fps); }
+NUE_API float NUE_CALL nue_window_get_frame_limit(nue_window w) {
+    WindowTable& t = wt();
+    std::lock_guard<std::mutex> lock(t.mutex);
+    nue_window_s* s = find_locked(t, w);
+    return s ? s->frame_limit : 0.0f;
 }
 
 NUE_API nue_window_mode NUE_CALL nue_window_get_mode(nue_window w) { nue_window_snapshot s; return get_snapshot(w, &s) ? s.mode : NUE_WINDOW_MODE_WINDOWED; }

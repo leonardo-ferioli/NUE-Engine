@@ -25,6 +25,7 @@ struct InputState {
     float mouse_pixels = 12.0f;       // accumulated motion that counts as "intentional"
     float mouse_accum = 0;
     std::map<uint32_t, nue_glyph_family> pad_family;
+    int32_t glyph_override = -1;
 };
 
 InputState& st() {
@@ -50,6 +51,7 @@ void set_last(InputState& s, nue_input_device_kind kind, nue_glyph_family glyphs
 }
 
 nue_glyph_family family_of_pad_locked(InputState& s, uint32_t id) {
+    if (s.glyph_override >= 0) return nue_glyph_family(s.glyph_override);
     auto it = s.pad_family.find(id);
     if (it != s.pad_family.end()) return it->second;
     return NUE_GLYPHS_GENERIC_GAMEPAD;
@@ -74,7 +76,10 @@ void input_state_reset() {
     s.last.glyphs = NUE_GLYPHS_KEYBOARD_MOUSE;
     s.mouse_accum = 0;
     s.pad_family.clear();
+    s.glyph_override = -1;
 }
+
+int32_t glyph_override() { InputState& s = st(); std::lock_guard<std::mutex> lock(s.mutex); return s.glyph_override; }
 
 void input_on_event(const nue_event& e, std::vector<nue_event>& derived) {
     InputState& s = st();
@@ -187,6 +192,15 @@ NUE_API nue_result NUE_CALL nue_input_get_last_device(nue_last_input* out) {
     uint32_t keep = out->struct_size;
     std::memcpy(out, &v, keep < sizeof(v) ? keep : sizeof(v));
     out->struct_size = keep;
+    return NUE_OK;
+}
+
+NUE_API nue_result NUE_CALL nue_input_set_glyph_override(int32_t family) {
+    if (family >= 0 && family > int32_t(NUE_GLYPHS_STEAM)) return NUE_ERR_INVALID_ARGUMENT;
+    InputState& s = st();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    s.glyph_override = family < 0 ? -1 : family;
+    if (family >= 0 && s.last.kind == NUE_INPUT_DEVICE_GAMEPAD) s.last.glyphs = nue_glyph_family(family);
     return NUE_OK;
 }
 
