@@ -44,7 +44,7 @@ TEST_CASE(round_trip_every_game_file) {
         files.push_back(it->path());
     }
     std::sort(files.begin(), files.end());
-    size_t total_files = 0, total_tex = 0, total_packs = 0;
+    size_t total_files = 0, total_tex = 0, total_packs = 0, total_pack_bytes = 0, total_content_bytes = 0;
     for (const auto& p : files) {
         const std::string path = p.generic_string();
         std::vector<uint8_t> file;
@@ -94,6 +94,33 @@ TEST_CASE(round_trip_every_game_file) {
             if (nue_asset_resource_get_image(c, i, &im) < 0) ++bad; else { ++tex; nue_tex_image_destroy(im); }
         }
         CHECK_EQ(bad, size_t(0));
+        // 4b. into a .nuepack (source variant) and back: the same content again
+        {
+            nue_pack_builder b = nullptr;
+            CHECK_EQ(nue_pack_builder_create(ctx, nullptr, &b), NUE_OK);
+            nue_pack_convert_options po;
+            NUE_STRUCT_INIT(&po);
+            CHECK(nue_pack_builder_add_container(b, c, &po) >= 0);
+            void* pdata = nullptr;
+            size_t psize = 0;
+            CHECK_EQ(nue_pack_builder_write(b, nullptr, &pdata, &psize), NUE_OK);
+            nue_pack_builder_destroy(b);
+            nue_pack pk = nullptr;
+            CHECK_EQ(nue_pack_open_memory(ctx, pdata, psize, NUE_PACK_OPEN_VERIFY, &pk), NUE_OK);
+            nue_asset_container x = nullptr;
+            CHECK_EQ(nue_pack_export_container(pk, &x), NUE_OK);
+            nue_result xw;
+            auto exported = write_mem(x, NUE_ASSET_WRITE_NO_CODEC, &xw);
+            CHECK_EQ(xw, NUE_OK);
+            const bool pack_same = exported == content;
+            CHECK(pack_same);
+            if (!pack_same) std::printf("  PACK ROUND TRIP DIFFERS for %s\n", p.filename().string().c_str());
+            total_pack_bytes += psize;
+            total_content_bytes += content.size();
+            nue_asset_container_close(x);
+            nue_pack_close(pk);
+            nue_free(pdata);
+        }
         // 5. compressed files: our encoder's output decodes to the same content
         if (info.codec) {
             auto again = write_mem(c, NUE_ASSET_WRITE_REBUILD | NUE_ASSET_WRITE_RECOMPRESS, &w);
@@ -110,7 +137,9 @@ TEST_CASE(round_trip_every_game_file) {
         ++total_files; total_tex += tex; total_packs += packs;
         nue_asset_container_close(c);
     }
-    std::printf("  %zu files, %zu texture packs, %zu textures: unchanged write, rebuild and regeneration byte-identical\n", total_files, total_packs, total_tex);
+    std::printf("  %zu files, %zu texture packs, %zu textures: unchanged write, rebuild and regeneration and .nuepack round trip byte-identical\n", total_files, total_packs, total_tex);
+    std::printf("  .nuepack (source variant only, blobs JDLZ compressed): %zu bytes for %zu bytes of content (%.1f%%)\n", total_pack_bytes, total_content_bytes,
+                100.0 * double(total_pack_bytes) / double(total_content_bytes ? total_content_bytes : 1));
     nue_assets_context_destroy(ctx);
 }
 
