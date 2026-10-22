@@ -125,7 +125,7 @@ header; the numeric tables were written from the public headers and **must be cr
 * **No built-in memory limit.** The budget is a runtime parameter, `nue_tex_budget_policy`: unlimited, explicit bytes, a fraction of *available* memory, or a
   preset (`LOW_MEMORY_MOBILE` 12 % with a 64 MiB floor, `MOBILE` 20 %, `DESKTOP` 35 %, `HIGH_END` 50 %) applied to the `available_bytes` the host queries
   from the system (RAM, per-process limit, GPU memory), with optional min/max clamps. `nue_tex_budget_resolve` turns it into bytes; `nue_tex_budget_set_policy`
-  changes it at run time (low-memory events, settings menu). A game that wants a fixed ceiling (for example 2 GB overall) just configures that number.
+  changes it at run time (low-memory events, settings menu). A game that wants a fixed ceiling just configures that number.
   The disk cache limit is likewise a parameter (0 = unlimited). Statistics: `nue_tex_budget_get_stats` (limit, used, peak, evictions, over-budget events).
 * **Legacy ABI data.** `nue_tex_d3d9_format_table()` exposes the D3DFMT / FOURCC <-> `nue_tex_format` mapping as a static, sorted table (with exactness and
   premultiplied-alpha flags), so the `nue_legacy` Direct3D 9 layer holds no format knowledge of its own. The same data backs `nue_tex_format_from_d3d9` /
