@@ -46,11 +46,11 @@ those functions, so most of the glue can be checked by reading.
 ## 2. Layout
 
 ```
-nue_engine/src/platform/ios/
+src/platform/ios/
   nue_ios.h            C surface between the core's iOS adapter and the glue (events, paths, storage, power, GPU info, input, audio, diagnostics)
   logic/               pure C++17, no Apple headers (host-testable)
   apple/*.mm           Objective-C++ glue, one file per concern: core (init, lifecycle, power), storage, audio, input, display (Metal/safe area), diag
-nue_engine/ios/
+ios/
   CMakeLists.txt       host tests everywhere; glue + SDL3 + sample app when CMAKE_SYSTEM_NAME is iOS
   CMakePresets.json    host-tests, ios-device, ios-simulator
   project.yml          XcodeGen alternative (expects external/SDL3.xcframework)
@@ -59,7 +59,7 @@ nue_engine/ios/
   tests/               ios_logic_tests.cpp, plist_check.cpp
 ```
 
-`nue_ios.h` is **internal** to the backend. The public API is owned by nue-core (`nue_engine/include/nue`); the core's iOS platform adapter
+`nue_ios.h` is **internal** to the backend. The public API is owned by nue-core (`include/nue`); the core's iOS platform adapter
 calls `nue_ios_*` and converts `NueIosEvent` into public `nue_` events. What the backend needs from the public API is listed in
 [REQUESTS_ios.md](REQUESTS_ios.md).
 
@@ -307,7 +307,7 @@ the engine in one `NUE_IOS_EVENT_LIFECYCLE` event (`a` = new state, `b` = action
 ## 11. Host tests
 
 ```
-cmake -S nue_engine/ios -B build_ios_host -G Ninja && cmake --build build_ios_host && ctest --test-dir build_ios_host --output-on-failure
+cmake -S ios -B build_ios_host -G Ninja && cmake --build build_ios_host && ctest --test-dir build_ios_host --output-on-failure
 ```
 
 Covers the lifecycle transition table (including exhaustive invariants), thermal/memory/frame-rate policy, capability flags and texture policy
@@ -315,4 +315,4 @@ arithmetic, path normalisation (traversal, drive letters, NUL), case-insensitive
 planning and free-space margins, CRC32 check value, audio policy, controller conditioning, steering geometry in all four orientations, last-used
 input hysteresis, and the plist keys. No game data and no Apple headers are involved.
 
-A host-side syntax check of the adapter against the real NUE headers is `nue_engine/ios/tools/check_adapter_syntax.sh` (stand-ins in `darwin_stub.h`).
+A host-side syntax check of the adapter against the real NUE headers is `ios/tools/check_adapter_syntax.sh` (stand-ins in `darwin_stub.h`).
