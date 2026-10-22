@@ -2,14 +2,23 @@
 #pragma once
 #include "nue/nue.h"
 #include "nue/null_backend.h"
+#include "internal/platform_ops.h"
 
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
 
 namespace nue_test {
+
+// True when no platform layer is linked (only the generic table is active). Tests of the core's fallback behaviour assert on it;
+// a real platform layer is covered by its own tests under src/platform/<os>/tests.
+inline bool generic_layer() { return std::strcmp(nue_platform_get_ops()->name, "generic") == 0; }
+#define GENERIC(...) do { if (nue_test::generic_layer()) { __VA_ARGS__; } } while (0)
+// Like CHECK_EQ(expr, expected) but the call always runs (side effects included); only the comparison is limited to the generic layer.
+#define GENERIC_EQ(expr, expected) do { auto generic_r_ = (expr); if (nue_test::generic_layer()) { CHECK_EQ(generic_r_, expected); } } while (0)
 
 inline std::string unique_temp_dir(const char* tag) {
     namespace fs = std::filesystem;

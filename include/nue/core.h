@@ -79,7 +79,7 @@ NUE_API nue_bool NUE_CALL nue_is_initialized(void);
 /* ============================================================================================== version / build */
 
 NUE_API uint32_t NUE_CALL nue_get_version(void);               /* NUE_MAKE_VERSION of the library; compare with NUE_API_VERSION */
-NUE_API const char* NUE_CALL nue_get_version_string(void);     /* "0.1.1 (abcdef1)" */
+NUE_API const char* NUE_CALL nue_get_version_string(void);     /* "0.1.2 (abcdef1)" */
 
 typedef struct nue_build_info {
     uint32_t struct_size;
