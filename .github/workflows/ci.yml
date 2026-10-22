@@ -32,7 +32,7 @@ jobs:
         if: steps.project.outputs.present == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev
+          sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev libxfixes-dev libxtst-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev
       - name: Configure
         if: steps.project.outputs.present == 'true'
         run: cmake --preset ${{ matrix.preset }}
