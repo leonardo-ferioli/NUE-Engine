@@ -13,7 +13,7 @@
 # src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
 cmake_minimum_required(VERSION 3.21)
 
-project(nue VERSION 0.1.1 LANGUAGES C CXX)
+project(nue VERSION 0.1.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -153,6 +153,11 @@ target_compile_definitions(nue_core_obj PRIVATE
     NUE_BUILD_TYPE_STRING="$<CONFIG>"
     NUE_VERSION_STRING_LITERAL="${PROJECT_VERSION}")
 
+# ctest registration must be enabled before any fragment (platform layers register their own tests with add_test)
+if(NUE_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # ---------------------------------------------------------------------------------------------------- platform layer (owned by the platform sessions)
 add_library(nue_platform_obj OBJECT)
 target_link_libraries(nue_platform_obj PUBLIC nue_internal)
@@ -273,6 +278,10 @@ else()
     target_sources(nue_entry PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_entry_empty.cpp")
 endif()
 target_link_libraries(nue_entry PUBLIC nue::nue PRIVATE "$<BUILD_INTERFACE:nue_internal>")
+if(NUE_ENTRY_SOURCES AND NUE_HAVE_SDL3)
+    # the stub includes <SDL3/SDL_main.h>; SDL_main's platform glue (WinMain, SDL_RunApp...) comes from SDL itself
+    target_link_libraries(nue_entry PRIVATE "$<BUILD_INTERFACE:SDL3::SDL3-static>")
+endif()
 
 # ---------------------------------------------------------------------------------------------------- legacy ABI layer (libnue_legacy)
 # Contract: src/legacy/CMakeLists.txt defines the target `nue_legacy` (linking nue::nue) and an alias nue::legacy. Native games never link it.
@@ -282,7 +291,6 @@ endif()
 
 # ---------------------------------------------------------------------------------------------------- tests, samples
 if(NUE_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
 if(NUE_BUILD_SAMPLES)
