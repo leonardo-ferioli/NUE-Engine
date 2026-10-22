@@ -13,6 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "lx_diag.hpp"
@@ -43,6 +44,12 @@ PriorityLimits query_priority_limits() {
     struct rlimit r;
     if (getrlimit(RLIMIT_RTPRIO, &r) == 0) l.max_rt_priority = r.rlim_cur == RLIM_INFINITY ? 99 : static_cast<int>(r.rlim_cur);
     if (getrlimit(RLIMIT_NICE, &r) == 0) l.min_nice = r.rlim_cur == RLIM_INFINITY ? -20 : 20 - static_cast<int>(r.rlim_cur);
+    // RLIMIT_NICE only bounds how far the nice value may be LOWERED; a thread may always keep or raise its current one. With a
+    // limit of 0 (containers, CI runners) the formula gives 20, which is not a priority the thread could "lower to".
+    {
+        int cur = 0;
+        if (get_thread_nice(cur)) l.min_nice = std::min(l.min_nice, cur);
+    }
     if (l.is_root) {
         l.max_rt_priority = 99;
         l.min_nice = -20;

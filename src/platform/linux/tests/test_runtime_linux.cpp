@@ -68,7 +68,7 @@ TEST(rt_game_files_case_insensitive_on_real_fs) {
     CHECK(wfd >= 0);
     CHECK(write_full(wfd, "x", 1));
     ::close(wfd);
-    CHECK(gf.exists("GLOBAL/NEW.SAV") == false);  // names differ: the file is "new.sav", lookups fold case only
+    CHECK(gf.exists("GLOBAL/NEW.SAV"));  // the file on disk is "new.sav": lookups fold case
     CHECK(gf.exists("global\\NEW.sav"));
     CHECK(gf.make_dirs("Saves\\Slot1\\Profile"));
     CHECK(gf.exists("saves/slot1/profile"));
@@ -184,7 +184,11 @@ TEST(rt_scheduling_helpers_report_instead_of_aborting) {
     CHECK(get_thread_affinity(cpus) && !cpus.empty());
     CHECK(set_thread_affinity(cpus));  // re-applying the current mask is always allowed
     PriorityLimits lim = query_priority_limits();
-    CHECK(lim.max_rt_priority >= 0 && lim.min_nice <= 0);
+    int cur_nice = 0;
+    CHECK(get_thread_nice(cur_nice));
+    // RLIMIT_RTPRIO / RLIMIT_NICE are 0 in containers and CI runners: only sanity is guaranteed, never a privilege.
+    CHECK(lim.max_rt_priority >= 0 && lim.max_rt_priority <= 99);
+    CHECK(lim.min_nice <= cur_nice && lim.min_nice >= -20);
     set_thread_nice(1);  // raising niceness is always allowed
     set_io_priority_best_effort(4);
     set_timer_slack_ns(1000);

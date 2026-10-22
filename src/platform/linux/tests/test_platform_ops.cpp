@@ -441,3 +441,36 @@ TEST(ops_api_011_hooks_and_platform_flags) {
         CHECK(!(applied & NUE_POWER_APPLIED_TDP));
     }
 }
+
+TEST(ops_portable_mode_keeps_writable_roots_below_the_user_path) {
+    Machine m(fixtures::steam_deck);
+    CHECK(m.init());
+    nue_init_desc d;
+    std::memset(&d, 0, sizeof d);
+    d.struct_size = sizeof d;
+    d.org_name = "NUE";
+    d.app_id = "t";
+    d.user_data_path = "/tmp/portable";
+    CHECK_EQ(path_of(m.ops, NUE_ROOT_USER, &d), std::string("/tmp/portable"));
+    CHECK_EQ(path_of(m.ops, NUE_ROOT_CACHE, &d), std::string("/tmp/portable/cache"));
+    CHECK_EQ(path_of(m.ops, NUE_ROOT_SETTINGS, &d), std::string("/tmp/portable/settings"));
+    CHECK_EQ(path_of(m.ops, NUE_ROOT_TEMP, &d), std::string("/tmp/portable/temp"));
+}
+
+TEST(ops_deterministic_run_on_the_real_machine_hides_battery_and_thermal) {
+    nue_linux_test_set_environment(nullptr, nullptr);  // real file system and environment
+    const nue_platform_ops* ops = nue_platform_linux_get_ops();
+    nue_backend_init bi;
+    std::memset(&bi, 0, sizeof bi);
+    bi.struct_size = sizeof bi;
+    bi.deterministic = NUE_TRUE;
+    CHECK(ops->init(&bi) >= 0);
+    nue_power_info pi;
+    NUE_STRUCT_INIT(&pi);
+    CHECK(ops->power_info(&pi) >= 0);
+    CHECK(pi.thermal == NUE_THERMAL_UNKNOWN);  // whatever this machine's sensors say
+    CHECK(pi.state == NUE_POWER_UNKNOWN);
+    CHECK_EQ(pi.battery_percent, -1);
+    CHECK(!has_cap(ops, NUE_CAP_BATTERY) && !has_cap(ops, NUE_CAP_THERMAL_STATE));
+    ops->shutdown();
+}
