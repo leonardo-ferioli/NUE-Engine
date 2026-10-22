@@ -22,7 +22,7 @@
  * linear interpolation, with the ratio smoothed per block (no zipper noise).
  *
  * Thread: everything is [any]; commands are applied at the next mix block boundary (<= block_frames) in call order.
- * Functions marked [audio] are lock free and may be called from the mix thread / from a stream callback.
+ * Functions marked [audio] only take the mixer's short internal mutex (no allocation, no I/O, no engine calls) and may be called from the mix thread / a stream callback.
  * Ids (voice, buffer, bus) are 32-bit index+generation values; stale ids return NUE_ERR_INVALID_HANDLE.
  */
 #ifndef NUE_MIXER_H
@@ -217,9 +217,17 @@ NUE_API nue_result NUE_CALL nue_voice_ring_fill_silence(nue_mixer mixer, nue_voi
  * frame that is safe to overwrite (play + the mixer's pending block + device latency). Both refresh once per mixed block. */
 NUE_API nue_result NUE_CALL nue_voice_ring_get_cursors(nue_mixer mixer, nue_voice_id voice, uint32_t* out_play_frames, uint32_t* out_write_frames);
 NUE_API nue_result NUE_CALL nue_voice_ring_get_size(nue_mixer mixer, nue_voice_id voice, uint32_t* out_frames);
+/* Notification positions (DirectSound SetNotificationPositions): `callback` runs each time the play cursor passes one of `positions` (frames of the
+ * ring), after the block that crossed it was mixed and OUTSIDE the mixer's lock, on the thread that called nue_mixer_render (the audio thread for an
+ * attached mixer). It may call mixer functions but should only signal (event, semaphore). `count == 0` removes the notifications. */
+typedef void (NUE_CALL *nue_ring_notify_fn)(void* userdata, nue_voice_id voice, uint32_t position_frame);
+NUE_API nue_result NUE_CALL nue_voice_ring_set_notifications(nue_mixer mixer, nue_voice_id voice, const uint32_t* positions, uint32_t count,
+                                                           nue_ring_notify_fn callback, void* userdata);
 
 /* 3D --------------------------------------------------------------------------------------------------------------------- */
 
+/* Coordinates are LEFT-HANDED like Direct3D and DirectSound: with the default orientation forward = (0,0,1), up = (0,1,0) a source at +x is to the
+ * listener's right. */
 typedef struct nue_listener {
     uint32_t struct_size;
     nue_vec3 position;

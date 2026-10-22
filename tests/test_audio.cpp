@@ -3,6 +3,7 @@
 #include "test_env.h"
 #include "nue_test.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <vector>

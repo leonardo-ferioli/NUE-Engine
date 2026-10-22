@@ -9,6 +9,13 @@ avoided and, when unavoidable, listed under "Breaking" with the migration. Platf
 Initial public headers: base, core, app, window, input, audio, mixer, storage, power, system, gfx, diag, entry, null_backend.
 Internal contracts for implementers: `src/core/internal/backend.h` (devices) and `src/core/internal/platform_ops.h` (per-OS layer).
 
+## 0.1.2 (additive)
+
+* `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).
+* `mixer.h`: `nue_voice_ring_set_notifications` + `nue_ring_notify_fn` (DirectSound-style notification positions on ring voices, fired outside the mixer lock); listener space is documented as left-handed (+x right, +y up, +z forward); the [audio] functions take a short mutex, they are not lock-free.
+* New headers `include/nuepp/{core,window,audio,storage}.hpp` (C++ wrapper over the C API).
+* Fixes visible to platform layers: the VFS directory cache no longer depends on `nue_time_ns()`; tests use `GENERIC_EQ` so they stay valid on real platform layers.
+
 ## 0.1.1 (additive; consumers compiled against 0.1.0 keep working)
 
 Public C API

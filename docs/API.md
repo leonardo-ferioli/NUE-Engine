@@ -100,6 +100,12 @@ themselves (suspend swapchain, pause streams unless `NUE_AUDIO_KEEP_RUNNING_IN_B
 | GPU format support before a device exists (texture planning) | `nue_gpu_probe`, `nue_gpu_caps` (format families with sample/filter/render-target flags) |
 | timers (`timeSetEvent`-style) | `nue_timer_*` |
 
+## 3c. C++ wrapper
+
+`include/nuepp/*.hpp` (namespace `nuepp`, header only, C++17, no exceptions thrown or required): `Result`/`Expected<T>`, `Context` (init/shutdown RAII), `Mutex`/`LockGuard`/`Semaphore`/`Thread`/`Timer`,
+`config::get/set`, `Window` (including `Window::attach` for a host-owned native window), `Gfx`, `events::poll/drain`, `input::*`, `AudioStream`, `Mixer`, `File`, `vfs::*`, `Budget`, `TraceZone`.
+Handles are move-only and released by the destructor. The C API stays the ABI; the wrapper adds no state of its own.
+
 ## 4. Threading model in one table
 
 | Group | Rule |

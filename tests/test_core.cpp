@@ -2,6 +2,7 @@
 #include "test_env.h"
 #include "nue_test.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -28,7 +29,8 @@ TEST_CASE(init_refcount_and_version_check) {
     NUE_STRUCT_INIT(&bi);
     CHECK_EQ(nue_get_build_info(&bi), NUE_OK);
     CHECK_EQ(bi.pointer_size, sizeof(void*));
-    CHECK_STR(bi.platform_layer, "generic");
+    CHECK(std::strlen(bi.platform_layer) > 0);
+    GENERIC(CHECK_STR(bi.platform_layer, "generic"));
 }
 
 TEST_CASE(shutdown_without_init_is_harmless) {
