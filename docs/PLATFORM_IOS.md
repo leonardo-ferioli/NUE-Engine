@@ -26,6 +26,10 @@ simulator build, device build, xcframework, and the whole engine for iOS arm64).
 Earlier runs 39736369209 and 39737087582 found the compile errors that were fixed since.
 Nothing has ever run on a device or in the simulator.
 
+GitHub Actions is paused (spending limit): run 39740284507 stays the reference. Any change made after commit c55e433 is **not compiled with
+Xcode** unless it is covered by the Windows host tests or the host syntax check of the adapter (`ios/tools/check_adapter_syntax.sh`).
+Changes since then: an availability guard in `nue_ios_display.mm` and documentation.
+
 | Piece | Where | Status |
 |---|---|---|
 | Pure logic (lifecycle state machine, thermal/memory/frame-rate policy, Metal capability flags and the DXT texture policy, path/import/validation logic, CRC32, audio-session policy, gamepad conditioning, gyro steering math, NUE type mapping) | `src/platform/ios/logic/` | **Compiled and unit-tested** on Windows (clang) and on the macOS runner (`ctest`, 3 tests: logic, NUE mapping, plist) |
