@@ -364,7 +364,7 @@ TEST_CASE(power_and_thermal_events) {
     nue_power_info pi;
     NUE_STRUCT_INIT(&pi);
     nue_power_get_info(&pi);
-    CHECK_EQ(pi.thermal, NUE_THERMAL_UNKNOWN);
+    GENERIC_EQ(pi.thermal, NUE_THERMAL_UNKNOWN);   // a real platform layer reports the machine's own thermal state from the start
     nue_null_set_thermal_state(NUE_THERMAL_NOMINAL);   // first sample: baseline
     nue_flush_events(0, 0xFFFFFF);
     nue_null_set_thermal_state(NUE_THERMAL_SERIOUS);
