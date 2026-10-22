@@ -97,7 +97,7 @@ extern "C" {
     ((((uint32_t)(major)) << 24) | (((uint32_t)(minor)) << 12) | ((uint32_t)(patch)))
 #define NUE_VERSION_MAJOR 0
 #define NUE_VERSION_MINOR 1
-#define NUE_VERSION_PATCH 0
+#define NUE_VERSION_PATCH 1
 /* Version of this header set. Passed to nue_init() so the library can refuse an incompatible caller. */
 #define NUE_API_VERSION NUE_MAKE_VERSION(NUE_VERSION_MAJOR, NUE_VERSION_MINOR, NUE_VERSION_PATCH)
 #define NUE_VERSION_GET_MAJOR(v) (((uint32_t)(v) >> 24) & 0xFFu)
