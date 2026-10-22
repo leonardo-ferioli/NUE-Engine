@@ -158,6 +158,12 @@ void MemFs::remove(const std::string& path) {
     touch_locked(parent_of(p));
 }
 
+void MemFs::for_each_file(const std::function<void(const std::string&, const std::string&)>& fn) const {
+    std::lock_guard<std::mutex> g(m_);
+    for (const auto& kv : nodes_)
+        if (kv.second.kind == Node::File) fn(kv.first, kv.second.data);
+}
+
 bool MemFs::read_file(const std::string& path, std::string& out, size_t max_bytes) const {
     std::lock_guard<std::mutex> g(m_);
     auto it = nodes_.find(norm(path));

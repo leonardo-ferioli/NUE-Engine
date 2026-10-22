@@ -20,7 +20,7 @@ endif()
 
 set(NUE_LINUX_LOGIC_SOURCES
   lx_text.cpp lx_fs.cpp lx_pathcase.cpp lx_xdg.cpp lx_sysinfo.cpp lx_session.cpp
-  lx_gpu.cpp lx_gpu_probe.cpp lx_policy.cpp lx_dl.cpp)
+  lx_gpu.cpp lx_gpu_probe.cpp lx_policy.cpp lx_dl.cpp lx_diag.cpp)
 
 add_library(nue_linux_logic STATIC ${NUE_LINUX_LOGIC_SOURCES})
 target_include_directories(nue_linux_logic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -37,20 +37,30 @@ else()
   target_compile_options(nue_linux_logic PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
-set(NUE_LINUX_TEST_SOURCES tests/test_main.cpp tests/test_pathcase.cpp tests/test_system.cpp)
+set(NUE_LINUX_TEST_SOURCES tests/test_main.cpp tests/test_pathcase.cpp tests/test_system.cpp tests/test_diag.cpp)
 set(NUE_LINUX_PROBE_SOURCES tools/linux_probe.cpp)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  set(NUE_LINUX_RUNTIME_SOURCES)
+  find_package(Threads REQUIRED)
+  set(NUE_LINUX_RUNTIME_SOURCES
+    lx_dbus.cpp lx_gamemode.cpp lx_sched.cpp lx_storage.cpp lx_crash.cpp lx_runtime.cpp)
   add_library(nue_linux_runtime STATIC ${NUE_LINUX_RUNTIME_SOURCES})
-  target_link_libraries(nue_linux_runtime PUBLIC nue_linux_logic)
-  list(APPEND NUE_LINUX_TEST_SOURCES)
+  target_link_libraries(nue_linux_runtime PUBLIC nue_linux_logic Threads::Threads)
+  target_compile_options(nue_linux_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  list(APPEND NUE_LINUX_TEST_SOURCES tests/test_runtime_linux.cpp)
+  list(APPEND NUE_LINUX_PROBE_LIBS nue_linux_runtime)
+  list(APPEND NUE_LINUX_PROBE_DEFS NUE_LINUX_RUNTIME)
 endif()
 
 add_executable(nue_linux_tests ${NUE_LINUX_TEST_SOURCES})
-target_link_libraries(nue_linux_tests PRIVATE nue_linux_logic)
+target_link_libraries(nue_linux_tests PRIVATE nue_linux_logic ${NUE_LINUX_PROBE_LIBS})
 target_include_directories(nue_linux_tests PRIVATE tests)
 add_test(NAME nue_linux_tests COMMAND nue_linux_tests)
 
 add_executable(linux_probe ${NUE_LINUX_PROBE_SOURCES})
-target_link_libraries(linux_probe PRIVATE nue_linux_logic)
+target_link_libraries(linux_probe PRIVATE nue_linux_logic ${NUE_LINUX_PROBE_LIBS})
+target_compile_definitions(linux_probe PRIVATE ${NUE_LINUX_PROBE_DEFS})
+
+add_executable(make_fixture tools/make_fixture.cpp)
+target_link_libraries(make_fixture PRIVATE nue_linux_logic)
+target_include_directories(make_fixture PRIVATE tests)

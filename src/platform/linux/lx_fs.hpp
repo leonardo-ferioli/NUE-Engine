@@ -74,6 +74,9 @@ public:
     void add_symlink(const std::string& path, const std::string& target);
     void remove(const std::string& path);  // file, link, or directory subtree
 
+    // Visits every regular file (symbolic links are skipped), e.g. to write a fixture tree to disk.
+    void for_each_file(const std::function<void(const std::string& path, const std::string& data)>& fn) const;
+
     // Number of list_dir calls since construction (to verify caching).
     int list_calls() const { std::lock_guard<std::mutex> g(m_); return list_calls_; }
     int stat_calls() const { std::lock_guard<std::mutex> g(m_); return stat_calls_; }

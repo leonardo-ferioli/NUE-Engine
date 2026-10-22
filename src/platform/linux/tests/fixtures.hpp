@@ -34,6 +34,15 @@ inline void add_cpu(MemFs& fs, int id, int core, const std::string& siblings, in
     }
 }
 
+inline void add_gpu(MemFs& fs, const std::string& card, const char* vendor, const char* device, const char* driver, bool boot, const std::string& render) {
+    const std::string d = "/sys/class/drm/" + card + "/device/";
+    fs.add_file(d + "vendor", std::string(vendor) + "\n");
+    fs.add_file(d + "device", std::string(device) + "\n");
+    fs.add_file(d + "boot_vga", boot ? "1\n" : "0\n");
+    fs.add_symlink(d + "driver", std::string("../../../../bus/pci/drivers/") + driver);
+    fs.add_dir(d + "drm/" + render);
+}
+
 inline void steam_deck(MemFs& fs) {
     fs.add_file("/sys/class/dmi/id/sys_vendor", "Valve\n");
     fs.add_file("/sys/class/dmi/id/product_name", "Jupiter\n");
@@ -57,9 +66,9 @@ inline void steam_deck(MemFs& fs) {
     fs.add_file("/sys/class/power_supply/BAT1/energy_now", "20000000\n");
     fs.add_file("/sys/class/power_supply/BAT1/energy_full", "40000000\n");
     fs.add_file("/sys/class/power_supply/BAT1/power_now", "10000000\n");
-    fs.add_file("/sys/class/power_supply/hid-28de:1205-battery/type", "Battery\n");
-    fs.add_file("/sys/class/power_supply/hid-28de:1205-battery/scope", "Device\n");
-    fs.add_file("/sys/class/power_supply/hid-28de:1205-battery/capacity", "50\n");
+    fs.add_file("/sys/class/power_supply/hid-28de_1205-battery/type", "Battery\n");
+    fs.add_file("/sys/class/power_supply/hid-28de_1205-battery/scope", "Device\n");
+    fs.add_file("/sys/class/power_supply/hid-28de_1205-battery/capacity", "50\n");
 
     fs.add_file("/sys/class/thermal/thermal_zone0/type", "acpitz\n");
     fs.add_file("/sys/class/thermal/thermal_zone0/temp", "55000\n");
@@ -71,6 +80,9 @@ inline void steam_deck(MemFs& fs) {
                 "I: Bus=0003 Vendor=28de Product=1205 Version=0111\nN: Name=\"Valve Software Steam Deck Controller\"\nH: Handlers=event5 js0\n\n"
                 "I: Bus=0003 Vendor=28de Product=11ff Version=0001\nN: Name=\"Microsoft X-Box 360 pad\"\nH: Handlers=event8 js1\n\n"
                 "I: Bus=0011 Vendor=0001 Product=0001 Version=ab41\nN: Name=\"AT Translated Set 2 keyboard\"\nH: Handlers=sysrq kbd event3 leds\n");
+    add_gpu(fs, "card0", "0x1002", "0x163f", "amdgpu", true, "renderD128");  // Van Gogh APU
+    fs.add_file("/usr/share/vulkan/icd.d/radeon_icd.x86_64.json",
+                "{\"file_format_version\":\"1.0.0\",\"ICD\":{\"library_path\":\"/usr/lib/libvulkan_radeon.so\",\"api_version\":\"1.3.255\"}}");
     fs.add_file("/usr/lib/udev/rules.d/60-steam-input.rules", "# steam\n");
     fs.add_file("/usr/lib/udev/rules.d/70-uaccess.rules", "# uaccess\n");
 }
@@ -94,15 +106,6 @@ inline void arm_big_little(MemFs& fs) {
         add_cpu(fs, i, i, std::to_string(i), i < 4 ? 1800000 : 2200000, "schedutil");
         fs.add_file("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpu_capacity", i < 4 ? "512\n" : "1024\n");
     }
-}
-
-inline void add_gpu(MemFs& fs, const std::string& card, const char* vendor, const char* device, const char* driver, bool boot, const std::string& render) {
-    const std::string d = "/sys/class/drm/" + card + "/device/";
-    fs.add_file(d + "vendor", std::string(vendor) + "\n");
-    fs.add_file(d + "device", std::string(device) + "\n");
-    fs.add_file(d + "boot_vga", boot ? "1\n" : "0\n");
-    fs.add_symlink(d + "driver", std::string("../../../../bus/pci/drivers/") + driver);
-    fs.add_dir(d + "drm/" + render);
 }
 
 inline void hybrid_gpu_laptop(MemFs& fs) {
