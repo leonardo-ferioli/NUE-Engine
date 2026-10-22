@@ -414,7 +414,7 @@ enum {                                  /* load/save flags */
 };
 
 /* Parse a file image held in memory. DDS: legacy FOURCC / bitmask headers (D3D9 era) and DX10 headers, mips, cube maps, volumes, arrays.
- * KTX2: any supported vkFormat, supercompression none only (others: NUE_ERR_UNSUPPORTED). PNG: 8/16-bit grey/GA/RGB/RGBA -> R8/LA8/RGB8/RGBA8 (16 bit -> *16). */
+ * KTX2: any supported vkFormat, supercompression none only (others: NUE_ERR_UNSUPPORTED). PNG: 8/16-bit grey/GA/RGB/RGBA -> L8/LA8/RGB8/RGBA8 (16 bit -> L16/RGBA16); saving PNG writes level 0 as RGBA8. */
 NUE_API nue_result NUE_CALL nue_tex_image_load_memory(const void* data, size_t size, nue_tex_file_kind kind, uint32_t flags, nue_tex_image* out_image);
 NUE_API nue_result NUE_CALL nue_tex_image_load_file(const char* utf8_path, nue_tex_file_kind kind, uint32_t flags, nue_tex_image* out_image);
 /* Serialise. The buffer is allocated with nue_alloc-compatible memory: free it with nue_tex_free. */
@@ -630,7 +630,8 @@ NUE_API nue_result NUE_CALL nue_tex_context_convert(nue_tex_context ctx, const n
                                                      nue_bool* out_cache_hit);
 
 /* Asynchronous conversion for textures that show up at run time. The request is queued at `priority` (HIGH for something about to be drawn);
- * the callback gets the result on a worker thread. Returns a 32-bit request id (0 invalid). */
+ * the callback gets the result on a worker thread and OWNS `image` (free it with nue_tex_image_destroy); `plan` is valid only during the call. The source
+ * image is copied at request time, so the caller may destroy it right away. Returns a 32-bit request id (0 invalid). */
 typedef uint32_t nue_tex_request_id;
 typedef void (NUE_CALL *nue_tex_done_fn)(void* userdata, nue_tex_request_id id, nue_result result, nue_tex_image image, const nue_tex_plan* plan);
 NUE_API nue_result NUE_CALL nue_tex_request_async(nue_tex_context ctx, const nue_tex_convert_request* request, nue_tex_job_priority priority,
@@ -734,7 +735,8 @@ typedef struct nue_tex_d3d9_texture_desc {
     nue_bool cube;
     nue_bool srgb;                      /* sampler state D3DSAMP_SRGBTEXTURE seen for it, or known from content */
     nue_tex_usage content;
-    uint32_t reserved[4];
+    nue_tex_alpha_info alpha_hint;      /* what the layer knows about the alpha (UNKNOWN is safe but costs memory for DXT1: alpha-capable targets) */
+    uint32_t reserved[3];
 } nue_tex_d3d9_texture_desc;
 typedef struct nue_tex_d3d9_texture_info {
     uint32_t struct_size;
