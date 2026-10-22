@@ -261,7 +261,7 @@ NUE_API nue_bool NUE_CALL nue_tex_caps_can_use(const nue_tex_caps* caps, nue_tex
 NUE_API nue_result NUE_CALL nue_tex_caps_from_bgfx(nue_tex_caps* caps, const uint16_t* bgfx_format_caps, uint32_t count, uint32_t max_texture_size);
 struct nue_gpu_caps;
 /* Fill from the engine's GPU probe (gfx.h: nue_gpu_probe / nue_gfx_get_gpu_caps). Format families map to every texture format they contain
- * (sRGB twins when the family reports NUE_FMTSUP_SRGB); nothing is marked EMULATED because the probe cannot tell. */
+ * (sRGB twins when the family reports NUE_FMTSUP_SRGB); NUE_FMTSUP_EMULATED becomes NUE_TEX_FCAP_EMULATED. */
 NUE_API nue_result NUE_CALL nue_tex_caps_from_gpu_caps(nue_tex_caps* caps, const struct nue_gpu_caps* gpu);
 NUE_API nue_result NUE_CALL nue_tex_caps_to_string(const nue_tex_caps* caps, char* buffer, size_t capacity, size_t* out_size);   /* NUE_STRING_OUT: one format per line */
 
@@ -702,6 +702,14 @@ typedef struct nue_tex_budget_stats {
     uint32_t reserved[4];
 } nue_tex_budget_stats;
 NUE_API nue_result NUE_CALL nue_tex_budget_get_stats(nue_tex_budget budget, nue_tex_budget_stats* out);
+/* Ask the owner (through the evict callback, LRU candidates, pinned excluded) to release at least `bytes_needed`, whatever the limit. Returns the bytes freed. */
+NUE_API uint64_t NUE_CALL nue_tex_budget_evict(nue_tex_budget budget, uint64_t bytes_needed);
+/* Engine bridge (memory.h; only in builds that contain the engine, NUE_ERR_UNSUPPORTED in the standalone library). Registers a NUE_BUDGET_TEXTURE budget called `name`
+ * ("texture" if NULL): from then on the engine owns the LIMIT (policy / config keys budget.<name>.*, pressure events). Every nue_tex_budget_add/resize goes through
+ * nue_budget_request (NUE_ERR_OVERFLOW = does not fit even after eviction, nothing is accounted), remove/shrink are reported; the engine's eviction hook calls this budget's evict
+ * callback with LRU candidates (bytes_needed 0 = a share of the use chosen by the pressure level). The callback must release resources with nue_tex_budget_remove. */
+NUE_API nue_result NUE_CALL nue_tex_budget_attach_engine(nue_tex_budget budget, const char* name, uint32_t* out_engine_budget_id);
+NUE_API nue_result NUE_CALL nue_tex_budget_detach_engine(nue_tex_budget budget);
 
 /* Memory model: bytes of a set of textures under each candidate target format (docs/TEXTURE.md has the NFSU2 estimates). */
 typedef struct nue_tex_memory_item {

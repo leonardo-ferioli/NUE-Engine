@@ -131,7 +131,9 @@ import and the cache exist: nothing of that happens during a race. On a phone co
 
 * **No built-in limit.** `nue_tex_budget_policy`: unlimited | bytes | fraction of the available memory the host reports | preset (`LOW_MEMORY_MOBILE` 12 % with a 64 MiB floor, `MOBILE` 20 %,
   `DESKTOP` 35 %, `HIGH_END` 50 %), min/max clamps, changeable at run time; eviction callback receives LRU-ordered candidates (pinned resources never); statistics. A game that wants a fixed ceiling configures that number.
-  The engine-wide manager (`nue_budget_*`, `memory.h`, core session) owns the policy defaults per platform; this module's budget is the texture-local LRU accounting that can sit behind it.
+  The engine-wide manager (`nue_budget_*`, `memory.h`, core session) owns the policy defaults per platform. `nue_tex_budget_attach_engine(budget, "texture", &id)` (engine builds) registers a `NUE_BUDGET_TEXTURE`
+  budget and puts this module's LRU accounting behind it: the limit then comes from the engine policy / `budget.texture.*` config keys / pressure events; `nue_tex_budget_add` goes through `nue_budget_request`
+  (`NUE_ERR_OVERFLOW` when it does not fit even after eviction), frees are reported, and the engine's eviction hook calls the owner's evict callback with LRU candidates (tested in `test_engine_budget`, 32 checks, including OS pressure through `nue_budget_trim`).
 * Model (`nue_tex_memory_estimate`, `test_pipeline`): 100 DXT1 512x512 + 200 DXT5 256x256 textures with full mips = 33.3 MB as shipped; 200.0 MB as RGBA8 (6.0x, the current D3D9 layer
   fallback); 22.8 MB as ASTC 6x6. Per texel: BC1/ETC2 RGB 0.5 B, BC2/3/7/ETC2 RGBA/ASTC 4x4 1 B, ASTC 6x6 0.45 B, RGBA8 4 B, RGB565 2 B, plus one third for the mip chain.
   The real texture mix per scene of the game is **not known to this session** (the layer's audit says 800-1600 textures, 17-70 MB in menus; races unknown); `nue_texconv scan <dir>` prints the totals for a directory of DDS/KTX2/PNG files once
@@ -160,7 +162,7 @@ Measured seam cost (`test_pipeline`, Release, one 128x128 DXT1 level -> ETC2): w
 | Item | State |
 |---|---|
 | Format registry (130 formats), geometry, 8 mapping tables, D3D9 table as data | implemented, tested for internal consistency; the **numeric ids of Metal/GL/Vulkan were written from public headers and are not verified against the SDKs** |
-| Caps model, 9 device-class presets, bgfx and engine GPU-probe adapters | implemented, tested |
+| Caps model, 9 device-class presets, bgfx and engine GPU-probe adapters (`NUE_FMTSUP_EMULATED` -> `NUE_TEX_FCAP_EMULATED`) | implemented, tested |
 | Planner | implemented, 134 checks over desktop/Android/Apple/software classes |
 | Codecs | BC1/2/3/4/5/6H/7 decode; ETC1/ETC2 RGB/RGBA8/EAC R11/RG11 decode; ASTC LDR/HDR (all 14 block sizes) decode + encode; PVRTC1 4bpp decode + encode (square power-of-two only); encoders BC1/3/4/5/7, ETC1/ETC2/EAC R/RG |
 | **Gaps** | **decoders missing for ETC2 RGB-A1, PVRTC1 2bpp, PVRTC2, ATC (registry flags say so; the planner never plans to them); encoders missing for BC2, ETC2 RGB-A1, PVRTC 2bpp/PVRTC2 (no open encoder found); KTX2 supercompression (zstd/BasisLZ) refused, not misread** |
@@ -168,7 +170,7 @@ Measured seam cost (`test_pipeline`, Release, one 128x128 DXT1 level -> ETC2): w
 | Mip generation | box (exact), triangle, Kaiser, Lanczos; linear-light; normal renorm; alpha coverage; wrap; premultiplied; 3D |
 | Cache | hit/miss/corrupt/trim/clear tested; LRU by file time; atomic writes. Not tested: concurrent processes sharing one directory |
 | Import pipeline, async requests | tested (resume via cache, pause, cancel, failures) |
-| Budget | tested (LRU, pinned, run-time policy change, presets) |
+| Budget | tested (LRU, pinned, run-time policy change, presets); bridge to the engine budget manager tested in the engine build |
 | D3D9 seam | tested against synthetic DXT data; **not wired into nue_d3d9** (other owner) |
 | nue_texconv | info/convert/compare/plan/scan/bench/formats/caps work; `scan` has not seen real game textures |
 | Real game textures | **not tested**: the game's textures live in its own archives; an extraction or a DDS dump from the d3d9 layer is needed (`nue_texconv scan <dir>` then runs the planner and the totals) |
@@ -177,5 +179,5 @@ Measured seam cost (`test_pipeline`, Release, one 128x128 DXT1 level -> ETC2): w
 ## 11. Requests to other owners
 
 * **Legacy D3D9 owners**: section 9.
-* **Platform sessions**: fill `nue_gpu_caps.format[]` honestly (also whether a family is merely emulated, which the probe struct cannot say: a `NUE_FMTSUP_EMULATED` bit would let the planner avoid fake support).
+* **Platform sessions**: fill `nue_gpu_caps.format[]` honestly and set `NUE_FMTSUP_EMULATED` (core added it) for formats the driver decompresses at upload, so the planner does not count them as savings.
 * **Core**: nothing pending; the root contract (`nue_texture_obj`) is used as documented in `docs/REPLIES_core.md`.

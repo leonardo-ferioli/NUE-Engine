@@ -1,5 +1,8 @@
 // Texture memory budget: byte accounting with LRU eviction candidates, policy presets, statistics, plus the memory estimate model.
 #include "internal.hpp"
+#ifdef NUE_TEXTURE_WITH_ENGINE
+#  include "nue/memory.h"
+#endif
 #include <algorithm>
 #include <mutex>
 #include <unordered_map>
@@ -20,6 +23,7 @@ struct Budget {
     uint64_t used = 0, peak = 0, tick = 0, evictions_requested = 0, bytes_evicted = 0;
     uint32_t count = 0, pinned = 0, over_events = 0;
     bool evicting = false;
+    uint32_t engine_id = 0;             // nue_budget_id when attached to the engine budget manager
 };
 
 inline Budget* B(nue_tex_budget b) { return reinterpret_cast<Budget*>(b); }
@@ -34,8 +38,35 @@ Res* lookup(Budget& b, uint32_t id) {
     return r.used && (r.gen & 0xFFF) == g ? &r : nullptr;
 }
 
+// Ask the owner to release at least `need` bytes (lock NOT held on entry). Returns the bytes the owner reports as freed.
+uint64_t evict_bytes(Budget& b, uint64_t need) {
+    std::vector<nue_tex_resource_id> cand;
+    nue_tex_evict_fn fn;
+    void* user;
+    {
+        std::lock_guard<std::mutex> l(b.m);
+        if (!b.evict || b.evicting) return 0;
+        std::vector<std::pair<uint64_t, uint32_t>> order;
+        for (uint32_t i = 0; i < b.res.size(); ++i)
+            if (b.res[i].used && !(b.res[i].flags & NUE_TEX_RES_PINNED)) order.push_back({b.res[i].tick, i});
+        std::sort(order.begin(), order.end());
+        uint64_t acc = 0;
+        for (auto& o : order) { cand.push_back(make_id(o.second, b.res[o.second].gen)); acc += b.res[o.second].bytes; if (acc >= need) break; }
+        if (cand.empty()) return 0;
+        b.evicting = true;
+        ++b.evictions_requested;
+        fn = b.evict; user = b.user;
+    }
+    const uint64_t freed = fn(user, cand.data(), uint32_t(cand.size()), need);
+    std::lock_guard<std::mutex> l(b.m);
+    b.evicting = false;
+    b.bytes_evicted += freed;
+    return freed;
+}
+
 // Called with the lock NOT held; asks the owner to release at least `need` bytes.
 void enforce(Budget& b) {
+    if (b.engine_id) return;            // the engine budget manager enforces the limit
     for (int round = 0; round < 4; ++round) {
         std::vector<nue_tex_resource_id> cand;
         uint64_t need = 0;
@@ -133,6 +164,9 @@ void NUE_CALL nue_tex_budget_set_policy(nue_tex_budget h, const nue_tex_budget_p
 nue_result NUE_CALL nue_tex_budget_add(nue_tex_budget h, uint64_t bytes, uint32_t flags, nue_tex_resource_id* out_id) {
     if (!h || !out_id) return NUE_ERR_INVALID_ARGUMENT;
     Budget& b = *B(h);
+#ifdef NUE_TEXTURE_WITH_ENGINE
+    if (b.engine_id && nue_budget_request(b.engine_id, bytes) < 0) return NUE_ERR_OVERFLOW;       // accounted by the engine on success
+#endif
     {
         std::lock_guard<std::mutex> l(b.m);
         uint32_t index;
@@ -151,6 +185,19 @@ nue_result NUE_CALL nue_tex_budget_add(nue_tex_budget h, uint64_t bytes, uint32_
 nue_result NUE_CALL nue_tex_budget_resize(nue_tex_budget h, nue_tex_resource_id id, uint64_t bytes) {
     if (!h) return NUE_ERR_INVALID_HANDLE;
     Budget& b = *B(h);
+    uint64_t old = 0;
+    {
+        std::lock_guard<std::mutex> l(b.m);
+        Res* r = lookup(b, id);
+        if (!r) return NUE_ERR_INVALID_HANDLE;
+        old = r->bytes;
+    }
+#ifdef NUE_TEXTURE_WITH_ENGINE
+    if (b.engine_id) {
+        if (bytes > old) { if (nue_budget_request(b.engine_id, bytes - old) < 0) return NUE_ERR_OVERFLOW; }
+        else if (bytes < old) nue_budget_report(b.engine_id, -int64_t(old - bytes));
+    }
+#endif
     {
         std::lock_guard<std::mutex> l(b.m);
         Res* r = lookup(b, id);
@@ -167,6 +214,9 @@ nue_result NUE_CALL nue_tex_budget_remove(nue_tex_budget h, nue_tex_resource_id 
     std::lock_guard<std::mutex> l(b.m);
     Res* r = lookup(b, id);
     if (!r) return NUE_ERR_INVALID_HANDLE;
+#ifdef NUE_TEXTURE_WITH_ENGINE
+    if (b.engine_id) nue_budget_report(b.engine_id, -int64_t(r->bytes));        // never evicts, safe under our lock
+#endif
     b.used -= r->bytes; --b.count; if (r->flags & NUE_TEX_RES_PINNED) --b.pinned;
     r->used = false; ++r->gen;
     b.free_list.push_back(uint32_t((id & ((1u << kIndexBits) - 1)) - 1));
@@ -203,6 +253,51 @@ nue_result NUE_CALL nue_tex_budget_get_stats(nue_tex_budget h, nue_tex_budget_st
     out->evictions_requested = b.evictions_requested; out->bytes_evicted = b.bytes_evicted; out->over_budget_events = b.over_events;
     return NUE_OK;
 }
+
+uint64_t NUE_CALL nue_tex_budget_evict(nue_tex_budget h, uint64_t bytes_needed) { return h ? evict_bytes(*B(h), bytes_needed) : 0; }
+
+#ifdef NUE_TEXTURE_WITH_ENGINE
+static uint64_t NUE_CALL engine_evict(void* user, nue_budget_id, uint64_t needed, nue_memory_pressure level) {
+    Budget& b = *B(reinterpret_cast<nue_tex_budget>(user));
+    if (!needed) {
+        uint64_t used;
+        { std::lock_guard<std::mutex> l(b.m); used = b.used; }
+        needed = level >= NUE_PRESSURE_CRITICAL ? used : level >= NUE_PRESSURE_HIGH ? used / 2 : used / 5;
+    }
+    return evict_bytes(b, needed);        // the owner's callback removes the resources, which reports the freed bytes to the engine
+}
+
+nue_result NUE_CALL nue_tex_budget_attach_engine(nue_tex_budget h, const char* name, uint32_t* out_id) {
+    if (!h) return NUE_ERR_INVALID_HANDLE;
+    Budget& b = *B(h);
+    if (b.engine_id) return NUE_ERR_ALREADY_EXISTS;
+    nue_budget_desc d;
+    NUE_STRUCT_INIT(&d);
+    d.name = name ? name : "texture"; d.kind = NUE_BUDGET_TEXTURE; d.evict = engine_evict; d.userdata = h;
+    nue_budget_id id = 0;
+    const nue_result r = nue_budget_register(&d, &id);
+    if (r < 0) return r;
+    uint64_t used;
+    {
+        std::lock_guard<std::mutex> l(b.m);
+        used = b.used; b.limit = UINT64_MAX; b.engine_id = id;
+    }
+    if (used) nue_budget_report(id, int64_t(used));             // what was accounted before the attach
+    if (out_id) *out_id = id;
+    return NUE_OK;
+}
+
+nue_result NUE_CALL nue_tex_budget_detach_engine(nue_tex_budget h) {
+    if (!h) return NUE_ERR_INVALID_HANDLE;
+    Budget& b = *B(h);
+    uint32_t id;
+    { std::lock_guard<std::mutex> l(b.m); id = b.engine_id; b.engine_id = 0; b.limit = nue_tex_budget_resolve(&b.policy); }
+    return id ? nue_budget_unregister(id) : NUE_OK_NOOP;
+}
+#else
+nue_result NUE_CALL nue_tex_budget_attach_engine(nue_tex_budget, const char*, uint32_t*) { return NUE_ERR_UNSUPPORTED; }
+nue_result NUE_CALL nue_tex_budget_detach_engine(nue_tex_budget) { return NUE_ERR_UNSUPPORTED; }
+#endif
 
 uint64_t NUE_CALL nue_tex_memory_estimate(const nue_tex_memory_item* items, uint32_t n, nue_tex_format target) {
     uint64_t total = 0;

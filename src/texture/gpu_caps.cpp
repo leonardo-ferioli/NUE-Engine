@@ -55,6 +55,7 @@ extern "C" nue_result NUE_CALL nue_tex_caps_from_gpu_caps(nue_tex_caps* caps, co
             if (s & NUE_FMTSUP_MIPMAPS) fl |= NUE_TEX_FCAP_MIP_AUTOGEN;
             if (s & NUE_FMTSUP_RENDER_TARGET) fl |= NUE_TEX_FCAP_RENDER;
             if (s & NUE_FMTSUP_MSAA) fl |= NUE_TEX_FCAP_MSAA;
+            if (s & NUE_FMTSUP_EMULATED) fl |= NUE_TEX_FCAP_EMULATED;
             if (fi->colorspace == NUE_TEX_COLORSPACE_SRGB) { if (s & NUE_FMTSUP_SRGB) fl |= NUE_TEX_FCAP_SRGB_SAMPLE; else fl = 0; }
             if (fi->kind == NUE_TEX_KIND_BLOCK) fl &= ~uint32_t(NUE_TEX_FCAP_RENDER | NUE_TEX_FCAP_MSAA);
             caps->format_flags[f] = fl;

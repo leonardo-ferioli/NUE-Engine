@@ -1,5 +1,6 @@
 // Format registry, geometry, API mappings, capability tables.
 #include "tex_common.hpp"
+#include "nue/gfx.h"
 #ifdef NUE_TEXTURE_TEST_INTERNALS
 #  include "internal.hpp"
 #endif
@@ -166,6 +167,26 @@ TEST_CASE(caps_from_bgfx) {
     CHECK_EQ(nue_tex_caps_from_bgfx(&c, bg, 5, 4096), NUE_ERR_INVALID_ARGUMENT);
 }
 
+TEST_CASE(caps_from_engine_gpu_probe) {
+    nue_gpu_caps g; NUE_STRUCT_INIT(&g);
+    g.probed = NUE_TRUE;
+    const nue_format_support basic = NUE_FMTSUP_SAMPLE | NUE_FMTSUP_FILTER | NUE_FMTSUP_MIPMAPS;
+    g.format[NUE_FMT_RGBA8] = basic | NUE_FMTSUP_RENDER_TARGET | NUE_FMTSUP_SRGB;
+    g.format[NUE_FMT_ETC2_RGB] = basic | NUE_FMTSUP_SRGB;
+    g.format[NUE_FMT_ASTC_LDR] = basic | NUE_FMTSUP_EMULATED;                       // the driver decompresses ASTC at upload
+    g.format[NUE_FMT_BC1] = basic;                                                  // no sRGB variant: BC1_SRGB must not be offered
+    g.max_texture_2d = 4096; g.npot_mipmaps = NUE_TRUE; g.dedicated_memory_bytes = 123456;
+    nue_tex_caps c; NUE_STRUCT_INIT(&c);
+    CHECK_EQ(nue_tex_caps_from_gpu_caps(&c, &g), NUE_OK);
+    CHECK(nue_tex_caps_can_use(&c, NUE_TEX_ETC2_RGB8)); CHECK(nue_tex_caps_can_use(&c, NUE_TEX_ETC2_RGB8_SRGB));
+    CHECK(!nue_tex_caps_can_use(&c, NUE_TEX_ASTC_4x4_UNORM));                       // emulated => not usable for saving memory
+    CHECK(nue_tex_caps_get_format(&c, NUE_TEX_ASTC_4x4_UNORM) & NUE_TEX_FCAP_EMULATED);
+    CHECK(nue_tex_caps_can_use(&c, NUE_TEX_BC1_UNORM)); CHECK(!nue_tex_caps_can_use(&c, NUE_TEX_BC1_SRGB));
+    CHECK(nue_tex_caps_get_format(&c, NUE_TEX_RGBA8_UNORM) & NUE_TEX_FCAP_RENDER);
+    CHECK_EQ(c.max_size_2d, 4096u); CHECK_EQ(c.available_memory_bytes, 123456u);
+    CHECK_EQ(nue_tex_caps_from_gpu_caps(&c, nullptr), NUE_ERR_INVALID_ARGUMENT);
+}
+
 TEST_MAIN_BEGIN
     RUN(registry_is_consistent);
     RUN(geometry);
@@ -174,4 +195,5 @@ TEST_MAIN_BEGIN
     RUN(vulkan_dxgi_known_values);
     RUN(caps_presets);
     RUN(caps_from_bgfx);
+    RUN(caps_from_engine_gpu_probe);
 TEST_MAIN_END

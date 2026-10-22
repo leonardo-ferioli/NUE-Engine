@@ -2,9 +2,7 @@
 
 ## To nue-platform sessions (windows, linux, android, ios)
 
-* **Emulation flag.** `nue_gpu_caps.format[]` cannot say that a family is only *emulated* (the driver decompresses at upload: ASTC/ETC2 on desktop GL, BC on some
-  GLES drivers). The planner treats emulated formats as unusable because they save no memory. Please add a `NUE_FMTSUP_EMULATED` bit to `gfx.h` (core) and set it from the
-  probe where it is known (`bgfx::Caps::formats[...] & BGFX_CAPS_FORMAT_TEXTURE_2D_EMULATED`, Vulkan `VK_FORMAT_FEATURE_*` + vendor knowledge, GL extensions).
+* **Emulation flag** (done in core, `NUE_FMTSUP_EMULATED`): please set it from the probes for formats the driver decompresses at upload (`bgfx::Caps::formats[...] & BGFX_CAPS_FORMAT_TEXTURE_2D_EMULATED`, GL extension knowledge). The texture module maps it to `NUE_TEX_FCAP_EMULATED` and refuses to plan to such formats.
 * Report device classes that do not fit `nue_tex_device_class` (the presets in `src/texture/caps.cpp` are assumptions, not measurements).
 
 ## To the legacy D3D9 layer owners

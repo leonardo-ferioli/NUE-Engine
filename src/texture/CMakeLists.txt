@@ -95,6 +95,7 @@ file(GLOB NUE_TEXTURE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/*.cpp
 if(TARGET nue_texture_obj)
     # Part of the engine (root CMakeLists contract): everything goes into nue_texture_obj, nothing else has to be linked or exported.
     set(_t nue_texture_obj)
+    set(_engine_build ON)
     set(NUE_TEXTURE_TEST_LIB nue::nue)
 else()
     add_library(nue_texture STATIC)
@@ -112,6 +113,9 @@ endif()
 target_sources(${_t} PRIVATE ${NUE_TEXTURE_SOURCES} ${_astc_src} ${_etc_src} ${_pvr_src})
 target_include_directories(${_t} PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${TP}/bcdec" "${TP}/stb" "${TP}/astc-encoder" "${TP}/etcpak" "${TP}/pvrtc_javelin")
 target_compile_definitions(${_t} PRIVATE NUE_TEX_SIMD_NAME="${_simd}")
+if(_engine_build)
+    target_compile_definitions(${_t} PRIVATE NUE_TEXTURE_WITH_ENGINE=1)
+endif()
 set_target_properties(${_t} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(_vendor_defs NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
