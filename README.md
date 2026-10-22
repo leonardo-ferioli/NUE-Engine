@@ -89,9 +89,6 @@ the others are planned and are written when a recompilation project needs them.
 | Sony | PlayStation 4 | 2013 | Console | `legacy_ps4` | Planned |
 | Sony | PlayStation 5 | 2020 | Console | `legacy_ps5` | Planned |
 | Sony | PSP | 2004 | Handheld | `legacy_psp` | Planned |
-| Sony | PlayStation Vita | 2011 | Handheld | `legacy_vita` | Planned |
-| Nintendo | NES | 1983 | Console | `legacy_nes` | Planned |
-| Nintendo | SNES | 1990 | Console | `legacy_snes` | Planned |
 | Nintendo | Nintendo 64 | 1996 | Console | `legacy_n64` | Planned |
 | Nintendo | GameCube | 2001 | Console | `legacy_gc` | Planned |
 | Nintendo | Wii | 2006 | Console | `legacy_wii` | Planned |
@@ -102,19 +99,8 @@ the others are planned and are written when a recompilation project needs them.
 | Nintendo | Game Boy Advance | 2001 | Handheld | `legacy_gba` | Planned |
 | Nintendo | Nintendo DS | 2004 | Handheld | `legacy_nds` | Planned |
 | Nintendo | Nintendo 3DS | 2011 | Handheld | `legacy_3ds` | Planned |
-| Sega | Master System | 1985 | Console | `legacy_sms` | Planned |
-| Sega | Mega Drive / Genesis | 1988 | Console | `legacy_md` | Planned |
-| Sega | Game Gear | 1990 | Handheld | `legacy_gg` | Planned |
 | Sega | Saturn | 1994 | Console | `legacy_saturn` | Planned |
 | Sega | Dreamcast | 1998 | Console | `legacy_dc` | Planned |
-| Atari | Atari 2600 | 1977 | Console | `legacy_a2600` | Planned |
-| Atari | Lynx | 1989 | Handheld | `legacy_lynx` | Planned |
-| Atari | Jaguar | 1993 | Console | `legacy_jaguar` | Planned |
-| Others | PC Engine | 1987 | Console | `legacy_pce` | Planned |
-| Others | Neo Geo | 1990 | Console | `legacy_neogeo` | Planned |
-| Others | 3DO | 1993 | Console | `legacy_3do` | Planned |
-| Others | WonderSwan | 1999 | Handheld | `legacy_ws` | Planned |
-| Others | N-Gage | 2003 | Handheld | `legacy_ngage` | Planned |
 
 The design is in the [roadmap](docs/ROADMAP.md) and [how to write a legacy layer](docs/LEGACY_LAYERS.md) says what each one is made of.
 Consoles that share an architecture can share most of a layer, so this is a list of targets and not a list of separate pieces of work.
