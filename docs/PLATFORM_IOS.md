@@ -21,7 +21,9 @@ Step-by-step build instructions in Spanish: [PLATFORM_IOS.es.md](PLATFORM_IOS.es
 ## 1. Verification status (read this first)
 
 The author works on Windows with no macOS, Xcode or Apple SDK. The only Apple toolchain used so far is **GitHub Actions on a macOS runner
-(Xcode 26.6)**: run 39737087582 of the `nue-ios` workflow (an earlier run, 39736369209, found two compile errors that were fixed).
+(Xcode 26.6)**. Latest full run: `nue-ios` workflow run 39740284507 (commit c55e433): all six jobs green (host tests, XcodeGen generation,
+simulator build, device build, xcframework, and the whole engine for iOS arm64). The shared `ci` run 39740284455 also built `ios-arm64`.
+Earlier runs 39736369209 and 39737087582 found the compile errors that were fixed since.
 Nothing has ever run on a device or in the simulator.
 
 | Piece | Where | Status |
@@ -33,8 +35,8 @@ Nothing has ever run on a device or in the simulator.
 | CMake iOS build, presets, toolchain file | `ios/CMakeLists.txt`, `ios/cmake/`, `ios/CMakePresets.json` | **Configure + build verified in CI** (Xcode generator, SDL3 fetched and built from source) |
 | `NueIos.xcframework` packaging | `ios/scripts/package_xcframework.sh` | **Built in CI** (device + simulator slices); not consumed by anything yet |
 | Unsigned IPA script | `ios/scripts/make_ipa.sh` | Ran in CI; the IPA was not installed anywhere |
-| NUE platform adapter (`nue_platform_ios_get_ops`), import source, QoS, crash handler, log sink, extension `nue.ios.v1` | `src/platform/ios/adapter/`, `src/platform/ios/CMakeLists.txt` | Syntax-checked on Windows against the real NUE headers with stand-in Apple headers. **Not yet built by Xcode as part of `libnue`**: the CI job `nue-engine` failed on a missing ARC flag (fixed in the CMake, awaiting a re-run) |
-| XcodeGen project | `ios/project.yml` | The SwiftPM dependency on SDL cannot work (no `Package.swift`); now expects `external/SDL3.xcframework`. CI only runs `xcodegen generate`; the project has **not** been built |
+| NUE platform adapter (`nue_platform_ios_get_ops`), import source, QoS, crash handler, log sink, extension `nue.ios.v1`, API 0.1.1 hooks | `src/platform/ios/adapter/`, `src/platform/ios/CMakeLists.txt` | **Built by Xcode as part of `libnue`** (`cmake --preset ios-arm64`, target `nue`, iOS 15 deployment target) in CI. The mapping logic is unit-tested on the host. **Never run**; the crash handler, import, storage paths, power and QoS code paths have not executed |
+| XcodeGen project | `ios/project.yml` | Expects `external/SDL3.xcframework` (SDL has no `Package.swift`). CI runs `xcodegen generate` successfully; the generated project has **not** been built |
 | Behaviour on a device (Game Mode effect, ProMotion pacing, audio interruptions, gyro signs in landscape, controller mapping, memory numbers) | | **Unverified**; every such claim below is a design intention |
 
 The glue is kept thin on purpose: decisions live in `logic/` (tested), the `.mm` files translate between UIKit/AV/GC notifications and
@@ -132,7 +134,7 @@ Verification: `platform_ios.mm` was syntax-checked with clang on Windows as Obje
 bug (a block cannot capture a C array) and proves the NUE-facing types, the ops table order and the C++ are consistent; it says nothing about
 whether the stand-ins match the real Apple SDK. The `apple/*.mm` glue files got a manual review only (that found a wrong `NSNotFound`
 comparison, a missing iOS 16.4 availability guard for `supportsBCTextureCompression` and the arm64 PC accessor). `nue_ext_ios.h` and `nue_ios.h`
-compile in C and C++; the mapping logic is unit-tested. The Objective-C++ CMake integration of the adapter (`enable_language(OBJCXX)` inside `add_subdirectory`, ARC through `TARGET_DIRECTORY`) and the `ios-arm64` preset were first exercised by the `nue-engine` CI job, which failed on ARC and is awaiting a re-run.
+compile in C and C++; the mapping logic is unit-tested. The Objective-C++ CMake integration of the adapter (OBJCXX enabled by the root, ARC through `set_property(SOURCE ... TARGET_DIRECTORY nue_platform_obj)`) and the `ios-arm64` preset were verified by the `nue-engine` CI job.
 
 ## 3. Build and packaging
 
