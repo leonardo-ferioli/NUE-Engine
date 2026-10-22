@@ -1,0 +1,258 @@
+# NUE engine: cross-platform runtime + SDK + C API (SDL3 base, own code where SDL3 is not enough).
+#
+#   cmake --preset windows-x64            (see CMakePresets.json: windows-x86, windows-x64, linux-x64, android-arm64, ios-arm64)
+#   cmake --build --preset windows-x64
+#   ctest --preset windows-x64
+#
+# Targets
+#   nue::nue      the library (C API + C++ wrapper headers), static or shared (-DNUE_BUILD_SHARED=ON)
+#   nue::entry    optional entry-point stub for apps that define `int nue_main(int, char**)` (see include/nue/entry.h)
+#   nue_sample_*  samples, nue_test_* tests (ctest)
+#
+# Ownership: this file and src/core, src/platform/sdl3, include, tests, samples, docs, cmake are the CORE session's.
+# src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
+cmake_minimum_required(VERSION 3.21)
+
+project(nue VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+if(PROJECT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(NUE_IS_TOP_LEVEL ON)
+else()
+    set(NUE_IS_TOP_LEVEL OFF)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# ---------------------------------------------------------------------------------------------------- options
+option(NUE_BUILD_SHARED "Build libnue as a shared library (nue.dll / libnue.so)" OFF)
+option(NUE_BUILD_TESTS "Build the ctest suite (console only, null backend / SDL dummy drivers)" ${NUE_IS_TOP_LEVEL})
+option(NUE_BUILD_SAMPLES "Build the samples (they open windows when run: never run them from CI)" ${NUE_IS_TOP_LEVEL})
+option(NUE_BACKEND_SDL3 "Compile the SDL3 backend (needs third_party/SDL, see docs/PORTING.md)" ON)
+option(NUE_WITH_GFX "Compile the bgfx graphics module (nue_gfx); needs bgfx.cmake" OFF)
+option(NUE_STATIC_CRT "MSVC/clang-cl/Windows: link the C runtime statically (no redistributable next to the game)" OFF)
+option(NUE_INSTALL "Generate install and package-config rules" ${NUE_IS_TOP_LEVEL})
+option(NUE_WARNINGS_AS_ERRORS "Treat warnings as errors in the engine's own sources" OFF)
+set(NUE_GIT_COMMIT "" CACHE STRING "Commit id compiled into nue_get_build_info (auto-detected when empty)")
+
+if(NUE_STATIC_CRT AND WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# ---------------------------------------------------------------------------------------------------- platform
+if(ANDROID)
+    set(NUE_OS android)
+elseif(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(NUE_OS ios)
+elseif(WIN32)
+    set(NUE_OS windows)
+elseif(APPLE)
+    set(NUE_OS macos)
+elseif(UNIX)
+    set(NUE_OS linux)
+else()
+    message(FATAL_ERROR "NUE: unsupported platform ${CMAKE_SYSTEM_NAME}")
+endif()
+message(STATUS "NUE: target OS ${NUE_OS}, pointer size ${CMAKE_SIZEOF_VOID_P}, build type ${CMAKE_BUILD_TYPE}")
+
+if(NOT NUE_GIT_COMMIT)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=10 HEAD
+                        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                        OUTPUT_VARIABLE NUE_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    if(NOT NUE_GIT_COMMIT)
+        set(NUE_GIT_COMMIT "unknown")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------------------------------- SDL3 (pinned submodule, static)
+set(NUE_HAVE_SDL3 OFF)
+if(NUE_BACKEND_SDL3)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL/CMakeLists.txt")
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+        set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+        set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+        set(SDL_DISABLE_INSTALL_DOCS ON CACHE BOOL "" FORCE)
+        add_subdirectory(third_party/SDL EXCLUDE_FROM_ALL)
+        set(NUE_HAVE_SDL3 ON)
+    else()
+        message(STATUS "NUE: third_party/SDL is empty -> SDL3 backend disabled (git submodule update --init --depth 1 nue_engine/third_party/SDL)")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------------------------------- shared include/compile settings
+add_library(nue_internal INTERFACE)
+target_include_directories(nue_internal INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
+if(NUE_BUILD_SHARED)
+    target_compile_definitions(nue_internal INTERFACE NUE_BUILD_SHARED)
+endif()
+if(NUE_HAVE_SDL3)
+    target_compile_definitions(nue_internal INTERFACE NUE_HAS_SDL3=1)
+endif()
+if(MSVC)
+    target_compile_options(nue_internal INTERFACE /W4 /permissive- /utf-8)
+    target_compile_definitions(nue_internal INTERFACE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(NUE_WARNINGS_AS_ERRORS)
+        target_compile_options(nue_internal INTERFACE /WX)
+    endif()
+else()
+    target_compile_options(nue_internal INTERFACE -Wall -Wextra -Wno-unused-parameter)
+    if(WIN32)
+        target_compile_definitions(nue_internal INTERFACE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
+    if(NUE_WARNINGS_AS_ERRORS)
+        target_compile_options(nue_internal INTERFACE -Werror)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------------------------------- core (platform independent) + null backend
+file(GLOB NUE_CORE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.c")
+add_library(nue_core_obj OBJECT ${NUE_CORE_SOURCES})
+target_link_libraries(nue_core_obj PUBLIC nue_internal)
+target_compile_definitions(nue_core_obj PRIVATE
+    NUE_GIT_COMMIT="${NUE_GIT_COMMIT}"
+    NUE_BUILD_TYPE_STRING="$<CONFIG>"
+    NUE_VERSION_STRING_LITERAL="${PROJECT_VERSION}")
+
+# ---------------------------------------------------------------------------------------------------- platform layer (owned by the platform sessions)
+add_library(nue_platform_obj OBJECT)
+target_link_libraries(nue_platform_obj PUBLIC nue_internal)
+string(TOUPPER "${NUE_OS}" NUE_OS_UPPER)
+set(NUE_HAVE_PLATFORM_LAYER OFF)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${NUE_OS}/CMakeLists.txt")
+    # Contract: the fragment adds its sources with target_sources(nue_platform_obj PRIVATE ...) and may link extra libraries
+    # with target_link_libraries(nue_platform_obj PUBLIC ...). It must define nue_platform_<os>_get_ops().
+    add_subdirectory(src/platform/${NUE_OS})
+    target_compile_definitions(nue_internal INTERFACE NUE_HAS_PLATFORM_${NUE_OS_UPPER}=1)
+    set(NUE_HAVE_PLATFORM_LAYER ON)
+endif()
+get_target_property(_nue_platform_sources nue_platform_obj SOURCES)
+if(NOT _nue_platform_sources)
+    # An OBJECT library needs at least one source on every generator.
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nue_platform_empty.cpp" "// no platform layer sources for ${NUE_OS}\nnamespace nue_empty_platform {}\n")
+    target_sources(nue_platform_obj PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_platform_empty.cpp")
+endif()
+
+# ---------------------------------------------------------------------------------------------------- SDL3 backend (shared by all platforms)
+add_library(nue_backend_sdl3_obj OBJECT)
+target_link_libraries(nue_backend_sdl3_obj PUBLIC nue_internal)
+if(NUE_HAVE_SDL3)
+    file(GLOB NUE_SDL3_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/sdl3/*.cpp")
+    target_sources(nue_backend_sdl3_obj PRIVATE ${NUE_SDL3_SOURCES})
+    target_link_libraries(nue_backend_sdl3_obj PUBLIC SDL3::SDL3-static)
+else()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nue_sdl3_empty.cpp" "// SDL3 backend not built\nnamespace nue_empty_sdl3 {}\n")
+    target_sources(nue_backend_sdl3_obj PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_sdl3_empty.cpp")
+endif()
+
+# ---------------------------------------------------------------------------------------------------- graphics module (bgfx)
+if(NUE_WITH_GFX)
+    include(NueGfx)   # cmake/NueGfx.cmake: defines nue_gfx_obj (see docs/GFX_D3D9_SEAM.md)
+endif()
+
+# ---------------------------------------------------------------------------------------------------- the library
+if(NUE_BUILD_SHARED)
+    add_library(nue SHARED)
+else()
+    add_library(nue STATIC)
+endif()
+add_library(nue::nue ALIAS nue)
+target_sources(nue PRIVATE
+    $<TARGET_OBJECTS:nue_core_obj>
+    $<TARGET_OBJECTS:nue_platform_obj>
+    $<TARGET_OBJECTS:nue_backend_sdl3_obj>)
+if(TARGET nue_gfx_obj)
+    target_sources(nue PRIVATE $<TARGET_OBJECTS:nue_gfx_obj>)
+endif()
+target_include_directories(nue PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>")
+target_compile_features(nue PUBLIC cxx_std_17)
+if(NUE_BUILD_SHARED)
+    target_compile_definitions(nue PRIVATE NUE_BUILD_SHARED)
+    target_compile_definitions(nue INTERFACE NUE_USE_SHARED)
+endif()
+set_target_properties(nue PROPERTIES OUTPUT_NAME nue VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}
+                      POSITION_INDEPENDENT_CODE ON)
+# Link order: objects of every module need the OS libraries and (static) SDL3.
+target_link_libraries(nue PRIVATE "$<BUILD_INTERFACE:nue_internal>")
+if(NUE_HAVE_SDL3)
+    target_link_libraries(nue PRIVATE SDL3::SDL3-static)
+endif()
+if(WIN32)
+    target_link_libraries(nue PRIVATE winmm ole32 advapi32 shell32 user32 dbghelp)
+elseif(UNIX AND NOT APPLE AND NOT ANDROID)
+    target_link_libraries(nue PRIVATE pthread dl m)
+elseif(ANDROID)
+    target_link_libraries(nue PRIVATE log android dl m)
+endif()
+
+# ---------------------------------------------------------------------------------------------------- entry stub (nue::entry)
+add_library(nue_entry STATIC)
+add_library(nue::entry ALIAS nue_entry)
+file(GLOB NUE_ENTRY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/sdl3/entry/*.cpp")
+if(NUE_ENTRY_SOURCES AND NUE_HAVE_SDL3)
+    target_sources(nue_entry PRIVATE ${NUE_ENTRY_SOURCES})
+else()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nue_entry_empty.cpp" "// entry stub not built (needs SDL3)\nnamespace nue_empty_entry {}\n")
+    target_sources(nue_entry PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nue_entry_empty.cpp")
+endif()
+target_link_libraries(nue_entry PUBLIC nue::nue PRIVATE "$<BUILD_INTERFACE:nue_internal>")
+
+# ---------------------------------------------------------------------------------------------------- tests, samples
+if(NUE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+if(NUE_BUILD_SAMPLES)
+    add_subdirectory(samples)
+endif()
+
+# ---------------------------------------------------------------------------------------------------- install / package config (find_package(nue))
+if(NUE_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS nue nue_entry EXPORT nueTargets
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY include/nue include/nuepp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    # Extension headers published by platform layers (optional): src/platform/<os>/include/nue_ext_*.h
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${NUE_OS}/include")
+        install(DIRECTORY src/platform/${NUE_OS}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/nue/ext
+                FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    endif()
+    install(EXPORT nueTargets NAMESPACE nue:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
+
+    configure_package_config_file(cmake/nueConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/nueConfig.cmake"
+                                  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
+    write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/nueConfigVersion.cmake"
+                                     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/nueConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/nueConfigVersion.cmake"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
+    install(FILES docs/API.md docs/ARCHITECTURE.md docs/PORTING.md docs/STATUS.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+endif()
