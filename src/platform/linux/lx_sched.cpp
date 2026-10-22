@@ -50,20 +50,29 @@ PriorityLimits query_priority_limits() {
     return l;
 }
 
-bool set_thread_nice(int nice) { return setpriority(PRIO_PROCESS, static_cast<id_t>(current_tid()), nice) == 0; }
-
 namespace {
+pid_t tid_or_self(int64_t tid) { return static_cast<pid_t>(tid > 0 ? tid : current_tid()); }
 constexpr int kIoprioWhoProcess = 1;  // applies to a single thread (tid)
 constexpr int kIoprioClassBe = 2, kIoprioClassIdle = 3, kIoprioShift = 13;
-bool ioprio_set(int klass, int level) {
-    return syscall(SYS_ioprio_set, kIoprioWhoProcess, static_cast<int>(current_tid()), (klass << kIoprioShift) | level) == 0;
+bool ioprio_set(int klass, int level, int64_t tid) {
+    return syscall(SYS_ioprio_set, kIoprioWhoProcess, static_cast<int>(tid_or_self(tid)), (klass << kIoprioShift) | level) == 0;
 }
 }  // namespace
 
-bool set_io_priority_best_effort(int level) { return ioprio_set(kIoprioClassBe, level < 0 ? 0 : level > 7 ? 7 : level); }
-bool set_io_priority_idle() { return ioprio_set(kIoprioClassIdle, 0); }
+bool set_thread_nice(int nice, int64_t tid) { return setpriority(PRIO_PROCESS, static_cast<id_t>(tid_or_self(tid)), nice) == 0; }
 
-bool set_thread_policy(SchedPolicy p, int rt_priority) {
+bool get_thread_nice(int& nice, int64_t tid) {
+    errno = 0;
+    int v = getpriority(PRIO_PROCESS, static_cast<id_t>(tid_or_self(tid)));
+    if (v == -1 && errno != 0) return false;
+    nice = v;
+    return true;
+}
+
+bool set_io_priority_best_effort(int level, int64_t tid) { return ioprio_set(kIoprioClassBe, level < 0 ? 0 : level > 7 ? 7 : level, tid); }
+bool set_io_priority_idle(int64_t tid) { return ioprio_set(kIoprioClassIdle, 0, tid); }
+
+bool set_thread_policy(SchedPolicy p, int rt_priority, int64_t tid) {
     struct sched_param sp;
     std::memset(&sp, 0, sizeof sp);
     int policy = SCHED_OTHER;
@@ -75,7 +84,24 @@ bool set_thread_policy(SchedPolicy p, int rt_priority) {
         default: break;
     }
     if (p == SchedPolicy::Fifo || p == SchedPolicy::RoundRobin) policy |= SCHED_RESET_ON_FORK;  // children never inherit RT
-    return sched_setscheduler(static_cast<pid_t>(current_tid()), policy, &sp) == 0;
+    return sched_setscheduler(tid_or_self(tid), policy, &sp) == 0;
+}
+
+bool get_thread_policy(SchedPolicy& p, int& rt_priority, int64_t tid) {
+    int policy = sched_getscheduler(tid_or_self(tid));
+    if (policy < 0) return false;
+    struct sched_param sp;
+    std::memset(&sp, 0, sizeof sp);
+    sched_getparam(tid_or_self(tid), &sp);
+    rt_priority = sp.sched_priority;
+    switch (policy & ~SCHED_RESET_ON_FORK) {
+        case SCHED_BATCH: p = SchedPolicy::Batch; break;
+        case SCHED_IDLE: p = SchedPolicy::Idle; break;
+        case SCHED_FIFO: p = SchedPolicy::Fifo; break;
+        case SCHED_RR: p = SchedPolicy::RoundRobin; break;
+        default: p = SchedPolicy::Other; break;
+    }
+    return true;
 }
 
 bool set_timer_slack_ns(unsigned long ns) { return prctl(PR_SET_TIMERSLACK, ns, 0, 0, 0) == 0; }
@@ -105,10 +131,10 @@ void drop_thread_priority_to_background() {
 
 // ---------------------------------------------------------------------------- affinity
 
-bool get_thread_affinity(std::vector<int>& cpus) {
+bool get_thread_affinity(std::vector<int>& cpus, int64_t tid) {
     cpu_set_t set;
     CPU_ZERO(&set);
-    if (sched_getaffinity(static_cast<pid_t>(current_tid()), sizeof set, &set) != 0) return false;
+    if (sched_getaffinity(tid_or_self(tid), sizeof set, &set) != 0) return false;
     cpus.clear();
     for (int i = 0; i < CPU_SETSIZE; ++i)
         if (CPU_ISSET(i, &set)) cpus.push_back(i);
@@ -124,7 +150,7 @@ static bool apply_affinity(pid_t who, const std::vector<int>& cpus) {
     return sched_setaffinity(who, sizeof set, &set) == 0;
 }
 
-bool set_thread_affinity(const std::vector<int>& cpus) { return apply_affinity(static_cast<pid_t>(current_tid()), cpus); }
+bool set_thread_affinity(const std::vector<int>& cpus, int64_t tid) { return apply_affinity(tid_or_self(tid), cpus); }
 bool set_process_affinity(const std::vector<int>& cpus) { return apply_affinity(0, cpus); }
 
 // ---------------------------------------------------------------------------- process

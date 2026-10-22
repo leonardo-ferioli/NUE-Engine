@@ -43,7 +43,7 @@ public:
     void close();
     bool is_open() const { return conn_ != nullptr; }
 
-    // Blocking call. Variants in the reply are unwrapped one level; arrays and structs are
+    // Blocking call. Variants in the reply are unwrapped (up to 4 levels); arrays and structs are
     // reported as a single value with type 'a' / 'r' and skipped.
     bool call(const std::string& dest, const std::string& path, const std::string& iface, const std::string& method,
               const std::vector<DBusArg>& args, std::vector<DBusValue>* reply, int timeout_ms = 1500);

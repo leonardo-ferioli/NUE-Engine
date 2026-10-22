@@ -1,5 +1,10 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1
+#endif
 #include "lx_gamemode.hpp"
 
+#include <sched.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 namespace nue::lx {
@@ -140,15 +145,24 @@ std::string PowerProfileHold::active_profile() {
 
 // ---------------------------------------------------------------------------- idle inhibition
 
+namespace {
+struct InhibitTarget { const char* dest; const char* path; const char* iface; };
+InhibitTarget target_of(IdleInhibitor::Kind k) {
+    return k == IdleInhibitor::Kind::ScreenSaver
+               ? InhibitTarget{"org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver"}
+               : InhibitTarget{"org.freedesktop.PowerManagement", "/org/freedesktop/PowerManagement/Inhibit", "org.freedesktop.PowerManagement.Inhibit"};
+}
+}  // namespace
+
 bool IdleInhibitor::acquire(const std::string& app, const std::string& reason) {
     if (cookie_) return true;
     if (!bus_.is_open() && !bus_.open(BusType::Session)) {
         error_ = bus_.last_error();
         return false;
     }
+    const InhibitTarget t = target_of(kind_);
     std::vector<DBusValue> r;
-    if (!bus_.call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "Inhibit",
-                   {DBusArg::str(app), DBusArg::str(reason)}, &r, 1000) || r.empty() || r[0].type != 'u') {
+    if (!bus_.call(t.dest, t.path, t.iface, "Inhibit", {DBusArg::str(app), DBusArg::str(reason)}, &r, 1000) || r.empty() || r[0].type != 'u') {
         error_ = bus_.last_error();
         return false;
     }
@@ -158,9 +172,9 @@ bool IdleInhibitor::acquire(const std::string& app, const std::string& reason) {
 
 void IdleInhibitor::release() {
     if (!cookie_) return;
+    const InhibitTarget t = target_of(kind_);
     std::vector<DBusValue> r;
-    bus_.call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "UnInhibit",
-              {DBusArg::u32(cookie_)}, &r, 1000);
+    bus_.call(t.dest, t.path, t.iface, "UnInhibit", {DBusArg::u32(cookie_)}, &r, 1000);
     cookie_ = 0;
 }
 
@@ -180,6 +194,17 @@ bool RtKit::make_realtime(uint64_t tid, uint32_t priority) {
     if (bus_.get_property("org.freedesktop.RealtimeKit1", "/org/freedesktop/RealtimeKit1", "org.freedesktop.RealtimeKit1", "MaxRealtimePriority", max) && max.type == 'i' && max.i > 0 &&
         priority > static_cast<uint32_t>(max.i))
         priority = static_cast<uint32_t>(max.i);
+    // rtkit refuses threads whose process has no RLIMIT_RTTIME or whose policy lacks RESET_ON_FORK
+    // (it must not be able to leak real-time scheduling into children): satisfy both first, like PulseAudio does.
+    DBusValue rtt;
+    if (bus_.get_property("org.freedesktop.RealtimeKit1", "/org/freedesktop/RealtimeKit1", "org.freedesktop.RealtimeKit1", "RTTimeUSecMax", rtt) && rtt.type == 'x' && rtt.i > 0) {
+        struct rlimit rl;
+        rl.rlim_cur = rl.rlim_max = static_cast<rlim_t>(rtt.i);
+        setrlimit(RLIMIT_RTTIME, &rl);
+    }
+    struct sched_param sp;
+    sp.sched_priority = 0;
+    sched_setscheduler(static_cast<pid_t>(tid), SCHED_OTHER | SCHED_RESET_ON_FORK, &sp);
     std::vector<DBusValue> r;
     if (!bus_.call("org.freedesktop.RealtimeKit1", "/org/freedesktop/RealtimeKit1", "org.freedesktop.RealtimeKit1", "MakeThreadRealtime",
                    {DBusArg::u64(tid), DBusArg::u32(priority)}, &r)) {

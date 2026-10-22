@@ -41,6 +41,9 @@ char g_report_path[512];
 bool g_write_maps = true;
 void (*g_hook)(int, void*, void*, int, void*) = nullptr;
 void* g_hook_user = nullptr;
+const char* (*g_begin)(int, void*, void*, void*) = nullptr;
+bool (*g_end)(int, void*) = nullptr;
+void* g_sink_user = nullptr;
 bool g_installed = false;
 struct sigaction g_previous[sizeof(kSignals) / sizeof(kSignals[0])];
 volatile sig_atomic_t g_in_handler = 0;
@@ -135,12 +138,18 @@ void handler(int sig, siginfo_t* si, void* uc) {
     if (g_in_handler++ == 0) {
         char b[600];
         FixedWriter p(b, sizeof b - 1);
-        p.str(g_dir);
-        p.str("/crash-");
-        p.dec(::getpid());
-        p.chr('-');
-        p.dec(static_cast<int64_t>(::time(nullptr)));
-        p.str(".txt");
+        const char* sink_dir = g_begin ? g_begin(sig, si, uc, g_sink_user) : nullptr;
+        if (sink_dir && *sink_dir) {
+            p.str(sink_dir);
+            p.str("/stack.txt");
+        } else {
+            p.str(g_dir);
+            p.str("/crash-");
+            p.dec(::getpid());
+            p.chr('-');
+            p.dec(static_cast<int64_t>(::time(nullptr)));
+            p.str(".txt");
+        }
         b[p.size()] = 0;
         copy_str(g_report_path, sizeof g_report_path, b);
         int fd = ::open(g_report_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -174,6 +183,7 @@ void handler(int sig, siginfo_t* si, void* uc) {
         if (g_write_maps) dump_maps(fd);
         if (g_hook) g_hook(sig, si, uc, fd, g_hook_user);
         if (fd != 2) ::close(fd);
+        if (g_end && g_end(sig, g_sink_user)) ::_exit(128 + sig);
     }
     // Let the default action (core dump / crash collector) happen.
     struct sigaction dfl;
@@ -212,6 +222,9 @@ bool install_crash_handler(const CrashOptions& o) {
     g_write_maps = o.write_maps;
     g_hook = o.hook;
     g_hook_user = o.hook_user;
+    g_begin = o.begin;
+    g_end = o.end;
+    g_sink_user = o.sink_user;
     if (o.raise_core_limit) raise_core_limit();
 #if defined(NUE_HAVE_BACKTRACE)
     {  // first use of backtrace() may allocate / dlopen libgcc: do it now, not inside the handler
@@ -237,6 +250,42 @@ void uninstall_crash_handler() {
     if (!g_installed) return;
     for (size_t i = 0; i < sizeof(kSignals) / sizeof(kSignals[0]); ++i) ::sigaction(kSignals[i], &g_previous[i], nullptr);
     g_installed = false;
+}
+
+bool write_stack_report(const char* dir) {
+    if (!dir || !*dir) return false;
+    char path[600];
+    FixedWriter p(path, sizeof path - 1);
+    p.str(dir);
+    p.str("/stack.txt");
+    path[p.size()] = 0;
+    int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return false;
+    char line[160];
+    FixedWriter w(line, sizeof line);
+    w.str(g_app);
+    w.chr(' ');
+    w.str(g_version);
+    w.str(" stack report (not a crash)
+pid = ");
+    w.dec(::getpid());
+    w.str("
+tid = ");
+    w.dec(current_tid());
+    w.chr('
+');
+    put_w(fd, w);
+#if defined(NUE_HAVE_BACKTRACE)
+    put(fd, "
+backtrace (calling thread):
+");
+    void* frames[64];
+    int n = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, n, fd);
+#endif
+    dump_maps(fd);
+    ::close(fd);
+    return true;
 }
 
 bool crash_handler_attach_thread() { return install_alt_stack_this_thread(); }

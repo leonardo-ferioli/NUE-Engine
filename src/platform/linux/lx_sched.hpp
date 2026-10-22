@@ -21,11 +21,14 @@ struct PriorityLimits {
 };
 PriorityLimits query_priority_limits();
 
-bool set_thread_nice(int nice);                    // calling thread (Linux nice is per thread)
-bool set_io_priority_best_effort(int level);       // 0 (highest) .. 7, calling thread
-bool set_io_priority_idle();
+// Linux scheduling attributes are per thread; `tid` 0 means the calling thread.
+bool set_thread_nice(int nice, int64_t tid = 0);
+bool get_thread_nice(int& nice, int64_t tid = 0);
+bool set_io_priority_best_effort(int level, int64_t tid = 0);   // 0 (highest) .. 7
+bool set_io_priority_idle(int64_t tid = 0);
 enum class SchedPolicy { Other, Batch, Idle, Fifo, RoundRobin };
-bool set_thread_policy(SchedPolicy p, int rt_priority = 0);  // calling thread
+bool set_thread_policy(SchedPolicy p, int rt_priority = 0, int64_t tid = 0);
+bool get_thread_policy(SchedPolicy& p, int& rt_priority, int64_t tid = 0);
 bool set_timer_slack_ns(unsigned long ns);          // PR_SET_TIMERSLACK, calling thread (default 50 us)
 // Best effort ladder: real-time if allowed (rlimit), else rtkit, else nice. Returns a description
 // of what was applied ("SCHED_RR 10", "rtkit high priority nice -11", "nice -5", "nothing").
@@ -33,8 +36,8 @@ std::string raise_thread_priority(bool allow_realtime, const std::string& thread
 void drop_thread_priority_to_background();          // loaders, shader compilation, logging
 
 // ---- affinity ------------------------------------------------------------------------
-bool get_thread_affinity(std::vector<int>& cpus);
-bool set_thread_affinity(const std::vector<int>& cpus);   // calling thread
+bool get_thread_affinity(std::vector<int>& cpus, int64_t tid = 0);
+bool set_thread_affinity(const std::vector<int>& cpus, int64_t tid = 0);
 bool set_process_affinity(const std::vector<int>& cpus);
 
 // ---- process -------------------------------------------------------------------------

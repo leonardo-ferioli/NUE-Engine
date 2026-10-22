@@ -58,8 +58,13 @@ private:
     uint32_t cookie_ = 0;
 };
 
+// Inhibit(app, reason) -> cookie / UnInhibit(cookie) services with the same shape:
+//   screen saver  org.freedesktop.ScreenSaver at /org/freedesktop/ScreenSaver   (display / idle)
+//   power manager org.freedesktop.PowerManagement.Inhibit at /org/freedesktop/PowerManagement/Inhibit  (system sleep)
 class IdleInhibitor {
 public:
+    enum class Kind { ScreenSaver, PowerManagement };
+    explicit IdleInhibitor(Kind k = Kind::ScreenSaver) : kind_(k) {}
     ~IdleInhibitor() { release(); }
     bool acquire(const std::string& app, const std::string& reason);
     void release();
@@ -67,6 +72,7 @@ public:
     const std::string& error() const { return error_; }
 
 private:
+    Kind kind_;
     DBusConn bus_;
     uint32_t cookie_ = 0;
     std::string error_;

@@ -160,10 +160,12 @@ bool DBusConn::call(const std::string& dest, const std::string& path, const std:
                 void* cur = it.raw;
                 IterBuf sub;
                 int t = a.iter_arg_type(cur);
-                if (t == 'v') {  // unwrap one level
-                    std::memset(sub.raw, 0, sizeof sub.raw);
-                    a.iter_recurse(cur, sub.raw);
-                    cur = sub.raw;
+                IterBuf nest;
+                for (int depth = 0; t == 'v' && depth < 4; ++depth) {  // unwrap variants (portals nest them)
+                    IterBuf& dst = (cur == sub.raw) ? nest : sub;
+                    std::memset(dst.raw, 0, sizeof dst.raw);
+                    a.iter_recurse(cur, dst.raw);
+                    cur = dst.raw;
                     t = a.iter_arg_type(cur);
                 }
                 DBusValue v;
