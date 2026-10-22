@@ -1,0 +1,118 @@
+# Build-only CI for the NUE iOS backend. No secrets, no signing, no publishing.
+# Written without access to macOS/Xcode: the first run of this workflow is the first time the iOS code is compiled.
+name: nue-ios
+
+on:
+  push:
+    paths:
+      - "ios/**"
+      - "src/platform/ios/**"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "include/**"
+      - "src/core/**"
+      - ".github/workflows/nue-ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - "src/platform/ios/**"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "include/**"
+      - "src/core/**"
+      - ".github/workflows/nue-ios.yml"
+  workflow_dispatch:
+    inputs:
+      upload_ipa:
+        description: "Attach the unsigned IPA to the run (7 days, visible only to people with access to the repository)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    # The pure-logic tests and the Info.plist check, on the macOS host (also proves the logic builds with Apple clang).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S ios -B build_ios_host -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build_ios_host
+      - name: Test
+        run: ctest --test-dir build_ios_host --output-on-failure
+
+  ios-build:
+    # Objective-C++ glue + SDL3 + sample app for the simulator and for the device (unsigned).
+    runs-on: macos-latest
+    needs: host-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [simulator, device]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          cmake --version
+      - name: Configure
+        working-directory: ios
+        run: |
+          preset=ios-${{ matrix.platform }}
+          cmake --preset "$preset"
+      - name: Build sample app (no code signing)
+        run: |
+          if [ "${{ matrix.platform }}" = simulator ]; then dir=build_ios_sim; cfg=Debug; else dir=build_ios_device; cfg=Release; fi
+          cmake --build "$dir" --config "$cfg" --target nue_ios_sample -- \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Package the unsigned IPA (device only)
+        if: matrix.platform == 'device'
+        run: |
+          app="$(find build_ios_device -name nue_ios_sample.app -maxdepth 4 | head -n1)"
+          echo "app: $app"
+          bash ios/scripts/make_ipa.sh "$app" "$PWD/nue_ios_sample-unsigned.ipa"
+      - name: Upload the unsigned IPA (only when asked)
+        if: matrix.platform == 'device' && github.event_name == 'workflow_dispatch' && inputs.upload_ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: nue_ios_sample-unsigned-ipa
+          path: nue_ios_sample-unsigned.ipa
+          retention-days: 7
+
+  nue-engine:
+    # The whole NUE engine (core + SDL3 backend + this platform layer) for iOS arm64, library only (no signing, nothing uploaded).
+    runs-on: macos-latest
+    needs: host-tests
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure (ios-arm64 preset)
+        run: cmake --preset ios-arm64
+      - name: Build libnue
+        run: cmake --build --preset ios-arm64 --target nue -- CODE_SIGNING_ALLOWED=NO
+
+  xcframework:
+    runs-on: macos-latest
+    needs: ios-build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build NueIos.xcframework (not uploaded)
+        run: bash ios/scripts/package_xcframework.sh "$PWD/build_xcf"
+
+  xcodegen:
+    # Checks that the XcodeGen description is valid and still generates a project. It does not build: that needs external/SDL3.xcframework
+    # (the CMake jobs above build the same sample against SDL3 built from source).
+    runs-on: macos-latest
+    needs: host-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate
+        working-directory: ios
+        run: xcodegen generate
