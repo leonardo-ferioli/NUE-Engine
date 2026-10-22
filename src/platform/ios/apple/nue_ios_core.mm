@@ -152,16 +152,18 @@ int nue_ios_init(const NueIosConfig* config) {
     detail::lifecycle_start();
     detail::power_start();
     detail::audio_start();
-    detail::input_start();
-    detail::display_start();
+    if (!g_config.adapter_mode) {   // under the NUE core, SDL3 owns input and display events
+        detail::input_start();
+        detail::display_start();
+    }
     if (g_config.enable_crash_handler) nue_ios_install_crash_handler();
     return 0;
 }
 
 void nue_ios_shutdown(void) {
     if (!g_inited) return;
-    detail::display_stop();
-    detail::input_stop();
+    detail::display_stop();   // also invalidates the frame-rate CADisplayLink, which nue_ios_set_frame_rate creates on demand
+    if (!g_config.adapter_mode) detail::input_stop();
     detail::audio_stop();
     detail::power_stop();
     detail::lifecycle_stop();

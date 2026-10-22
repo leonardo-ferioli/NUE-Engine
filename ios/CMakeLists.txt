@@ -18,8 +18,10 @@ add_library(nue_ios_logic STATIC
     ${NUE_IOS_SRC}/logic/caps.cpp
     ${NUE_IOS_SRC}/logic/storage.cpp
     ${NUE_IOS_SRC}/logic/audio_policy.cpp
-    ${NUE_IOS_SRC}/logic/input_logic.cpp)
-target_include_directories(nue_ios_logic PUBLIC ${NUE_IOS_SRC}/logic)
+    ${NUE_IOS_SRC}/logic/input_logic.cpp
+    ${NUE_IOS_SRC}/logic/nue_map.cpp)
+# nue_map maps to the public NUE types, so the public headers (nue_engine/include) are needed.
+target_include_directories(nue_ios_logic PUBLIC ${NUE_IOS_SRC}/logic ${CMAKE_CURRENT_LIST_DIR}/../include)
 if(NOT MSVC)
     target_compile_options(nue_ios_logic PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
@@ -31,6 +33,9 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_executable(nue_ios_logic_tests tests/ios_logic_tests.cpp)
     target_link_libraries(nue_ios_logic_tests PRIVATE nue_ios_logic)
     add_test(NAME nue_ios_logic COMMAND nue_ios_logic_tests)
+    add_executable(nue_ios_map_tests tests/nue_map_tests.cpp)
+    target_link_libraries(nue_ios_map_tests PRIVATE nue_ios_logic)
+    add_test(NAME nue_ios_map COMMAND nue_ios_map_tests)
     add_executable(nue_ios_plist_check tests/plist_check.cpp)
     add_test(NAME nue_ios_plist_check COMMAND nue_ios_plist_check ${CMAKE_CURRENT_LIST_DIR}/sample/Info.plist)
 endif()

@@ -11,7 +11,8 @@ or run**.
 
 | Piece | Where | Status |
 |---|---|---|
-| Pure logic (lifecycle state machine, thermal/memory/frame-rate policy, Metal capability flags and the DXT texture policy, path/import/validation logic, CRC32, audio-session policy, gamepad conditioning, gyro steering math, last-used-device tracker) | `src/platform/ios/logic/` | **Compiled with clang on Windows and unit-tested** (`ctest`, 235 checks) |
+| NUE platform adapter (`nue_platform_ios_get_ops`), import source, QoS, crash handler, log sink, extension `nue.ios.v1` | `src/platform/ios/adapter/` | **Written, never compiled** (ops table type-checked against `platform_ops.h` on the host) |
+| Pure logic (lifecycle state machine, thermal/memory/frame-rate policy, Metal capability flags and the DXT texture policy, path/import/validation logic, CRC32, audio-session policy, gamepad conditioning, gyro steering math, last-used-device tracker) | `src/platform/ios/logic/` | **Compiled with clang on Windows and unit-tested** (`ctest`: 235 checks in `ios_logic_tests`, plus the NUE mapping tests) |
 | `Info.plist` required keys | `ios/sample/Info.plist`, `ios/tests/plist_check.cpp` | Text-level check passes on the host; whether iOS accepts the plist is **not** verified |
 | Objective-C++ glue (UIKit, AVFoundation, GameController, CoreHaptics, CoreMotion, Metal, MetricKit, os_log) | `src/platform/ios/apple/*.mm`, `nue_ios.h` | **Written, never compiled.** Expect compile errors on the first Mac/CI run (API spellings, nullability, ARC details) |
 | Sample app (SDL3 window + CAMetalLayer clear + status overlay) | `ios/sample/main.mm` | Written, never compiled, never run |
@@ -66,6 +67,45 @@ sets before creating the window: `SDL_HINT_ORIENTATIONS`, `SDL_HINT_IOS_HIDE_HOM
 UIScene: SDL3 is used without scene manifest, i.e. the classic app-delegate lifecycle. Newer iOS releases log that UIScene adoption will be
 required in the future. The backend observes `UIApplication` notifications, which are posted in both models, so adopting scenes later should not
 change it; this is unverified.
+
+## 2b. Integration with the NUE core (`nue_platform_ios_get_ops`)
+
+The core merged here (branch `claude/nue-core-0454cf`, commit 2ed5df1) defines the platform contract in `src/core/internal/platform_ops.h`
+and `docs/PORTING.md`. The iOS layer implements it in `src/platform/ios/adapter/platform_ios.mm` (thin) on top of the glue and `logic/nue_map.*`
+(pure, host-tested against the real `nue/*.h` headers). `src/platform/ios/CMakeLists.txt` adds everything to `nue_platform_obj`.
+
+| `nue_platform_ops` entry | iOS implementation | Capability bit |
+|---|---|---|
+| `init` / `shutdown` / `pump` | starts the glue in *adapter mode*; sets `SDL_AUDIO_CATEGORY`; registers extension `nue.ios.v1`; pump polls thermal / Low Power Mode / battery (every 250 ms or when a notification marked it dirty) and pushes `POWER_CHANGED`, `THERMAL_CHANGED`, `LOW_POWER_MODE_CHANGED`; shutdown undoes keep-awake, frame-rate request and crash handlers | - |
+| `system_info`, `memory_info`, `system_locale` | `hw.machine`, sysctl core counts (`hw.perflevel0/1` for P/E cores when present), `os_proc_available_memory` (free+inactive pages on the Simulator), Metal device name | - |
+| `storage_root` | data = `Documents/<org>/<app>/GameData`, user = `Application Support/<org>/<app>`, settings = `.../settings`, cache = `Caches/<org>/<app>`, temp = `tmp/<org>/<app>`; overrides from `nue_init_desc`; data, cache and temp excluded from backup | - |
+| `import` | source = directory path or security-scoped folder URL; `pick_folder` = `UIDocumentPickerViewController`; the **core** does the copy and verification (this layer enumerates and streams) | `DATA_IMPORT`, `DATA_IMPORT_PICKER` |
+| `power_info` | thermal, battery, Low Power Mode, idle timer; Game Mode always `UNKNOWN` | `THERMAL_STATE`, `BATTERY`, `LOW_POWER_MODE` |
+| `power_apply` | keep-awake -> `idleTimerDisabled`; `target_frame_time_us` -> frame-rate range; profile / game hint / GPU / timer / throttling / audio-class requests are **not** honoured and make the result `NUE_OK_PARTIAL` | `KEEP_AWAKE` |
+| `thread_set_priority/get_priority` | QoS class for the calling thread; for other threads `pthread_setschedparam` when a pthread handle is known, otherwise `NUE_ERR_UNSUPPORTED` | `THREAD_PRIORITY` |
+| `thread_set_core_class` | QoS bias (efficiency -> background, performance -> user-initiated), calling thread only | `CORE_CLASS` |
+| `thread_set_affinity`, `perf_hint_*`, `sleep_until`, `timer_resolution_get`, `window_set_gpu_preference` | NULL: iOS has no affinity, ADPF-style hints, high-resolution timers or GPU choice | - |
+| `window_safe_area` | `UIWindow.safeAreaInsets` converted to a rectangle inside the window (SDL convention) | `SAFE_AREA` |
+| `haptics_*` | CoreHaptics device engine (iPhone Taptic Engine) | `HAPTICS` |
+| `crash_install/uninstall/write_dump` | signal handlers on an alternate stack -> core sink `begin`, `stack.txt` (`backtrace_symbols_fd`), `end`, then re-raise to the previous handler so Apple's own crash log is still produced. No Mach exceptions, no minidump | `CRASH_HANDLER` |
+| `log_write` | `os_log` (`org.nue.engine`) | - |
+| `crash_release_input` | NULL: there is no pointer capture to release | - |
+
+`NUE_CAP_GAME_MODE` is **not** set: the app can declare Game Mode support (plist keys) but iOS provides no way to read or request it, so
+claiming the capability would be dishonest. `nue.ios.v1` (`include/nue_ext_ios.h`) exposes what the portable API cannot carry: GPU / DXT policy
+info for the Direct3D 9 layer, `CAMetalLayer` configuration and the declared Game Mode flags.
+
+Adapter mode (`NueIosConfig.adapter_mode = 1`) exists because SDL3 already owns several things under the core: it opens the audio device and
+sets the `AVAudioSession` category (the glue only observes interruptions and route changes and logs them), it installs the GameController /
+CoreMotion handlers (the glue does not touch them) and it reports window size and safe-area events (the glue does not duplicate them). The
+`UIApplication` lifecycle observers stay on for logging and for the memory sources; SDL's own `SDL_EVENT_*` background/foreground events
+drive `NUE_EVENT_APP_PAUSING/PAUSED/RESUMING/RESUMED` in the core. Memory warnings: SDL turns `didReceiveMemoryWarning` into low-memory;
+this layer adds the kernel pressure source and the `os_proc_available_memory` poll (events fire before the OS warns, so duplicates are
+possible and harmless: "release caches" is idempotent).
+
+Verification: the table in `platform_ios.mm` was type-checked against the real `platform_ops.h` with clang on Windows (a copy of the table
+with stub function bodies); `nue_ext_ios.h` and `nue_ios.h` compile in C and C++; the mapping logic is unit-tested. The `.mm` bodies, the
+Objective-C++ CMake integration (`enable_language(OBJCXX)` inside `add_subdirectory`) and the `ios-arm64` preset have never run on an Apple toolchain.
 
 ## 3. Build and packaging
 

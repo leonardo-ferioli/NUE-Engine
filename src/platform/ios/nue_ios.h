@@ -51,6 +51,8 @@ typedef struct NueIosConfig {
     int enable_crash_handler;      /* install signal handlers + MetricKit subscriber */
     int enable_memory_poll;        /* poll os_proc_available_memory about every second while active */
     uint16_t target_fps;           /* game's wanted frame rate (60); 0 = display maximum */
+    int adapter_mode;              /* 1 when running under the NUE core (SDL3 owns audio, input and display events): the backend then only OBSERVES audio,
+                                      does not install GameController/CoreMotion handlers and does not publish SAFE_AREA/DISPLAY events. 0 = standalone (sample app) */
     NueIosEventFn on_event;
     void* user;
 } NueIosConfig;
@@ -161,6 +163,33 @@ void nue_ios_motion_recalibrate(void);
 int nue_ios_audio_configure(int mix_policy);   /* sets category/mode/options (does not activate) */
 int nue_ios_audio_activate(int active);        /* setActive: also applies buffer duration / sample-rate preferences */
 double nue_ios_audio_output_latency(void);     /* seconds, 0 if unknown */
+
+/* ---- queries used by the NUE platform adapter ------------------------------------------------------------------------------------------- */
+
+/* Safe-area insets of a UIWindow in points (left, top, right, bottom) and its size in points. Main thread. Returns 0 on success. */
+int nue_ios_safe_area(void* ui_window, float out_ltrb[4], float* width, float* height);
+
+/* Device haptics (iPhone Taptic Engine through CoreHaptics). Any thread. */
+int nue_ios_device_haptics_available(void);
+int nue_ios_device_haptic(uint32_t duration_ms, float intensity);
+
+typedef struct NueIosSystemInfo {
+    char os_version[64];           /* "18.2" */
+    char device_model[96];         /* hw.machine, e.g. "iPhone16,2" */
+    char cpu_name[64];             /* best effort: "Apple arm64 (iPhone16,2)" - Apple gives no public chip name */
+    int idiom;                     /* 0 unspecified, 1 phone, 2 pad, 3 tv, 5 mac(catalyst) - UIUserInterfaceIdiom */
+    uint32_t logical_cores, physical_cores, performance_cores, efficiency_cores;   /* performance/efficiency 0 when unknown */
+    uint32_t max_mhz;              /* 0: not exposed on iOS */
+    uint64_t physical_memory;
+    int is_simulator;
+    int dark_mode;
+    int translated;                /* Rosetta (macOS only) */
+} NueIosSystemInfo;
+int nue_ios_system_info(NueIosSystemInfo* out);
+/* BCP-47 tag of the first preferred language, e.g. "es-ES". Returns length or -1. */
+int nue_ios_locale(char* buf, size_t size);
+/* Available memory in bytes: os_proc_available_memory(), or free+inactive pages when that is 0 (Simulator). -1 unknown. */
+int64_t nue_ios_memory_available(void);
 
 /* ---- diagnostics ----------------------------------------------------------------------------------------------------------------------- */
 

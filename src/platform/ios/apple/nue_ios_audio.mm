@@ -45,7 +45,9 @@ namespace nue::ios::detail {
 
 void audio_start() {
     g_tokens = [NSMutableArray array];
-    nue_ios_audio_configure(config().audio_mix_policy);
+    // Under the NUE core SDL3 owns the audio device and sets the session category itself (the adapter exports SDL_AUDIO_CATEGORY);
+    // this module then only observes, so the two never fight over the session.
+    if (!config().adapter_mode) nue_ios_audio_configure(config().audio_mix_policy);
     NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
     id t1 = [nc addObserverForName:AVAudioSessionInterruptionNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* n) {
         NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
@@ -53,19 +55,21 @@ void audio_start() {
         bool resume = !began && ([n.userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue] & AVAudioSessionInterruptionOptionShouldResume);
         AudioAction a = on_interruption(began ? InterruptionPhase::began : InterruptionPhase::ended, resume, app_is_active());
         g_paused_by_interruption = began || (g_paused_by_interruption && a != AudioAction::resume);
-        if (a == AudioAction::resume && g_session_active) nue_ios_audio_activate(1);   // the session is deactivated by the system on an interruption
+        if (a == AudioAction::resume && g_session_active && !config().adapter_mode) nue_ios_audio_activate(1);   // the session is deactivated by the system on an interruption
         emit(NUE_IOS_EVENT_AUDIO_INTERRUPTION, began ? 1 : 0, resume ? 1 : 0);
     }];
     id t2 = [nc addObserverForName:AVAudioSessionRouteChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* n) {
         int reason = static_cast<int>([n.userInfo[AVAudioSessionRouteChangeReasonKey] unsignedIntegerValue]);
         RouteChange c = route_change_from_raw(reason);
-        apply_preferences();
+        if (!config().adapter_mode) apply_preferences();
         emit(NUE_IOS_EVENT_AUDIO_ROUTE, static_cast<int64_t>(current_route_kind()), on_route_change(c) == AudioAction::pause ? 1 : 0);
     }];
     id t3 = [nc addObserverForName:AVAudioSessionMediaServicesWereResetNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification*) {
         // The audio daemon restarted: every audio object is invalid. Re-apply the session; the engine must recreate its stream.
-        nue_ios_audio_configure(g_policy);
-        if (g_session_active) nue_ios_audio_activate(1);
+        if (!config().adapter_mode) {
+            nue_ios_audio_configure(g_policy);
+            if (g_session_active) nue_ios_audio_activate(1);
+        }
         emit(NUE_IOS_EVENT_AUDIO_INTERRUPTION, 1, 0);
         emit(NUE_IOS_EVENT_AUDIO_INTERRUPTION, 0, 1);
     }];
@@ -75,10 +79,11 @@ void audio_start() {
 void audio_stop() {
     for (id t in g_tokens) [[NSNotificationCenter defaultCenter] removeObserver:t];
     g_tokens = nil;
-    if (g_session_active) nue_ios_audio_activate(0);
+    if (g_session_active && !config().adapter_mode) nue_ios_audio_activate(0);
 }
 
 void audio_on_lifecycle_actions(unsigned actions) {
+    if (config().adapter_mode) return;   // SDL3 pauses/resumes its own device
     // The game declares no background audio mode (see Info.plist): when backgrounded the process is suspended, so release the session
     // so other apps get the device back immediately, and take it again on return. The engine receives the lifecycle event first (emit() is
     // synchronous) and must have stopped its audio stream by then: setActive:NO fails while I/O is still running.
