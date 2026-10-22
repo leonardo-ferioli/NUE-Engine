@@ -1,0 +1,12 @@
+# Console tests of the Windows backend. No window is shown, no sound is played, the game is never started.
+function(nue_win_test name)
+    add_executable(${name} ${name}.cpp ${ARGN})
+    target_link_libraries(${name} PRIVATE nue_platform_windows)
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+endfunction()
+
+nue_win_test(power_tests)
+nue_win_test(gpu_display_tests)
+nue_win_request_discrete_gpu(gpu_display_tests)
+nue_win_test(window_input_tests)
