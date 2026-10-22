@@ -1,4 +1,6 @@
 // Sample APK: window + audio tone + multi-touch + gamepad + capability probe (logcat tag "NUE").
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
@@ -7,7 +9,7 @@ val abis: List<String> = providers.gradleProperty("nue.abis").get().split(",").m
 
 // Optional signing config for sideloading: scripts/make_keystore.ps1 writes keystore.properties (gitignored).
 // Without it the release build is signed with the debug key, which is fine for installing with adb.
-val keystoreProps = java.util.Properties().apply {
+val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.isFile) f.inputStream().use { load(it) }
 }

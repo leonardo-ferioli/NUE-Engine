@@ -56,7 +56,7 @@ struct RawHeader {
 
 RawHeader g_rec;
 char g_maps[kMapsCap];
-CrashHooks g_hooks;
+nue::android::native::CrashHooks g_hooks;
 char g_path[512];
 char g_version[32];
 char g_device[64];
