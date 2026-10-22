@@ -139,7 +139,8 @@ int nue_ios_probe_gpu(NueIosGpuInfo* out) {
     // MTLGPUFamilyApple1 = 1001 ... Apple9 = 1009. supportsFamily: needs iOS 13+.
     for (int n = 9; n >= 1; --n)
         if ([dev supportsFamily:static_cast<MTLGPUFamily>(1000 + n)]) { p.highest_apple_family = n; break; }
-    p.supports_bc = [dev supportsBCTextureCompression];
+    // supportsBCTextureCompression exists from iOS 16.4 (and macOS 11); earlier systems cannot sample BC on any Apple GPU.
+    if (@available(iOS 16.4, macOS 11.0, *)) p.supports_bc = [dev supportsBCTextureCompression];
     p.unified_memory = [dev hasUnifiedMemory];
 #if TARGET_OS_SIMULATOR
     p.is_simulator = true;

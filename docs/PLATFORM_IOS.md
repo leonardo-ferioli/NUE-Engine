@@ -103,8 +103,12 @@ drive `NUE_EVENT_APP_PAUSING/PAUSED/RESUMING/RESUMED` in the core. Memory warnin
 this layer adds the kernel pressure source and the `os_proc_available_memory` poll (events fire before the OS warns, so duplicates are
 possible and harmless: "release caches" is idempotent).
 
-Verification: the table in `platform_ios.mm` was type-checked against the real `platform_ops.h` with clang on Windows (a copy of the table
-with stub function bodies); `nue_ext_ios.h` and `nue_ios.h` compile in C and C++; the mapping logic is unit-tested. The `.mm` bodies, the
+Verification: `platform_ios.mm` was syntax-checked with clang on Windows as Objective-C++ (ARC, blocks) against the **real** NUE headers
+(`nue/*.h`, `platform_ops.h`) and hand-written stand-ins for the few Foundation / UIKit / Darwin declarations it uses. That caught one real
+bug (a block cannot capture a C array) and proves the NUE-facing types, the ops table order and the C++ are consistent; it says nothing about
+whether the stand-ins match the real Apple SDK. The `apple/*.mm` glue files got a manual review only (that found a wrong `NSNotFound`
+comparison, a missing iOS 16.4 availability guard for `supportsBCTextureCompression` and the arm64 PC accessor). `nue_ext_ios.h` and `nue_ios.h`
+compile in C and C++; the mapping logic is unit-tested. The `.mm` bodies, the
 Objective-C++ CMake integration (`enable_language(OBJCXX)` inside `add_subdirectory`) and the `ios-arm64` preset have never run on an Apple toolchain.
 
 ## 3. Build and packaging
@@ -281,3 +285,5 @@ Covers the lifecycle transition table (including exhaustive invariants), thermal
 arithmetic, path normalisation (traversal, drive letters, NUL), case-insensitive resolution, game-data validation, game-root detection, import
 planning and free-space margins, CRC32 check value, audio policy, controller conditioning, steering geometry in all four orientations, last-used
 input hysteresis, and the plist keys. No game data and no Apple headers are involved.
+
+A host-side syntax check of the adapter against the real NUE headers is `nue_engine/ios/tools/check_adapter_syntax.sh` (stand-ins in `darwin_stub.h`).

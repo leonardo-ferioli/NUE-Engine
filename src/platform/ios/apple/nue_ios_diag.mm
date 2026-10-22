@@ -57,9 +57,9 @@ void crash_handler(int sig, siginfo_t* info, void* ucontext) {
 #if defined(__arm64__)
         if (ucontext) {
             auto* uc = static_cast<ucontext_t*>(ucontext);
-            put(fd, "\npc: "); put_hex(fd, static_cast<uintptr_t>(uc->uc_mcontext->__ss.__pc));
-            put(fd, "\nlr: "); put_hex(fd, static_cast<uintptr_t>(uc->uc_mcontext->__ss.__lr));
-            put(fd, "\nsp: "); put_hex(fd, static_cast<uintptr_t>(uc->uc_mcontext->__ss.__sp));
+            put(fd, "\npc: "); put_hex(fd, static_cast<uintptr_t>(__darwin_arm_thread_state64_get_pc(uc->uc_mcontext->__ss)));
+            put(fd, "\nlr: "); put_hex(fd, static_cast<uintptr_t>(__darwin_arm_thread_state64_get_lr(uc->uc_mcontext->__ss)));
+            put(fd, "\nsp: "); put_hex(fd, static_cast<uintptr_t>(__darwin_arm_thread_state64_get_sp(uc->uc_mcontext->__ss)));
         }
 #endif
         put(fd, "\nbacktrace:\n");

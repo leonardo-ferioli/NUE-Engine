@@ -410,14 +410,15 @@ nue_result ios_thread_set_name(const char* name) {
 // ---------------------------------------------------------------------------------------------------------------------------- display / input extras
 nue_result ios_window_safe_area(const nue_native_window* window, nue_rect_i* out) {
     if (!window || !out || window->kind != NUE_NATIVE_UIKIT_WINDOW || window->window == 0) return NUE_ERR_UNSUPPORTED;
-    __block float ltrb[4] = {0, 0, 0, 0};
+    struct Insets { float v[4]; };   // a block cannot capture a raw array
+    __block Insets ins = {{0, 0, 0, 0}};
     __block float w = 0, h = 0;
     __block int rc = -1;
     void* ptr = reinterpret_cast<void*>(static_cast<uintptr_t>(window->window));
-    auto query = ^{ rc = nue_ios_safe_area(ptr, ltrb, &w, &h); };
+    auto query = ^{ rc = nue_ios_safe_area(ptr, ins.v, &w, &h); };
     if ([NSThread isMainThread]) query(); else dispatch_sync(dispatch_get_main_queue(), query);
     if (rc != 0) return NUE_ERR_FAILED;
-    *out = safe_area_rect(w, h, ltrb[0], ltrb[1], ltrb[2], ltrb[3]);
+    *out = safe_area_rect(w, h, ins.v[0], ins.v[1], ins.v[2], ins.v[3]);
     return NUE_OK;
 }
 
@@ -462,7 +463,7 @@ void crash_signal_handler(int sig, siginfo_t* si, void* ucontext) {
     info.fault_address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(si ? si->si_addr : nullptr));
     info.signal_or_code = static_cast<uint32_t>(sig);
 #if defined(__arm64__)
-    if (ucontext) info.fault_pc = static_cast<uint64_t>(static_cast<ucontext_t*>(ucontext)->uc_mcontext->__ss.__pc);
+    if (ucontext) info.fault_pc = static_cast<uint64_t>(__darwin_arm_thread_state64_get_pc(static_cast<ucontext_t*>(ucontext)->uc_mcontext->__ss));
 #elif defined(__x86_64__)
     if (ucontext) info.fault_pc = static_cast<uint64_t>(static_cast<ucontext_t*>(ucontext)->uc_mcontext->__ss.__rip);
 #endif

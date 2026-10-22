@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mach/mach.h>
 #include <mutex>

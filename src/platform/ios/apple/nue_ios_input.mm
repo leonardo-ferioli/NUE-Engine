@@ -5,6 +5,7 @@
 #import <CoreMotion/CoreMotion.h>
 #import <Foundation/Foundation.h>
 #import <GameController/GameController.h>
+#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 #include <algorithm>
 #include <cmath>
@@ -63,13 +64,13 @@ void attach_pad(GCController* c) {
 }
 
 void detach_pad(GCController* c) {
-    int idx;
+    NSUInteger idx;
     {
         std::lock_guard<std::mutex> lk(g_mutex);
-        idx = static_cast<int>([g_pads indexOfObject:c]);
+        idx = [g_pads indexOfObject:c];
         if (idx != NSNotFound) [g_pads removeObjectAtIndex:idx];
     }
-    nue::ios::detail::emit(NUE_IOS_EVENT_CONTROLLER, 0, idx == NSNotFound ? -1 : idx);
+    nue::ios::detail::emit(NUE_IOS_EVENT_CONTROLLER, 0, idx == NSNotFound ? -1 : static_cast<int64_t>(idx));
 }
 
 void start_motion() {
