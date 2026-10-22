@@ -117,6 +117,22 @@ typedef struct nue_platform_ops {
     /* ---- logging ------------------------------------------------------------------------- */
     /* Debugger output / logcat / os_log / syslog. Called under the log lock; keep it fast and do not log. */
     void (*log_write)(nue_log_level level, const char* tag, const char* message);
+
+    /* ---- appended in 0.1.1 (a platform table compiled against 0.1.0 has these as zero via struct_size; always check struct_size before reading) ----- */
+    /* Called FIRST, before storage roots, settings and the backend exist: set environment variables, SDL hints and process-wide policy that must
+     * precede SDL_Init (audio category, video driver choice, gamescope/Wayland policy). storage_root must also work at this point. */
+    nue_result (*pre_init)(const nue_backend_init* init);
+    /* NUE_TRUE: this layer pushes the NUE_EVENT_APP_* lifecycle events itself (Android Activity callbacks, iOS UIApplicationDelegate) and the
+     * backend must NOT derive app state from its own window/focus events. */
+    nue_bool owns_lifecycle;
+    /* Process / GPU memory (limit, used, VRAM). The core has already filled physical_* from memory_info; fill what you know, leave the rest. */
+    nue_result (*memory_info_ex)(nue_memory_info* inout);
+    /* GPU format support and limits without a device (DXGI, Vulkan physical device, EGL, Metal). Unknown families stay 0. Set probed = NUE_TRUE only for real answers. */
+    nue_result (*gpu_probe)(nue_gpu_caps* out);
+    /* Refresh-rate / frame-limit cooperation with the compositor (gamescope, Android frame rate API, ProMotion). 0 releases. */
+    nue_result (*window_request_refresh)(const nue_native_window* window, float refresh_hz, float frame_limit_fps);
+    /* On-screen keyboard (Steam Deck/gamescope, TV UIs). */
+    nue_result (*screen_keyboard)(const nue_native_window* window, nue_bool show);
 } nue_platform_ops;
 
 /* Implemented by the platform sessions (one of these exists per OS): */

@@ -34,7 +34,8 @@ typedef enum nue_glyph_family {
     NUE_GLYPHS_PLAYSTATION,
     NUE_GLYPHS_NINTENDO,
     NUE_GLYPHS_GENERIC_GAMEPAD,
-    NUE_GLYPHS_TOUCH
+    NUE_GLYPHS_TOUCH,
+    NUE_GLYPHS_STEAM                    /* Steam Deck / Steam Controller / Steam Input layouts (Steam Input reports virtual Xbox pads: the platform layer overrides the family) */
 } nue_glyph_family;
 
 typedef struct nue_last_input {
@@ -49,6 +50,9 @@ typedef struct nue_last_input {
  * pixels and stick drift do not count. A change raises NUE_EVENT_INPUT_DEVICE_CHANGED. */
 NUE_API nue_result NUE_CALL nue_input_get_last_device(nue_last_input* out);
 NUE_API nue_result NUE_CALL nue_input_set_last_device_deadzone(float stick_deadzone_0_1, float mouse_pixels);
+/* Force the glyph family reported for gamepads (a platform layer or the host knows better than the device name: Steam Input, remapped pads).
+ * family < 0 removes the override. Affects nue_last_input.glyphs, NUE_EVENT_INPUT_DEVICE_CHANGED and nue_gamepad_info.glyphs. [any] */
+NUE_API nue_result NUE_CALL nue_input_set_glyph_override(int32_t family_or_minus_one);
 
 /* ============================================================================================== keyboard */
 
@@ -233,6 +237,9 @@ NUE_API nue_result NUE_CALL nue_text_input_stop(nue_window window);
 NUE_API nue_bool NUE_CALL nue_text_input_is_active(nue_window window);
 NUE_API nue_result NUE_CALL nue_text_input_set_area(nue_window window, const nue_rect_i* rect, int32_t cursor_offset);   /* where the IME popup may appear */
 NUE_API nue_bool NUE_CALL nue_text_input_has_screen_keyboard(void);
+/* Ask for the system on-screen keyboard explicitly (Steam Deck / gamescope, TV UIs, tablets with a keyboard attached) without waiting for focus on a text field.
+ * NUE_ERR_UNSUPPORTED where the OS has none. Hiding it is always allowed. [event] */
+NUE_API nue_result NUE_CALL nue_text_input_show_screen_keyboard(nue_window window, nue_bool show);
 
 /* ============================================================================================== haptics (device) */
 

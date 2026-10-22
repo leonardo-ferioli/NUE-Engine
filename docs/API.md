@@ -1,4 +1,7 @@
-# NUE engine - public API (C), version 0.1 (draft for the platform sessions)
+# NUE engine - public API (C), version 0.1.1 (draft for the platform sessions)
+
+> There are **two ABIs**: this document describes the *native* C API. The compatibility ABI for recompiled Windows-era games lives on top of it
+> (`libnue_legacy`); see `ABI.md` for both, their stability promises and the package layout.
 
 NUE is a general runtime + SDK for games that need everything from the operating system: window and display, input, audio,
 files/storage, time and threads, power and *game mode*, logging and crash reports, app lifecycle and graphics (through the
@@ -37,7 +40,8 @@ our own code where SDL3 is not enough (see `ARCHITECTURE.md`).
 | `mixer.h` | software mixer: static / **ring (DirectSound-style, play+write cursors)** / callback voices, volume/pan/pitch, buses + effects, 3D listener and voices, deterministic manual rendering |
 | `storage.h` | VFS: roots `data/user/cache/settings/temp`, mount overlays, case-insensitive paths, `\`->`/`, 32-bit file ids, map, list, glob, async read, manifest verification, **game data import** (SAF/Documents) |
 | `power.h` | power/battery/thermal/low-power/**game mode** state, one `nue_power_request` (profile, hint, keep-awake, GPU/CPU preference, timer resolution, frame-time target), thread priority/affinity/core class, performance hint sessions (ADPF) |
-| `system.h` | OS/CPU/GPU/memory info and ~50 capability flags |
+| `system.h` | OS/CPU/GPU/memory info, **platform class flags** (handheld, SteamOS-like, Steam Deck/Machine/Frame, gamescope, Steam gaming mode, Steam Runtime, Flatpak, read-only root, compatibility layer) and ~50 capability flags |
+| `memory.h` | memory information, pressure events, **configurable budgets** (policies resolved against the machine, config-key overrides, eviction hooks); no hard-coded limits anywhere |
 | `gfx.h` | graphics context on a window (bgfx), renderer selection per platform, resize/suspend handling, listeners, **seam to the Direct3D 9 layer** |
 | `diag.h` | crash handler framework + reports/minidumps, notes, breadcrumbs, asserts, counters, frame statistics (`--fps-log` style), Chrome-trace zones |
 | `entry.h` | portable `nue_main` entry contract (`nue::entry` target) |
@@ -84,6 +88,17 @@ int NUE_CALL nue_main(int argc, char** argv) {      /* link nue::entry */
 `APP_PAUSING` (watchers get it synchronously; stop audio/GPU work) -> `APP_PAUSED` -> `APP_RESUMING` -> `APP_RESUMED`;
 `SURFACE_LOST`/`SURFACE_CREATED` for the native surface (Android); `APP_LOW_MEMORY`; `APP_TERMINATING`. `nue_gfx` and audio streams react by
 themselves (suspend swapchain, pause streams unless `NUE_AUDIO_KEEP_RUNNING_IN_BACKGROUND`).
+
+## 3b. Cooperating with the platform (0.1.1)
+
+| Need | API |
+|---|---|
+| memory limits are data, not constants | `nue_memory_get_info`, `nue_budget_*` (`memory.h`), config keys `budget.<name>.*` |
+| memory pressure, device suspend, audio interruption | events `NUE_EVENT_MEMORY_PRESSURE`, `NUE_EVENT_SYSTEM_SUSPENDING/RESUMED`, `NUE_EVENT_AUDIO_INTERRUPTED/RESUMED/ROUTE_CHANGED` |
+| compositors that own the refresh rate (gamescope, Steam Deck, Android, ProMotion) | `nue_window_request_refresh_rate`, `nue_window_set_frame_limit`, `nue_frame_limiter_wait`, `nue_display_info.min/max_refresh_hz` |
+| handhelds | `nue_power_info.tdp_watts_*`, `nue_power_request.tdp_watts`, `nue_text_input_show_screen_keyboard`, `NUE_GLYPHS_STEAM`, `nue_input_set_glyph_override` |
+| GPU format support before a device exists (texture planning) | `nue_gpu_probe`, `nue_gpu_caps` (format families with sample/filter/render-target flags) |
+| timers (`timeSetEvent`-style) | `nue_timer_*` |
 
 ## 4. Threading model in one table
 

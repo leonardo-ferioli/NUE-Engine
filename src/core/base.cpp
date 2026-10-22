@@ -8,7 +8,7 @@
 #define NUE_GIT_COMMIT "unknown"
 #endif
 #ifndef NUE_VERSION_STRING_LITERAL
-#define NUE_VERSION_STRING_LITERAL "0.1.0"
+#define NUE_VERSION_STRING_LITERAL "0.1.1"
 #endif
 
 namespace {
