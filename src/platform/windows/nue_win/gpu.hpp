@@ -13,6 +13,9 @@ namespace nue::win {
 
 enum class GpuVendor : uint32_t { Unknown = 0, Amd = 0x1002, Nvidia = 0x10DE, Intel = 0x8086, Microsoft = 0x1414, Qualcomm = 0x5143, Apple = 0x106B };
 const char* vendor_name(uint32_t vendor_id);
+// WARP / "Microsoft Basic Render Driver" and other software rasterisers (the only adapter of most virtual machines and CI runners). DXGI flags them
+// with DXGI_ADAPTER_FLAG_SOFTWARE, but the Basic Render Driver is also recognised by its ids in case a driver omits the flag.
+bool is_software_adapter(uint32_t dxgi_flags, uint32_t vendor_id, uint32_t device_id);
 
 struct GpuMemoryBudget {
     bool valid = false;

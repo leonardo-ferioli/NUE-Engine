@@ -37,6 +37,8 @@ static void test_gpu_enumeration() {
 
 static void test_integrated_heuristic() {
     TEST_BEGIN("integrated / discrete heuristic");
+    CHECK(is_software_adapter(2 /*DXGI_ADAPTER_FLAG_SOFTWARE*/, 0, 0) && is_software_adapter(0, 0x1414, 0x8C) && is_software_adapter(0, 0x1414, 0x8D));
+    CHECK(!is_software_adapter(0, 0x1002, 0x1636) && !is_software_adapter(1 /*REMOTE*/, 0x10DE, 0x2684) && !is_software_adapter(0, 0x1414, 0x1234));
     const uint64_t MiB = 1048576ull, GiB = 1024 * MiB;
     CHECK(!looks_integrated(0x10DE, "NVIDIA GeForce RTX 4060 Laptop GPU", 8 * GiB));
     CHECK(!looks_integrated(0x10DE, "NVIDIA GeForce GT 1030", 2 * GiB));
