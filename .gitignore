@@ -1,0 +1,9 @@
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+build*/
+.vs/
+.idea/
