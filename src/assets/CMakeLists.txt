@@ -7,7 +7,14 @@
 cmake_minimum_required(VERSION 3.21)
 
 option(NUE_ASSETS_TESTS "Build tests/assets" ${NUE_BUILD_TESTS})
-option(NUE_ASSETS_TOOLS "Build tools/nue_pack" ON)
+# nue_pack is a desktop command line tool: on iOS the Xcode generator would turn it into an app target (it needs a bundle identifier) and on Android it
+# is not useful, so mobile builds compile the library only.
+if(NUE_OS STREQUAL "ios" OR NUE_OS STREQUAL "android")
+    set(_nue_assets_tools_default OFF)
+else()
+    set(_nue_assets_tools_default ON)
+endif()
+option(NUE_ASSETS_TOOLS "Build tools/nue_pack" ${_nue_assets_tools_default})
 
 get_filename_component(NUE_ASSETS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
@@ -28,7 +35,7 @@ if(NUE_INSTALL)
     install(TARGETS nue_assets EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 endif()
 
-if(NUE_ASSETS_TESTS AND EXISTS "${NUE_ASSETS_ROOT}/tests/assets/CMakeLists.txt")
+if(NUE_ASSETS_TESTS AND NOT NUE_OS STREQUAL "ios" AND EXISTS "${NUE_ASSETS_ROOT}/tests/assets/CMakeLists.txt")
     add_subdirectory("${NUE_ASSETS_ROOT}/tests/assets" "${CMAKE_CURRENT_BINARY_DIR}/tests_assets")
 endif()
 if(NUE_ASSETS_TOOLS AND EXISTS "${NUE_ASSETS_ROOT}/tools/nue_pack/CMakeLists.txt")
