@@ -1,0 +1,427 @@
+// Layer: the state shadow (plain stores; nothing reaches the GPU before a draw), state blocks, render target bookkeeping and passes, clears.
+#include "layer/layer.hpp"
+#include <algorithm>
+#include <array>
+#include <cstring>
+
+namespace nue::d3d9 {
+using namespace k;
+
+void LayerImpl::set_render_state(uint32_t state, uint32_t value) {
+    if (state >= 256) return;
+    if (recording_) { recording_->values.rs[state] = value; recording_->rs.set(state); return; }
+    if (state_.rs[state] != value) {
+        switch (state) {   // render states that select the program
+        case rs_alphatestenable: case rs_alphafunc: case rs_fogenable: case rs_fogtablemode: case rs_fogvertexmode: case rs_specularenable: case rs_lighting:
+        case rs_colorvertex: case rs_localviewer: case rs_diffusematerialsource: case rs_specularmaterialsource: case rs_ambientmaterialsource: case rs_emissivematerialsource: ++program_epoch_; break;
+        default: break;
+        }
+    }
+    state_.rs[state] = value;
+}
+
+static uint32_t sampler_slot(uint32_t sampler) {
+    if (sampler < 16) return sampler;
+    if (sampler >= 257 && sampler < 261) return 16 + (sampler - 257);
+    return ~0u;
+}
+
+void LayerImpl::set_sampler_state(uint32_t sampler, uint32_t type, uint32_t value) {
+    const uint32_t slot = sampler_slot(sampler);
+    if (slot == ~0u || type >= ss_count) return;
+    if (recording_) { recording_->values.ss[slot][type] = value; recording_->ss.set(slot * ss_count + type); return; }
+    state_.ss[slot][type] = value;
+}
+
+void LayerImpl::set_texture_stage_state(uint32_t stage, uint32_t type, uint32_t value) {
+    if (stage >= 8 || type >= tss_count) return;
+    if (recording_) { recording_->values.tss[stage][type] = value; recording_->tss.set(stage * tss_count + type); return; }
+    if (state_.tss[stage][type] != value && (type == tss_texturetransformflags || program_uses_ff_)) ++program_epoch_;
+    state_.tss[stage][type] = value;
+}
+
+void LayerImpl::set_transform(uint32_t type, const float* m) {
+    float* target = nullptr;
+    DeviceState& st = recording_ ? recording_->values : state_;
+    if (type == ts_view) { target = st.view; if (recording_) recording_->view = true; }
+    else if (type == ts_projection) { target = st.projection; if (recording_) recording_->projection = true; }
+    else if (type >= ts_texture0 && type < ts_texture0 + 8) { target = st.texture[type - ts_texture0]; if (recording_) recording_->texture_transforms.set(type - ts_texture0); }
+    else if (type == ts_world) { target = st.world; if (recording_) recording_->world = true; }
+    else { note_unsupported_literal("set_transform: world matrix beyond 0"); return; }
+    std::memcpy(target, m, 64);
+}
+
+gpu::Texture LayerImpl::matching_depth(uint32_t width, uint32_t height, uint32_t format, uint32_t samples) {
+    const uint64_t key = uint64_t(width) | uint64_t(height) << 16 | uint64_t(format & 0xFFFF) << 32 | uint64_t(samples) << 48;
+    auto it = matching_depth_.find(key);
+    if (it != matching_depth_.end()) return it->second;
+    const FormatInfo& info = format_info(format);
+    auto r = gpu_.create_texture(width, height, 1, info.valid ? info.native : gpu::Format::d24s8, true, false, samples);
+    char text[200];
+    std::snprintf(text, sizeof text, "a depth surface is used with a %ux%u target of another size or sample count: the target gets its own %ux%u depth surface (%u samples)", width, height, width, height, samples);
+    log(text);
+    if (r) matching_depth_[key] = r.value;
+    return r ? r.value : gpu::Texture{};
+}
+
+void LayerImpl::set_light(uint32_t index, const LightDesc& light) {
+    if (index >= 32) return;
+    if (state_.lights[index].type != light.type) ++program_epoch_;   // the light's kind is part of the generated vertex program
+    state_.lights[index] = light;
+    state_.lights_defined.set(index);
+}
+
+void LayerImpl::set_material(const MaterialDesc& material) { state_.material = material; }
+
+void LayerImpl::light_enable(uint32_t index, bool enable) {
+    if (index >= 32) return;
+    if (recording_) { recording_->lights_mask |= 1u << index; if (enable) recording_->lights_value |= 1u << index; else recording_->lights_value &= ~(1u << index); return; }
+    const uint32_t before = state_.lights_enabled;
+    if (enable) state_.lights_enabled |= 1u << index; else state_.lights_enabled &= ~(1u << index);
+    if (state_.lights_enabled != before) ++program_epoch_;
+}
+
+void LayerImpl::set_viewport(const uint32_t* r, float min_z, float max_z) {
+    const Viewport v{r[0], r[1], r[2], r[3], min_z, max_z};
+    if (recording_) { recording_->values.viewport = v; recording_->viewport = true; return; }
+    state_.viewport = v;
+}
+
+void LayerImpl::set_texture(uint32_t sampler, TextureId id) {
+    const uint32_t slot = sampler_slot(sampler);
+    if (slot == ~0u) return;
+    if (id.value && !textures_.get(id.value)) { bad_handle("set_texture"); return; }
+    if (recording_) { recording_->values.textures[slot] = id.value; recording_->textures.set(slot); return; }
+    if (slot < 16) {
+        const TextureObject* t = textures_.get(id.value);
+        const uint32_t bit = t && t->cube ? 1u << slot : 0u;
+        if ((cube_mask_ & (1u << slot)) != bit) { cube_mask_ = (cube_mask_ & ~(1u << slot)) | bit; ++program_epoch_; }
+    }
+    state_.textures[slot] = id.value;
+}
+
+void LayerImpl::set_render_target(uint32_t index, SurfaceId id) {
+    if (index >= 4) return;
+    if (id.value && !surfaces_.get(id.value)) { bad_handle("set_render_target"); return; }
+    state_.render_targets[index] = id.value;
+    // Direct3D 9: setting render target 0 resets the viewport to the whole target (the game relies on it when it draws into smaller targets)
+    if (index == 0 && id.value) if (const SurfaceObject* s = surfaces_.get(id.value)) state_.viewport = Viewport{0, 0, s->width, s->height, 0.0f, 1.0f};
+}
+
+void LayerImpl::set_depth_stencil(SurfaceId id) {
+    if (id.value && !surfaces_.get(id.value)) { bad_handle("set_depth_stencil"); return; }
+    state_.depth_stencil = id.value;
+}
+
+void LayerImpl::set_vertex_declaration(DeclarationId id) {
+    if (recording_) { recording_->values.declaration = id.value; recording_->values.fvf = 0; recording_->declaration = true; return; }
+    if (state_.declaration != id.value || state_.fvf) ++program_epoch_;
+    state_.declaration = id.value;
+    state_.fvf = 0;
+}
+
+void LayerImpl::set_fvf(uint32_t fvf) {
+    if (recording_) { recording_->values.fvf = fvf; recording_->values.declaration = 0; recording_->fvf = true; return; }
+    if (state_.fvf != fvf || state_.declaration) ++program_epoch_;
+    state_.fvf = fvf;
+    state_.declaration = 0;
+}
+
+void LayerImpl::set_vertex_shader(ShaderId id) {
+    if (recording_) { recording_->values.vertex_shader = id.value; recording_->vertex_shader = true; return; }
+    if (state_.vertex_shader != id.value) ++program_epoch_;
+    state_.vertex_shader = id.value;
+}
+
+void LayerImpl::set_pixel_shader(ShaderId id) {
+    if (recording_) { recording_->values.pixel_shader = id.value; recording_->pixel_shader = true; return; }
+    if (state_.pixel_shader != id.value) ++program_epoch_;
+    state_.pixel_shader = id.value;
+}
+
+void LayerImpl::set_vertex_shader_constants_f(uint32_t start, std::span<const Float4> values) {
+    if (!recording_) {   // the usual case: one copy, and the version moves only when a value really changes (games set the same constants again and again)
+        if (start >= state_.vs_constants.size()) return;
+        const size_t n = std::min(values.size(), state_.vs_constants.size() - start);
+        if (std::memcmp(&state_.vs_constants[start], values.data(), n * sizeof(Float4)) != 0) { std::memcpy(&state_.vs_constants[start], values.data(), n * sizeof(Float4)); ++vs_version_; }
+        return;
+    }
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < values.size() && start + i < st.vs_constants.size(); ++i) {
+        st.vs_constants[start + i] = values[i];
+        if (recording_) recording_->vs_constants.set(start + i);
+    }
+}
+
+void LayerImpl::set_pixel_shader_constants_f(uint32_t start, std::span<const Float4> values) {
+    if (!recording_) {   // the usual case: one copy, and the version moves only when a value really changes (games set the same constants again and again)
+        if (start >= state_.ps_constants.size()) return;
+        const size_t n = std::min(values.size(), state_.ps_constants.size() - start);
+        if (std::memcmp(&state_.ps_constants[start], values.data(), n * sizeof(Float4)) != 0) { std::memcpy(&state_.ps_constants[start], values.data(), n * sizeof(Float4)); ++ps_version_; }
+        return;
+    }
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < values.size() && start + i < st.ps_constants.size(); ++i) {
+        st.ps_constants[start + i] = values[i];
+        if (recording_) recording_->ps_constants.set(start + i);
+    }
+}
+
+void LayerImpl::set_vertex_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    if (!recording_) ++vs_version_;
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_int[start + i] = v[i]; if (recording_) recording_->vs_int.set(start + i); }
+}
+void LayerImpl::set_pixel_shader_constants_i(uint32_t start, std::span<const Int4> v) {
+    if (!recording_) ++ps_version_;
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_int[start + i] = v[i]; if (recording_) recording_->ps_int.set(start + i); }
+}
+void LayerImpl::set_vertex_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    if (!recording_) ++vs_version_;
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.vs_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->vs_bool.set(start + i); }
+}
+void LayerImpl::set_pixel_shader_constants_b(uint32_t start, std::span<const uint32_t> v) {
+    if (!recording_) ++ps_version_;
+    DeviceState& st = recording_ ? recording_->values : state_;
+    for (size_t i = 0; i < v.size() && start + i < 16; ++i) { st.ps_bool[start + i] = v[i] ? 1 : 0; if (recording_) recording_->ps_bool.set(start + i); }
+}
+
+void LayerImpl::set_stream_source(uint32_t stream, BufferId id, uint32_t offset, uint32_t stride) {
+    if (stream >= 16) return;
+    if (id.value && !buffers_.get(id.value)) { bad_handle("set_stream_source"); return; }
+    const StreamBinding b{id.value, offset, stride};
+    if (recording_) { recording_->values.streams[stream] = b; recording_->streams.set(stream); return; }
+    state_.streams[stream] = b;
+}
+
+void LayerImpl::set_indices(BufferId id) {
+    if (id.value && !buffers_.get(id.value)) { bad_handle("set_indices"); return; }
+    if (recording_) { recording_->values.index_buffer = id.value; recording_->index_buffer = true; return; }
+    state_.index_buffer = id.value;
+}
+
+// ---- state blocks: calls between Begin and End are recorded, not applied (as Direct3D 9 does) ------------------------------------------------
+
+StateBlockId LayerImpl::begin_state_block() {
+    auto block = std::make_unique<StateBlock>();
+    init_state(block->values);
+    recording_id_ = blocks_.add(std::move(block));
+    recording_ = blocks_.get(recording_id_)->get();
+    return StateBlockId{recording_id_};
+}
+
+void LayerImpl::end_state_block(StateBlockId) {
+    if (recording_) {
+        StateBlock& b = *recording_;
+        StateBlock::Compiled& c = b.compiled;
+        for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) c.rs.emplace_back(uint16_t(i), b.values.rs[i]);
+        for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) c.ss.emplace_back(uint8_t(s), uint8_t(t), b.values.ss[s][t]);
+        for (uint32_t s = 0; s < 8; ++s) for (uint32_t t = 0; t < tss_count; ++t) if (b.tss.test(s * tss_count + t)) c.tss.emplace_back(uint8_t(s), uint8_t(t), b.values.tss[s][t]);
+        for (uint32_t s = 0; s < sampler_slots; ++s) if (b.textures.test(s)) c.textures.emplace_back(uint8_t(s), b.values.textures[s]);
+        for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) c.streams.emplace_back(uint8_t(s), b.values.streams[s]);
+        for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) c.vs_constants.emplace_back(uint16_t(i), b.values.vs_constants[i]);
+        for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) c.ps_constants.emplace_back(uint16_t(i), b.values.ps_constants[i]);
+        c.ready = true;
+    }
+    recording_ = nullptr;
+    recording_id_ = 0;
+}
+
+void LayerImpl::apply(StateBlockId id) {
+    auto* slot = blocks_.get(id.value);
+    if (!slot) { bad_handle("apply"); return; }
+    ++program_epoch_;
+    ++vs_version_; ++ps_version_;
+    const StateBlock& b = **slot;
+    if (b.compiled.ready) {
+        const StateBlock::Compiled& c = b.compiled;
+        for (const auto& e : c.rs) state_.rs[e.first] = e.second;
+        for (const auto& e : c.ss) state_.ss[std::get<0>(e)][std::get<1>(e)] = std::get<2>(e);
+        for (const auto& e : c.tss) state_.tss[std::get<0>(e)][std::get<1>(e)] = std::get<2>(e);
+        for (const auto& e : c.textures) state_.textures[e.first] = e.second;
+        for (const auto& e : c.streams) state_.streams[e.first] = e.second;
+        for (const auto& e : c.vs_constants) state_.vs_constants[e.first] = e.second;
+        for (const auto& e : c.ps_constants) state_.ps_constants[e.first] = e.second;
+    } else {
+        for (uint32_t i = 0; i < 256; ++i) if (b.rs.test(i)) state_.rs[i] = b.values.rs[i];
+        for (uint32_t s = 0; s < sampler_slots; ++s) for (uint32_t t = 0; t < ss_count; ++t) if (b.ss.test(s * ss_count + t)) state_.ss[s][t] = b.values.ss[s][t];
+        for (uint32_t s = 0; s < 8; ++s) for (uint32_t t = 0; t < tss_count; ++t) if (b.tss.test(s * tss_count + t)) state_.tss[s][t] = b.values.tss[s][t];
+        for (uint32_t s = 0; s < sampler_slots; ++s) if (b.textures.test(s)) state_.textures[s] = b.values.textures[s];
+        for (uint32_t s = 0; s < 16; ++s) if (b.streams.test(s)) state_.streams[s] = b.values.streams[s];
+        for (uint32_t i = 0; i < 256; ++i) if (b.vs_constants.test(i)) state_.vs_constants[i] = b.values.vs_constants[i];
+        for (uint32_t i = 0; i < 224; ++i) if (b.ps_constants.test(i)) state_.ps_constants[i] = b.values.ps_constants[i];
+    }
+    for (uint32_t i = 0; i < 16; ++i) {
+        if (b.vs_int.test(i)) state_.vs_int[i] = b.values.vs_int[i];
+        if (b.ps_int.test(i)) state_.ps_int[i] = b.values.ps_int[i];
+        if (b.vs_bool.test(i)) state_.vs_bool[i] = b.values.vs_bool[i];
+        if (b.ps_bool.test(i)) state_.ps_bool[i] = b.values.ps_bool[i];
+    }
+    for (uint32_t i = 0; i < 8; ++i) if (b.texture_transforms.test(i)) std::memcpy(state_.texture[i], b.values.texture[i], 64);
+    if (b.index_buffer) state_.index_buffer = b.values.index_buffer;
+    if (b.declaration) { state_.declaration = b.values.declaration; state_.fvf = 0; }
+    if (b.fvf) { state_.fvf = b.values.fvf; state_.declaration = 0; }
+    if (b.vertex_shader) state_.vertex_shader = b.values.vertex_shader;
+    if (b.pixel_shader) state_.pixel_shader = b.values.pixel_shader;
+    if (b.viewport) state_.viewport = b.values.viewport;
+    if (b.view) std::memcpy(state_.view, b.values.view, 64);
+    if (b.projection) std::memcpy(state_.projection, b.values.projection, 64);
+    if (b.world) std::memcpy(state_.world, b.values.world, 64);
+    state_.lights_enabled = (state_.lights_enabled & ~b.lights_mask) | (b.lights_value & b.lights_mask);
+    cube_mask_ = 0;
+    for (uint32_t s = 0; s < 16; ++s) if (const TextureObject* t = textures_.get(state_.textures[s])) if (t->cube) cube_mask_ |= 1u << s;
+}
+
+// ---- render targets and passes --------------------------------------------------------------------------------------------------------------
+
+LayerImpl::Attachment LayerImpl::resolve_attachments() {
+    Attachment a;
+    for (uint32_t i = 0; i < 4; ++i) {
+        SurfaceObject* s = surfaces_.get(state_.render_targets[i]);
+        if (!s) continue;
+        gpu::Texture tex;
+        switch (s->kind) {
+        case SurfaceObject::Kind::backbuffer: tex = gpu::backbuffer; break;
+        case SurfaceObject::Kind::render_target: tex = s->gpu; break;
+        case SurfaceObject::Kind::texture_level: if (auto* t = textures_.get(s->texture)) { tex = t->gpu; t->written_frame = frame_; } break;
+        default: break;
+        }
+        a.color[i] = tex;
+        if (s->kind == SurfaceObject::Kind::texture_level) { a.layer[i] = uint8_t(s->face); a.mip[i] = uint8_t(s->level); }
+        if (i == 0) {
+            a.width = s->width; a.height = s->height;
+            uint32_t format = s->format;
+            if (s->kind == SurfaceObject::Kind::texture_level) if (auto* t = textures_.get(s->texture)) format = t->format;
+            a.alpha = format_has_alpha(format);
+        }
+    }
+    a.valid = bool(a.color[0]);
+    if (SurfaceObject* d = surfaces_.get(state_.depth_stencil)) if (d->kind == SurfaceObject::Kind::depth) {
+        a.depth = d->gpu;
+        uint32_t color_samples = 1;
+        if (SurfaceObject* c = surfaces_.get(state_.render_targets[0])) color_samples = c->kind == SurfaceObject::Kind::backbuffer ? backbuffer_samples_ : c->kind == SurfaceObject::Kind::render_target ? c->samples : 1;
+        if (a.valid && (d->width != a.width || d->height != a.height || d->samples != color_samples)) a.depth = matching_depth(a.width, a.height, d->format, color_samples);
+    }
+    return a;
+}
+
+bool LayerImpl::same_attachments(const gpu::PassDesc& p, const Attachment& a) const {
+    for (int i = 0; i < 4; ++i) if (!(p.colors[i] == a.color[i]) || p.color_layer[i] != a.layer[i] || p.color_mip[i] != a.mip[i]) return false;
+    return p.depth_stencil == a.depth;
+}
+
+void LayerImpl::init_opaque_target(gpu::Texture target) {
+    end_pass();
+    gpu::PassDesc p;
+    p.colors[0] = target;
+    p.clear_color = true; p.clear_argb = 0xFF000000u;
+    gpu_.begin_pass(p);
+    gpu_.end_pass();
+}
+
+void LayerImpl::end_pass() {
+    if (!pass_open_) return;
+    if (pass_submitted_) gpu_.end_pass();
+    else if (pass_.clear_color || pass_.clear_depth || pass_.clear_stencil) { gpu_.begin_pass(pass_); gpu_.end_pass(); ++stats_.passes; }
+    pass_open_ = pass_submitted_ = false;
+}
+
+void LayerImpl::open_pass(const Attachment& a) {
+    pass_ = gpu::PassDesc{};
+    for (int i = 0; i < 4; ++i) { pass_.colors[i] = a.color[i]; pass_.color_layer[i] = a.layer[i]; pass_.color_mip[i] = a.mip[i]; }
+    pass_.depth_stencil = a.depth;
+    pass_attachments_ = a;
+    pass_open_ = true;
+    pass_submitted_ = false;
+}
+
+void LayerImpl::ensure_pass() {
+    const PassKey key{state_.render_targets, state_.depth_stencil, surface_generation_};
+    if (pass_open_ && key == pass_key_) {
+        // same targets as the open pass: nothing to resolve
+    } else {
+        Attachment a = resolve_attachments();
+        if (pass_open_ && same_attachments(pass_, a)) {
+            pass_attachments_ = a;
+        } else {
+            end_pass();
+            if (!a.valid) return;
+            open_pass(a);
+        }
+        pass_key_ = key;
+    }
+    if (!pass_submitted_) {
+        if (options_.debug_log_passes && options_.log) { char t[200]; std::snprintf(t, sizeof t, "pass: rt surface %u (gpu %u) depth %u size %ux%u clear c%d z%d", state_.render_targets[0], pass_.colors[0].value, state_.depth_stencil, pass_attachments_.width, pass_attachments_.height, pass_.clear_color, pass_.clear_depth); log(t); }
+        gpu_.begin_pass(pass_); pass_submitted_ = true; ++stats_.passes;
+    }
+}
+
+void LayerImpl::clear(std::span<const int32_t> rects, uint32_t flags, uint32_t argb, float z, uint32_t stencil) {
+    ++stats_.clears;
+    const Attachment a = resolve_attachments();
+    if (!a.valid) return;
+    if (!a.depth) flags &= ~(clear_zbuffer | clear_stencil);
+    if (!flags) return;
+    const int32_t full[4] = {0, 0, int32_t(a.width), int32_t(a.height)};
+    // Direct3D 9 clears the viewport when no rectangles are given.
+    int32_t area[4] = {int32_t(state_.viewport.x), int32_t(state_.viewport.y), int32_t(state_.viewport.x + state_.viewport.width), int32_t(state_.viewport.y + state_.viewport.height)};
+    if (!state_.viewport.width || !state_.viewport.height) std::memcpy(area, full, sizeof full);
+    auto clip = [&](int32_t* r) { r[0] = std::max(r[0], 0); r[1] = std::max(r[1], 0); r[2] = std::min(r[2], full[2]); r[3] = std::min(r[3], full[3]); };
+    std::vector<std::array<int32_t, 4>> list;
+    if (rects.size() >= 4) {
+        for (size_t i = 0; i + 4 <= rects.size(); i += 4) {
+            std::array<int32_t, 4> r{rects[i], rects[i + 1], rects[i + 2], rects[i + 3]};
+            clip(r.data());
+            // a rectangle outside the viewport is not clamped by Direct3D 9 but the viewport bounds the clear of the whole target
+            list.push_back(r);
+        }
+    } else {
+        clip(area);
+        list.push_back({area[0], area[1], area[2], area[3]});
+    }
+    for (auto& r : list) {
+        if (r[2] <= r[0] || r[3] <= r[1]) continue;
+        const bool whole = r[0] <= 0 && r[1] <= 0 && r[2] >= full[2] && r[3] >= full[3];
+        auto apply_clear = [&](gpu::PassDesc& p) {
+            if (flags & clear_target) { p.clear_color = true; p.clear_argb = a.alpha ? argb : (argb | 0xFF000000u); }
+            if (flags & clear_zbuffer) { p.clear_depth = true; p.clear_z = z; }
+            if (flags & clear_stencil) { p.clear_stencil = true; p.clear_stencil_value = uint8_t(stencil); }
+        };
+        if (whole) {
+            if (pass_open_ && !pass_submitted_ && same_attachments(pass_, a)) { apply_clear(pass_); continue; }   // folded into the pending pass
+            end_pass();
+            open_pass(a);
+            apply_clear(pass_);
+        } else {
+            ++stats_.partial_clears;
+            end_pass();
+            open_pass(a);
+            pass_.rect[0] = r[0]; pass_.rect[1] = r[1]; pass_.rect[2] = r[2] - r[0]; pass_.rect[3] = r[3] - r[1];
+            apply_clear(pass_);
+            end_pass();   // a clear of a sub-rectangle gets a pass of its own: later draws must not inherit the rectangle
+        }
+    }
+}
+
+}  // namespace nue::d3d9
+
+namespace nue::d3d9 {
+bool LayerImpl::get_shader_constants_f(bool pixel, uint32_t start, Float4* out, uint32_t count) const {
+    const size_t size = pixel ? state_.ps_constants.size() : state_.vs_constants.size();
+    if (size_t(start) + count > size) return false;
+    std::memcpy(out, (pixel ? state_.ps_constants.data() : state_.vs_constants.data()) + start, size_t(count) * sizeof(Float4));
+    return true;
+}
+bool LayerImpl::get_shader_constants_i(bool pixel, uint32_t start, Int4* out, uint32_t count) const {
+    if (size_t(start) + count > 16) return false;
+    std::memcpy(out, (pixel ? state_.ps_int.data() : state_.vs_int.data()) + start, size_t(count) * sizeof(Int4));
+    return true;
+}
+bool LayerImpl::get_shader_constants_b(bool pixel, uint32_t start, uint32_t* out, uint32_t count) const {
+    if (size_t(start) + count > 16) return false;
+    std::memcpy(out, (pixel ? state_.ps_bool.data() : state_.vs_bool.data()) + start, size_t(count) * sizeof(uint32_t));
+    return true;
+}
+}  // namespace nue::d3d9
