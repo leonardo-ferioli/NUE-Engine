@@ -14,7 +14,7 @@ licence) and Wine d3d9 (code may be reused: the user lifted the licence gate).
   `replay()` into any `d3d9::Device`), recorder inside the native bridge (`d3d9_recorder.*`, guest side: stays outside the future library).
 - Shader path S1 (`platform/shader/`: D3D9 bytecode decoder, SPIR-V writer, SPIRV-Cross wrapper) proven on 27/27 pixel shaders and the vertex shaders
   with `dcl` (see the S1 paragraph in `PLATFORM_API.md` 3.4). `spike/` builds standalone (x64 clang, `build_spike`).
-- Captures (valid, on the user's disk, **never in git**): `C:\Users\Leonardo\Projects\NFSU2 REINGENIER\captures\menu` and `...\loading`, 4 windows and
+- Captures (valid, on the user's disk, **never in git**): `<captures folder>\menu` and `...\loading`, 4 windows and
   24 reference BMPs each (1280x720). Check with `python tools/d3d9_trace_info.py <folder>`. `race` was not recorded (not needed, see below).
 
 ## What the captures really show (checked on the reference images)
@@ -78,7 +78,7 @@ Then 2d (bgfx adapter + out-of-game spike) and 2e (replay on bgfx + comparison w
 ## Build and run
 
 ```powershell
-# 32-bit game side and all tests (once: cmake -S . -B build32 -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS=-m32 -DGAME_DIR="C:/Users/Leonardo/Projects/NFSU2 REINGENIER/data game (pc)")
+# 32-bit game side and all tests (once: cmake -S . -B build32 -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS=-m32 -DGAME_DIR="<game data folder>")
 cmake --build build32 --target platform_api_tests fast_recorder_tests
 cd build32; ctest -R "platform_api|fast_facade|fast_recorder"      # tests need a logs/ folder next to the working directory
 # every test of the repo (19 passed at the last full run)
@@ -86,7 +86,7 @@ ctest
 # shader spike, x64 (build_spike, not in git)
 cmake -S spike -B build_spike -G Ninja -DCMAKE_CXX_COMPILER=clang++ && cmake --build build_spike
 # summarise a capture
-python tools/d3d9_trace_info.py "C:\Users\Leonardo\Projects\NFSU2 REINGENIER\captures\loading"
+python tools/d3d9_trace_info.py "<captures folder>\loading"
 ```
 
 The game is never started from here: the user plays and sends captures; recording commands are in `PLATFORM_API.md` section 6 (2a).
