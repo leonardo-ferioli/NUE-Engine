@@ -11,6 +11,7 @@ Internal contracts for implementers: `src/core/internal/backend.h` (devices) and
 
 ## 0.1.2 (additive)
 
+* `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).
 * `mixer.h`: `nue_voice_ring_set_notifications` + `nue_ring_notify_fn` (DirectSound-style notification positions on ring voices, fired outside the mixer lock); listener space is documented as left-handed (+x right, +y up, +z forward); the [audio] functions take a short mutex, they are not lock-free.
 * New headers `include/nuepp/{core,window,audio,storage}.hpp` (C++ wrapper over the C API).
 * Fixes visible to platform layers: the VFS directory cache no longer depends on `nue_time_ns()`; tests use `GENERIC_EQ` so they stay valid on real platform layers.
