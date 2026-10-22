@@ -20,6 +20,7 @@ src/platform/linux/     Linux and SteamOS backend               owner: linux
 src/platform/android/   Android backend (+ android/ Gradle)     owner: android
 src/platform/ios/       iOS backend (+ ios/ Xcode project)      owner: ios
 src/texture/            texture formats, codecs, cache          owner: texture
+src/assets/             resource formats, JDLZ, .nuepack, nue_pack  owner: assets
 src/legacy/             legacy ABI layers (win32, d3d9, dsound, dinput)   owner: legacy
 tests/  samples/  tools/  cmake/  docs/  third_party/
 ```

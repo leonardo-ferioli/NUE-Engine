@@ -139,6 +139,7 @@ exposes the result the same way everywhere.
 | Memory budgets | Budgets are runtime parameters with a default policy per platform. Nothing is hard-coded. |
 | Graphics | bgfx (Vulkan, Direct3D 11/12, Metal, OpenGL ES) and a Direct3D 9 layer with a shader translator. |
 | Textures | BC/DXT, ETC, ASTC and PVRTC: capability detection, transcoding and a cache. |
+| Assets | Open a game's resource files, convert them (textures included) and pack them into `.nuepack`, or back into the original format. A command-line tool, `nue_pack`, does the same. |
 | 32-bit guests | Handle tables and guest pointers for recompiled code that expects a 32-bit address space (planned, part of the legacy ABI). |
 | Diagnostics | Logging, crash reports and counters, with a deterministic null backend so tests need no window, sound card or GPU. |
 
@@ -168,6 +169,7 @@ can as is, transcodes the rest and caches the result.
 | SDL3 backend | Tested with SDL's dummy drivers |
 | Windows layer | Tested on Windows |
 | Textures | Tested on Windows |
+| Assets (NFSU2 BUN and LZC, JDLZ, `.nuepack`) | Tested on Windows, including byte-identical round trips on the game's own files |
 | Direct3D 9 layer | Builds on Windows and matches the system runtime in state tests |
 | Linux and SteamOS layer | In development |
 | Android layer | In development, builds for arm64 |
