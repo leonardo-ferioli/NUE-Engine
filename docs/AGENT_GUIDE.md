@@ -30,8 +30,8 @@ owner session (resolve names with ListAgents).
 ## Branches
 
 - `main`: always builds and passes the tests. Only the main session merges into it.
-- Area branches, one per session: `core`, `windows`, `linux`, `android`, `ios`, `texture`, `legacy-d3d9`. Short-lived topic branches
-  are named `<area>/<topic>`.
+- Area branches, one per session: `core`, `windows`, `linux`, `android`, `ios`, `texture`, `legacy-d3d9`. Short-lived topic branches (git cannot hold `core` and `core/x` together, so use a dash)
+  are named `<area>-<topic>`.
 - During the migration the first version of each area branch is extracted from the old game repository with
   `git subtree split --prefix=nue_engine`, so the history is kept and the old `nue_engine/` prefix disappears from paths.
 - You never push. The main session pushes your branch and merges it when the checks are green.
