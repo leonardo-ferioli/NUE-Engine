@@ -27,6 +27,14 @@ platform ever needs a different backend for a subsystem (a native WASAPI exclusi
 4. Rows in `docs/STATUS.md` for your OS (send the text to the core session or ask to edit).
 5. Your own tests under `src/platform/<os>/tests/` (console only). Register them from your CMakeLists with `add_executable` + `add_test`, linking `nue::nue`.
 
+## What the shared SDL3 backend does for you
+
+`src/platform/sdl3/backend_sdl3.cpp` implements `nue_backend` (video, input, audio, event pump, wait/wake) on SDL 3.4: window snapshots are refreshed after every window event
+and pushed with `nue_internal_window_changed` *before* the event is queued; gamepads are opened on `SDL_EVENT_GAMEPAD_ADDED`; text input events longer than 31 bytes are split on
+character boundaries; under `NUE_PLATFORM_GAMESCOPE` / `NUE_PLATFORM_STEAM_GAMING_MODE` (your `system_info`) exclusive fullscreen requests become borderless; with
+`platform_owns_lifecycle` SDL's background/foreground events are ignored; headless init selects SDL's dummy video and audio drivers. Not provided (yours): power, thermal, game mode,
+storage rules, crash handling, haptics, GPU probing, the Android surface lifecycle.
+
 ## Initialisation order (what a platform layer can rely on)
 
 `nue_init` runs: log -> `pre_init` (platform; set environment/SDL hints here, `storage_root` must already work) -> storage roots (`vfs_init`) ->
@@ -38,6 +46,12 @@ Table fields appended after 0.1.0 (`pre_init`, `owns_lifecycle`, `memory_info_ex
 `owns_lifecycle = NUE_TRUE` (Android Activity, iOS app delegate): you push `NUE_EVENT_APP_*`; backends will not derive app state from window events.
 Events that must reach watchers synchronously (`SURFACE_LOST`, `APP_PAUSING`) do: `nue_internal_push_event` runs watchers on the calling thread before it returns,
 and `nue_gfx_set_auto_events` makes `nue_gfx` suspend its swapchain inside that call. Fill the real `window_id` on surface events.
+
+## Portable mode
+
+An explicit `nue_init_desc.user_data_path` means **portable mode for every writable root**: `user`, `cache`, `settings` and `temp` all live below it
+(`<user>/cache`, `<user>/settings`, ...). A platform layer's `storage_root` must return `NUE_ERR_UNSUPPORTED` for cache/settings/temp in that case so the core
+derives them from the explicit path (tests rely on it: they never touch the real profile).
 
 ## Link dependencies and other modules
 
