@@ -30,3 +30,12 @@ Pinned by upstream commit. Update by re-copying from a newer commit and bumping 
 | **PVRTexLib** (Imagination) | PVRTC1/2 encode, ETC, ASTC | Proprietary: avoided as requested. Open PVRTC1 4 bpp (Javelin) is used; PVRTC 2 bpp and PVRTC2 have **no open encoder** found (decoders only, still to be written from the PowerVR spec / bimg); the planner never targets them except on devices whose only compressed format is PVRTC. |
 | **DirectXTex** (MIT) | DDS reader/writer, BC encoders on CPU/GPU | Not vendored: the DDS format is small; we follow its header handling rules (legacy bitmask / FOURCC / DX10) from the public spec. |
 | **zstd / miniz** | KTX2 supercompression | Not needed: GPU block formats barely compress and the cache wants zero-copy mapping. Reading zstd KTX2 can be added when needed. |
+
+## Licence check for the public repository (2026-10-22)
+
+All vendored folders keep their original licence text next to the code (`astc-encoder/LICENSE.txt` Apache-2.0, `etcpak/LICENSE.txt` + `AUTHORS.txt` BSD-3-Clause,
+`bcdec/LICENSE` MIT or Unlicense, `pvrtc_javelin/LICENSE.TXT` BSD-3-Clause style, `stb_image.h` MIT or public domain at the end of the file, `bc7enc` MIT or public domain in its header).
+All are permissive: source and binary redistribution is allowed with the notices kept. A shipped binary (SDK package, game) must reproduce the notices of the BSD and Apache
+components: the packaging step should collect `src/texture/third_party/*/LICENSE*` into the SDK's notices file. Notes: the Javelin folder also holds helper files contributed by Brendan Duncan
+(bitmap and colour classes, see its README) under the same folder licence as redistributed by bimg; no GPL/LGPL/proprietary code and no game data are in the tree; no personal paths appear in the texture sources or docs
+(checked with a search for user names and drive paths).
