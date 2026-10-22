@@ -6,6 +6,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace nuei {
