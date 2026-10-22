@@ -15,7 +15,7 @@ The development machine is Windows 11 without WSL. Zig 0.17 (bundled clang + gli
 | Linux-only runtime (`nue_linux_runtime`: D-Bus, GameMode, power profiles, rtkit, scheduling, timers, storage, io_uring, crash handler) and the runtime entries of the ops table (`power_apply`, thread priority/affinity/core class, `sleep_until`, GPU preference, crash, syslog) | **compiled and linked** with `zig c++` (glibc 2.31 headers) for `x86_64-linux-gnu` and `aarch64-linux-gnu`, zero warnings under `-Wall -Wextra`; test and probe ELF executables produced; **never run**. Unit tests exist (`tests/test_runtime_linux.cpp`) and are built only on Linux |
 | Live Vulkan / EGL / GL probe (`probe_vulkan`, hand-declared ABI structs with `static_assert`s) | compiled for both Linux targets (hand-declared Vulkan structs pass their `static_assert`s); **never run** |
 | Window, input, audio on a real X11/Wayland/PipeWire session, gamescope, Steam Deck hardware, Flatpak, AppImage | **not possible here**, not tried |
-| Integration into the `nue` CMake build with SDL3 | CMake fragment written to the contract in `PORTING.md`; **not built** (SDL3 submodule is empty in this tree) |
+| Integration into the `nue` CMake build with SDL3 | built for x86-64 with Zig as a console SDL3 build (no X11 / Wayland video drivers); **never run** |
 
 What is needed to turn "compiled" into "run": WSL2 with a distribution or a Linux machine. The cross build is reproducible with `cmake/toolchain-linux-zig.cmake` (see "Building and testing").
 
@@ -167,7 +167,7 @@ build-lx/make_fixture steam_deck fixtures/deck && build-lx/linux_probe --root fi
 On Linux (everything, including the runtime tests): `cmake --preset linux-x64 && cmake --build --preset linux-x64 && ctest --preset linux-x64`, or the standalone command above.
 The tests set `SDL_VIDEODRIVER=dummy` / `SDL_AUDIODRIVER=dummy` (core's ctest) and the Linux tests never open a window, a sound device or the GPU. `linux_probe --live` opens libvulkan and enumerates devices only.
 
-Cross-compiling from Windows (exercised: builds `nue_linux_tests`, `nue_linux_ops_tests`, `linux_probe`, `make_fixture` for both targets, and the integrated `nue` library with the core tests linked for x86-64 with SDL3 disabled; the build with SDL3 was not tried): `toolchain-linux-zig.cmake` (needs `zig` on `PATH`; `-DNUE_ZIG_TARGET=x86_64-linux-gnu.2.31` or `aarch64-linux-gnu.2.31`; the suffix pins glibc)
+Cross-compiling from Windows (exercised: builds `nue_linux_tests`, `nue_linux_ops_tests`, `linux_probe`, `make_fixture` for both targets, the integrated `nue` library with the core tests linked for x86-64 with SDL3 disabled, and `libnue.a` with the pinned SDL3 static for x86-64 as a console build (`-DSDL_UNIX_CONSOLE_BUILD=ON -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`, because the Zig sysroot has no X11 or Wayland headers, so the real X11/Wayland video drivers were NOT compiled): `toolchain-linux-zig.cmake` (needs `zig` on `PATH`; `-DNUE_ZIG_TARGET=x86_64-linux-gnu.2.31` or `aarch64-linux-gnu.2.31`; the suffix pins glibc)
 or `toolchain-linux-clang.cmake` with `-DNUE_LINUX_SYSROOT=...`. Both give "compiled", neither gives "run"; running needs WSL2 or a Linux machine.
 
 ## Packaging notes (untested)

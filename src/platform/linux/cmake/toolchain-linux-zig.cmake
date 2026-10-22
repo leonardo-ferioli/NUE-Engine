@@ -43,4 +43,3 @@ set(CMAKE_CXX_COMPILER "${_nue_dir}/c++.${_ext}")
 set(CMAKE_AR "${_nue_dir}/ar.${_ext}" CACHE FILEPATH "" FORCE)
 set(CMAKE_RANLIB "${_nue_dir}/ranlib.${_ext}" CACHE FILEPATH "" FORCE)   # `zig ar` writes the index itself
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
