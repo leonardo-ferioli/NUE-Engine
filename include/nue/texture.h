@@ -259,6 +259,10 @@ NUE_API nue_bool NUE_CALL nue_tex_caps_can_use(const nue_tex_caps* caps, nue_tex
  *   - Vulkan / Metal / GL probes (Android and iOS sessions): call nue_tex_caps_set_format for each supported format.
  * Formats bgfx cannot express (ASTC HDR, sRGB twins of block formats, ETC2 A1 sRGB...) are derived from their linear twin. */
 NUE_API nue_result NUE_CALL nue_tex_caps_from_bgfx(nue_tex_caps* caps, const uint16_t* bgfx_format_caps, uint32_t count, uint32_t max_texture_size);
+struct nue_gpu_caps;
+/* Fill from the engine's GPU probe (gfx.h: nue_gpu_probe / nue_gfx_get_gpu_caps). Format families map to every texture format they contain
+ * (sRGB twins when the family reports NUE_FMTSUP_SRGB); nothing is marked EMULATED because the probe cannot tell. */
+NUE_API nue_result NUE_CALL nue_tex_caps_from_gpu_caps(nue_tex_caps* caps, const struct nue_gpu_caps* gpu);
 NUE_API nue_result NUE_CALL nue_tex_caps_to_string(const nue_tex_caps* caps, char* buffer, size_t capacity, size_t* out_size);   /* NUE_STRING_OUT: one format per line */
 
 /* ============================================================================================== planner */

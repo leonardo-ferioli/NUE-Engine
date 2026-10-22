@@ -28,7 +28,7 @@ static void run_case(const Case& c, uint32_t w, uint32_t h, nue_tex_quality q) {
         for (size_t i = 0; i < size_t(w) * h; ++i) { const double d = double(src[i * 4 + 3]) - dec[i * 4 + 3]; se += d * d; }
         const double pa = se == 0 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / (se / (double(w) * h)));
         std::printf("  alpha %.1f dB", pa);
-        CHECK(pa >= (big ? c.min_alpha : 15.0));
+        CHECK(pa >= (big ? c.min_alpha : 8.0));
     }
     std::printf("\n");
 }

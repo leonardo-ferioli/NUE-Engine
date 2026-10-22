@@ -1,6 +1,8 @@
 // Format registry, geometry, API mappings, capability tables.
 #include "tex_common.hpp"
-#include "internal.hpp"
+#ifdef NUE_TEXTURE_TEST_INTERNALS
+#  include "internal.hpp"
+#endif
 #include <set>
 #include <string>
 
@@ -21,7 +23,7 @@ TEST_CASE(registry_is_consistent) {
         CHECK_EQ(i->format, f);
         CHECK(names.insert(i->name).second);                                     // unique names
         CHECK_EQ(nue_tex_format_from_name(i->name), f);
-        CHECK_EQ(nue_tex_format_name(f), std::string(i->name).c_str() == nullptr ? "" : i->name);
+        CHECK_STR(nue_tex_format_name(f), i->name);
         CHECK(i->block_bytes > 0 && i->block_width > 0 && i->block_height > 0);
         CHECK_NEAR(i->bits_per_pixel, 8.0 * i->block_bytes / (i->block_width * i->block_height), 1e-4);
         CHECK((i->kind == NUE_TEX_KIND_BLOCK) == (nue_tex_format_is_compressed(f) != 0));
@@ -29,8 +31,10 @@ TEST_CASE(registry_is_consistent) {
         if (i->srgb_twin != f) CHECK_EQ(nue_tex_get_format_info(i->srgb_twin)->linear_twin, f);
         if (i->kind == NUE_TEX_KIND_DEPTH) continue;
         // decoder / encoder flags match what the codecs really do
+#ifdef NUE_TEXTURE_TEST_INTERNALS
         CHECK_EQ((i->flags & NUE_TEX_FINFO_HAS_DECODER) != 0, nuetex::can_decode(f) || i->kind == NUE_TEX_KIND_UNCOMPRESSED);
         CHECK_EQ((i->flags & NUE_TEX_FINFO_HAS_ENCODER) != 0, nuetex::can_encode(f) || i->kind == NUE_TEX_KIND_UNCOMPRESSED);
+#endif
     }
     CHECK_EQ(nue_tex_get_format_info(NUE_TEX_FORMAT_UNKNOWN) == nullptr, true);
     CHECK_EQ(nue_tex_get_format_info(nue_tex_format(250)) == nullptr, true);

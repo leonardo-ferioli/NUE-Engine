@@ -286,8 +286,19 @@ nue_result NUE_CALL nue_tex_make_plan(const nue_tex_caps* caps, const nue_tex_pl
         return NUE_OK;
     }
 
+    // 1b. uncompressed data worth compressing (policy COMPRESS_RAW) is considered before "upload as is"
+    const bool small = std::max(c.w, c.h) < c.pol.min_recompress_dimension;
+    std::vector<Fmt> raw_cands;
+    const bool alpha_needed = fam == Family::Rgba || fam == Family::Punch || (fam == Family::Uncompressed && si->alpha != NUE_TEX_ALPHA_NONE && si->alpha != NUE_TEX_ALPHA_PADDING &&
+                                                                                 req->alpha_info != NUE_TEX_ALPHA_INFO_OPAQUE);
+    if (fam == Family::Uncompressed && (c.pol.flags & NUE_TEX_POLICY_COMPRESS_RAW) && !fixed_format && !small && !(c.pol.flags & NUE_TEX_POLICY_NO_LOSSY)) {
+        Family cf = alpha_needed ? Family::Rgba : Family::Rgb;
+        if (si->channels == 1) cf = Family::R; else if (si->channels == 2 && si->alpha == NUE_TEX_ALPHA_NONE) cf = Family::Rg;
+        raw_cands = candidates(c, cf, normal_map);
+    }
+
     // 2. the GPU can use the source as it is
-    {
+    if (raw_cands.empty()) {
         Fmt direct = with_colorspace(c, c.base);
         const bool fixed_ok = !(fixed_format && si->kind == NUE_TEX_KIND_BLOCK);
         if (direct != NUE_TEX_FORMAT_UNKNOWN && fixed_ok && si->kind != NUE_TEX_KIND_DEPTH) {
@@ -305,23 +316,16 @@ nue_result NUE_CALL nue_tex_make_plan(const nue_tex_caps* caps, const nue_tex_pl
 
     // 3. uncompressed source the GPU cannot take as is, or that is worth compressing
     std::string why;
-    const bool alpha_needed = fam == Family::Rgba || fam == Family::Punch || (fam == Family::Uncompressed && si->alpha != NUE_TEX_ALPHA_NONE && si->alpha != NUE_TEX_ALPHA_PADDING &&
-                                                                                 req->alpha_info != NUE_TEX_ALPHA_INFO_OPAQUE);
-    const bool small = std::max(c.w, c.h) < c.pol.min_recompress_dimension;
     if (fam == Family::Uncompressed || (fam == Family::Hdr && si->kind == NUE_TEX_KIND_UNCOMPRESSED)) {
-        if ((c.pol.flags & NUE_TEX_POLICY_COMPRESS_RAW) && !fixed_format && !small && fam == Family::Uncompressed && !(c.pol.flags & NUE_TEX_POLICY_NO_LOSSY)) {
-            Family cf = alpha_needed ? Family::Rgba : Family::Rgb;
-            if (si->channels == 1) cf = Family::R; else if (si->channels == 2 && si->alpha == NUE_TEX_ALPHA_NONE) cf = Family::Rg;
-            std::vector<Fmt> cands = candidates(c, cf, normal_map);
-            if (!cands.empty()) {
-                say(c, "COMPRESS_RAW: %s data is compressed to %s", nue_tex_format_name(c.src), nue_tex_format_name(cands[0]));
-                for (size_t i = 1; i < cands.size() && c.nalt < 6; ++i) c.alternatives[c.nalt++] = cands[i];
-                c.flags |= NUE_TEX_PLAN_LOSSY;
-                if (cands[0] >= 160) c.flags |= NUE_TEX_PLAN_ENCODE_SLOW;
-                const bool nm_astc = normal_map && is_astc(cands[0]);
-                build_plan(cands[0], NUE_TEX_ACTION_ENCODE, nm_astc ? "rrrg" : "rgba");
-                return NUE_OK;
-            }
+        if (!raw_cands.empty()) {
+            const std::vector<Fmt>& cands = raw_cands;
+            say(c, "COMPRESS_RAW: %s data is compressed to %s", nue_tex_format_name(c.src), nue_tex_format_name(cands[0]));
+            for (size_t i = 1; i < cands.size() && c.nalt < 6; ++i) c.alternatives[c.nalt++] = cands[i];
+            c.flags |= NUE_TEX_PLAN_LOSSY;
+            if (cands[0] >= 160) c.flags |= NUE_TEX_PLAN_ENCODE_SLOW;
+            const bool nm_astc = normal_map && is_astc(cands[0]);
+            build_plan(cands[0], NUE_TEX_ACTION_ENCODE, nm_astc ? "rrrg" : "rgba");
+            return NUE_OK;
         }
         Fmt t = uncompressed_fallback(c, fam == Family::Hdr ? Family::Hdr : (si->channels == 1 ? Family::R : si->channels == 2 && si->alpha == NUE_TEX_ALPHA_NONE ? Family::Rg : Family::Rgba),
                                       alpha_needed, why);

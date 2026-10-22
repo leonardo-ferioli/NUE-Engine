@@ -75,9 +75,9 @@ void mip_fix_alpha_coverage(FloatLevel& l, float target) {
         size_t c = 0;
         for (size_t i = 0; i < n; ++i) if (std::min(1.f, l.px[i * 4 + 3] * mid) > 0.5f) ++c;
         const float cov = n ? float(c) / float(n) : 0.f;
-        best = mid;
         if (cov < target) lo = mid; else hi = mid;
     }
+    best = hi * 1.002f;       // smallest scale that reaches the coverage, nudged off the threshold so rounding to 8 bits keeps it
     for (size_t i = 0; i < n; ++i) l.px[i * 4 + 3] = std::min(1.f, l.px[i * 4 + 3] * best);
 }
 
