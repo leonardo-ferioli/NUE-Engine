@@ -5,7 +5,7 @@ compatibility layer). Nothing of the engine lives anywhere else.
 
 ## Where things are
 
-- Remote: `https://github.com/leonardo-ferioli/nue-engine`. Default branch: `main`.
+- Remote: `https://github.com/leonardo-ferioli/NUE-Engine`. Default branch: `main`.
 - Local clone of the main session: `<workspace>\nue-engine`.
 - Layout (repository root):
 
