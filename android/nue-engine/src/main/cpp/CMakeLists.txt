@@ -1,24 +1,22 @@
-# Native part of the NUE engine AAR: SDL3 (shared) + the Android backend (libnue_android.so).
+# Native part of the NUE engine AAR = libnue.so built by the repository's root CMakeLists.txt (core + sdl3 backend + the
+# Android platform layer, SDL3 linked statically).  This file only sets the options of an Android SDK build.
 cmake_minimum_required(VERSION 3.22.1)
 project(nue_engine_android LANGUAGES C CXX)
 
-set(NUE_SDL3_SOURCE_DIR "" CACHE PATH "SDL3 source tree (release-3.4.x), see scripts/fetch_sdl3.ps1")
-if(NOT EXISTS "${NUE_SDL3_SOURCE_DIR}/CMakeLists.txt")
+# <repo>/android/nue-engine/src/main/cpp -> five levels up is the repository root
+get_filename_component(NUE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
+
+if(NOT EXISTS "${NUE_ROOT}/third_party/SDL/CMakeLists.txt")
     message(FATAL_ERROR
-        "SDL3 sources not found at '${NUE_SDL3_SOURCE_DIR}'.\n"
-        "Run nue_engine/android/scripts/fetch_sdl3.ps1 (or .sh), or pass -Pnue.sdl3.dir=<path> to Gradle.")
+        "SDL3 submodule missing.  Run:  git submodule update --init --depth 1 third_party/SDL")
 endif()
 
-# SDL3: shared library, no tests / install rules.  16 KB alignment is added to SDL's own target as well.
-set(SDL_SHARED ON CACHE BOOL "" FORCE)
-set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-set(SDL_TESTS OFF CACHE BOOL "" FORCE)
-set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
-set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-add_subdirectory("${NUE_SDL3_SOURCE_DIR}" SDL3)
-target_link_options(SDL3-shared PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)
+set(NUE_BUILD_SHARED ON CACHE BOOL "" FORCE)    # libnue.so: the Java side loads it by name, JNI entry points live in it
+set(NUE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NUE_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(NUE_INSTALL OFF CACHE BOOL "" FORCE)
+set(NUE_BACKEND_SDL3 ON CACHE BOOL "" FORCE)
+add_subdirectory("${NUE_ROOT}" nue)
 
-# Android backend: <repo>/nue_engine/src/platform/android  (this file is nue_engine/android/nue-engine/src/main/cpp)
-get_filename_component(NUE_ANDROID_BACKEND_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../src/platform/android" ABSOLUTE)
-add_subdirectory("${NUE_ANDROID_BACKEND_DIR}" nue_android)
+# 16 KB page size (Android 15+ devices): ELF segments aligned to 16384.
+target_link_options(nue PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -Wl,--build-id=sha1)

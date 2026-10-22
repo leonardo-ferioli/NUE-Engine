@@ -45,10 +45,18 @@ struct BridgeMethods {
     jmethodID setSustained = nullptr;         // (Z)V
     jmethodID audioFocus = nullptr;           // (I)V
     jmethodID vibrate = nullptr;              // (II)V
+    jmethodID hasVibrator = nullptr;          // ()Z
     jmethodID pickFolder = nullptr;           // ()V
     jmethodID importStart = nullptr;          // (Ljava/lang/String;Z)Z
     jmethodID importCancel = nullptr;         // ()V
     jmethodID openImportFd = nullptr;         // (I)I
+    jmethodID enableRotation = nullptr;       // (Z)V
+    jmethodID rotationAvailable = nullptr;    // ()Z
+    jmethodID treeOpen = nullptr;             // (Ljava/lang/String;)I   enumerate a document tree, returns the file count
+    jmethodID treePath = nullptr;             // (I)Ljava/lang/String;
+    jmethodID treeSize = nullptr;             // (I)J
+    jmethodID treeFd = nullptr;               // (I)I   detached fd of entry i
+    jmethodID treeClose = nullptr;            // ()V
 };
 
 struct State {
@@ -95,12 +103,17 @@ struct State {
     NueAndroidGpuInfo gpu{};
     std::atomic<bool> gpu_started{false};
 
+    // game rotation vector (written by the sensor callback thread)
+    float rotation[4] = {0, 0, 0, 1};
+    int64_t rotation_ts = 0;
+
     // native window cache (see nue_android_get_native_window)
     void* native_window = nullptr;
 
     // import
     std::atomic<bool> import_cancel{false};
     std::atomic<bool> import_running{false};
+    std::string picked_uri;      // last folder returned by the document picker (guarded by mu)
     int import_last_code = 0;
     char import_last_text[200] = "";
 };
@@ -129,10 +142,29 @@ bool register_natives(JNIEnv* env);
 
 // Implemented in android_adpf.cpp / android_gpu_probe.cpp / android_import.cpp / android_crash.cpp.
 void adpf_shutdown();
+void ensure_bridge(JNIEnv* env, jclass cls);
 int adpf_available();
 void run_gpu_probe(); // blocking, called on the probe thread
 int import_run_from_java(JNIEnv* env, jstring dest_root, jstring manifest_text, jobjectArray paths, jlongArray sizes, jboolean fsync_files);
 int import_run_from_directory(const std::string& dir, const std::string& dest_root, const std::string& manifest_text, bool fsync_files);
-void crash_convert_pending(const char* crash_dir);
+
+// Crash handler (android_crash.cpp). The hooks run inside the signal handler: async-signal-safe code only.
+struct CrashHooks {
+    const char* (*begin)(int sig, uint64_t fault_addr, uint64_t fault_pc, void* user) = nullptr; // returns the report directory or null
+    bool (*end)(int sig, uint64_t fault_addr, uint64_t fault_pc, const char* dir, void* user) = nullptr;
+    void* user = nullptr;
+};
+bool crash_install(const CrashHooks& hooks, const char* app_version);
+void crash_uninstall();
+bool crash_convert_dir(const std::string& dir);
+void crash_convert_tree(const std::string& root);
+bool crash_write_stack_text(const std::string& directory);
+
+// ADPF sessions (android_adpf.cpp)
+struct HintSession;
+HintSession* adpf_create(const int32_t* tids, size_t count, int64_t target_ns);
+void adpf_update(HintSession* s, int64_t target_ns);
+void adpf_report(HintSession* s, int64_t actual_ns);
+void adpf_destroy(HintSession* s);
 
 } // namespace nue::android::native

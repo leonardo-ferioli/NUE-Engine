@@ -320,12 +320,20 @@ typedef struct NueAndroidAudioInfo {
 } NueAndroidAudioInfo;
 NUE_ANDROID_EXPORT int nue_android_get_audio_info(int desired_rate, int target_latency_ms, NueAndroidAudioInfo *out);
 NUE_ANDROID_EXPORT void nue_android_audio_focus(int request);
+/* 0 full volume, 1 ducked (another app wants us quieter), 2 paused (focus lost). The engine's mixer applies it. */
+NUE_ANDROID_EXPORT int nue_android_audio_focus_state(void);
 
 /* ------------------------------------------------------------------ input  */
 
 NUE_ANDROID_EXPORT int nue_android_last_input_kind(void);
+/* Game rotation vector (gyro + accelerometer fusion): the tilt-to-steer source. Off until enabled; paused with the
+ * activity. nue_android_get_rotation returns 1 and a unit quaternion (x, y, z, w) once the sensor delivered data. */
+NUE_ANDROID_EXPORT int nue_android_rotation_available(void);
+NUE_ANDROID_EXPORT void nue_android_enable_rotation(int on);
+NUE_ANDROID_EXPORT int nue_android_get_rotation(float quat_xyzw[4], int64_t *timestamp_ns);
 /* Vibrates the device (not a gamepad); amplitude 1..255 or -1 for default. */
 NUE_ANDROID_EXPORT void nue_android_vibrate(int ms, int amplitude);
+NUE_ANDROID_EXPORT int nue_android_has_vibrator(void);
 
 /* ----------------------------------------------------------------- storage */
 
@@ -343,6 +351,8 @@ typedef struct NueAndroidStoragePaths {
     int32_t game_data_complete;    /* import marker present and consistent */
 } NueAndroidStoragePaths;
 NUE_ANDROID_EXPORT int nue_android_get_storage_paths(NueAndroidStoragePaths *out);
+/* content:// tree URI chosen by the last successful picker run (empty when none). Returns the length needed incl. NUL. */
+NUE_ANDROID_EXPORT size_t nue_android_get_picked_uri(char *buffer, size_t capacity);
 
 /* Opens the system folder picker (ACTION_OPEN_DOCUMENT_TREE). Result arrives as
  * NUE_ANDROID_EVENT_TREE_PICKED. */

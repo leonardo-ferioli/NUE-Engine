@@ -52,7 +52,8 @@ public class NueActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         // The last entry is the one SDL starts SDL_main from.
-        return new String[] {"SDL3", "nue_android", metaString(META_MAIN_LIBRARY, "main")};
+        // libnue.so contains core, the platform layer and (static) SDL3, including SDL's own JNI entry points.
+        return new String[] {"nue", metaString(META_MAIN_LIBRARY, "main")};
     }
 
     @Override
@@ -71,6 +72,7 @@ public class NueActivity extends SDLActivity {
         NueMemory.init(this);
         NueStorage.init(this);
         NueAudio.init(this);
+        NueSensors.init(this);
         NueDiagnostics.init(this, NueStorage.crashDir(this));
         NueBridge.nativeSetTargetFps(metaInt(META_TARGET_FPS, 60));
         NueDisplay.refresh(this);
@@ -91,6 +93,7 @@ public class NueActivity extends SDLActivity {
         super.onResume();
         if (SDLActivity.mBrokenLibraries) return;
         NueMemory.start();
+        NueSensors.setActive(true);
         NuePower.onResume(this);
         NueDisplay.refresh(this);
         NueBridge.nativeOnLifecycle(NueBridge.LIFE_RESUME);
@@ -101,6 +104,7 @@ public class NueActivity extends SDLActivity {
         if (!SDLActivity.mBrokenLibraries) {
             NueBridge.nativeOnLifecycle(NueBridge.LIFE_PAUSE); // before SDL pauses its thread: the engine can save state
             NueMemory.stop();
+            NueSensors.setActive(false);
         }
         super.onPause();
     }

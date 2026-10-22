@@ -1,7 +1,7 @@
 // NUE engine for Android: the AAR.  Contents
-//   * Java: org.nue.engine.* (NueActivity & co.) plus SDL3's own Java classes (taken from the SDL3 source tree)
-//   * native: libSDL3.so and libnue_android.so for each ABI, 16 KB page aligned
-//   * prefab packages "SDL3" and "nue_android" so a game module can find_package() them from its own CMake
+//   * Java: org.nue.engine.* (NueActivity & co.) plus SDL3's own Java classes (taken from the pinned SDL3 submodule)
+//   * native: libnue.so for each ABI (core + SDL3 backend + Android platform layer, SDL3 linked statically), 16 KB aligned
+//   * prefab package "nue" (headers + libnue.so) so a game module can find_package(nue) from its own CMake
 plugins {
     id("com.android.library")
 }
@@ -27,8 +27,7 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_static",
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", // 16 KB page alignment on every NDK that knows the flag
-                    "-DNUE_SDL3_SOURCE_DIR=${sdl3Root.absolutePath.replace('\\', '/')}"
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" // 16 KB page alignment on every NDK that knows the flag
                 )
                 cppFlags += listOf("-std=c++17")
             }
@@ -53,13 +52,9 @@ android {
         prefabPublishing = true
     }
     prefab {
-        create("SDL3") {
-            headers = File(sdl3Root, "include").absolutePath
-            libraryName = "libSDL3"
-        }
-        create("nue_android") {
-            headers = file("../../src/platform/android/include").absolutePath
-            libraryName = "libnue_android"
+        create("nue") {
+            headers = file("../../include").absolutePath
+            libraryName = "libnue"
         }
     }
 

@@ -1,15 +1,17 @@
 // Fatal-signal crash handler.
 //
 // Two stages so the part that runs inside the signal handler stays async-signal-safe:
-//   1. handler: writes a raw binary record (signal, fault address, frame PCs from _Unwind_Backtrace, the executable
-//      lines of /proc/self/maps) to <crash_dir>/last_crash.bin using only open/read/write, then restores the previous
-//      handler (debuggerd: tombstone + the system crash dialog) and returns / re-raises so Android still sees the crash;
-//   2. next start: crash_convert_pending() turns the record into <crash_dir>/crash-<utc time>-<pid>.txt with
+//   1. handler: asks the installer's hooks for a report directory (the core's crash sink, or a plain directory), writes a
+//      raw binary record (signal, fault address, frame PCs from _Unwind_Backtrace, the executable lines of /proc/self/maps)
+//      to <dir>/crash.bin using only open/read/write, runs the end hook, then restores the previous handler (debuggerd:
+//      tombstone + the system crash dialog) and returns / re-raises so Android still sees the crash;
+//   2. next start: crash_convert_tree() turns every crash.bin below the report root into <dir>/stack.txt with
 //      format_crash_report() (module + offset per frame, symbolicate with ndk-stack / addr2line offline) and logs it.
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -54,6 +56,7 @@ struct RawHeader {
 
 RawHeader g_rec;
 char g_maps[kMapsCap];
+CrashHooks g_hooks;
 char g_path[512];
 char g_version[32];
 char g_device[64];
@@ -74,6 +77,22 @@ _Unwind_Reason_Code unwind_cb(struct _Unwind_Context* ctx, void* arg) {
     uintptr_t pc = _Unwind_GetIP(ctx);
     if (pc && s->n < kMaxFrames) g_rec.frames[s->n++] = pc;
     return s->n >= kMaxFrames ? _URC_END_OF_STACK : _URC_NO_REASON;
+}
+
+uint64_t pc_from_context(void* uctx) {
+    if (!uctx) return 0;
+    ucontext_t* uc = static_cast<ucontext_t*>(uctx);
+#if defined(__aarch64__)
+    return uc->uc_mcontext.pc;
+#elif defined(__arm__)
+    return uc->uc_mcontext.arm_pc;
+#elif defined(__x86_64__)
+    return static_cast<uint64_t>(uc->uc_mcontext.gregs[REG_RIP]);
+#elif defined(__i386__)
+    return static_cast<uint64_t>(uc->uc_mcontext.gregs[REG_EIP]);
+#else
+    return 0;
+#endif
 }
 
 // Copies the lines of /proc/self/maps whose permissions contain 'x' into g_maps.  No allocation, no stdio.
@@ -120,7 +139,7 @@ void write_all(int fd, const void* data, size_t size) {
     }
 }
 
-void handler(int sig, siginfo_t* info, void*) {
+void handler(int sig, siginfo_t* info, void* uctx) {
     if (g_entered++ == 0) {
         std::memset(&g_rec, 0, sizeof g_rec);
         std::memcpy(g_rec.magic, kMagic, 8);
@@ -136,16 +155,29 @@ void handler(int sig, siginfo_t* info, void*) {
         std::memcpy(g_rec.abi, g_abi, sizeof g_rec.abi);
         g_rec.sdk = g_sdk;
         UnwindState us{0};
+        const uint64_t fault_pc = pc_from_context(uctx);
+        if (fault_pc) g_rec.frames[us.n++] = fault_pc; // frame 0 = the faulting instruction
         _Unwind_Backtrace(unwind_cb, &us);
         g_rec.nframes = us.n;
         g_rec.maps_len = snapshot_maps();
-        int fd = open(g_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-        if (fd >= 0) {
-            write_all(fd, &g_rec, sizeof g_rec);
-            write_all(fd, g_maps, static_cast<size_t>(g_rec.maps_len));
-            fsync(fd);
-            close(fd);
+        const char* dir = g_hooks.begin ? g_hooks.begin(sig, g_rec.fault_addr, fault_pc, g_hooks.user) : nullptr;
+        if (dir) {
+            size_t n = 0;
+            while (dir[n] && n < sizeof g_path - 16) {
+                g_path[n] = dir[n];
+                ++n;
+            }
+            static const char kName[] = "/crash.bin";
+            for (size_t i = 0; i < sizeof kName; ++i) g_path[n + i] = kName[i];
+            int fd = open(g_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+            if (fd >= 0) {
+                write_all(fd, &g_rec, sizeof g_rec);
+                write_all(fd, g_maps, static_cast<size_t>(g_rec.maps_len));
+                fsync(fd);
+                close(fd);
+            }
         }
+        if (g_hooks.end) g_hooks.end(sig, g_rec.fault_addr, fault_pc, dir, g_hooks.user);
     }
     // Give the system its chance (debuggerd tombstone): restore the previous handler.  A fault re-executes the
     // faulting instruction when we return; signals sent by kill / tkill / abort() must be raised again.
@@ -183,10 +215,11 @@ std::vector<MapEntry> parse_maps(const char* text, size_t len) {
 
 namespace nue::android::native {
 
-void crash_convert_pending(const char* crash_dir) {
-    std::string bin = std::string(crash_dir) + "/last_crash.bin";
+// Converts <dir>/crash.bin into <dir>/stack.txt (and logs it). Returns true when a record was converted.
+bool crash_convert_dir(const std::string& dir) {
+    std::string bin = dir + "/crash.bin";
     FILE* f = std::fopen(bin.c_str(), "rb");
-    if (!f) return;
+    if (!f) return false;
     RawHeader h;
     bool ok = std::fread(&h, sizeof h, 1, f) == 1 && std::memcmp(h.magic, kMagic, 8) == 0 && h.maps_len >= 0 &&
               size_t(h.maps_len) <= kMapsCap && h.nframes >= 0 && h.nframes <= kMaxFrames;
@@ -199,7 +232,7 @@ void crash_convert_pending(const char* crash_dir) {
     std::error_code ec;
     if (!ok) {
         fs::remove(bin, ec);
-        return;
+        return false;
     }
     std::vector<MapEntry> maps = parse_maps(maps_text.data(), maps_text.size());
 
@@ -229,14 +262,14 @@ void crash_convert_pending(const char* crash_dir) {
         info.frames.push_back(std::move(fr));
     }
     std::string text = format_crash_report(info);
-    std::string out = std::string(crash_dir) + "/" + crash_file_name(h.unix_time, h.pid);
+    std::string out = dir + "/stack.txt";
     if (FILE* o = std::fopen(out.c_str(), "wb")) {
         std::fwrite(text.data(), 1, text.size(), o);
         std::fclose(o);
     }
     fs::remove(bin, ec);
 
-    NLOGE("previous run crashed (%s), report saved to %s", signal_name(h.sig), out.c_str());
+    NLOGE("previous run crashed (%s), stack saved to %s", signal_name(h.sig), out.c_str());
     size_t pos = 0;
     while (pos < text.size()) {
         size_t nl = text.find('\n', pos);
@@ -244,28 +277,62 @@ void crash_convert_pending(const char* crash_dir) {
         NLOGE("crash| %.*s", int(nl - pos), text.c_str() + pos);
         pos = nl + 1;
     }
+    return true;
+}
 
-    // keep the newest 10 reports
-    std::vector<fs::path> reports;
-    for (fs::directory_iterator it(crash_dir, ec), end; !ec && it != end; it.increment(ec)) {
-        std::string name = it->path().filename().string();
-        if (name.rfind("crash-", 0) == 0) reports.push_back(it->path());
-    }
-    std::sort(reports.begin(), reports.end());
-    while (reports.size() > 10) {
-        fs::remove(reports.front(), ec);
-        reports.erase(reports.begin());
+// Converts the record in `root` itself and in every report directory below it.
+void crash_convert_tree(const std::string& root) {
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) return;
+    crash_convert_dir(root);
+    for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code e2;
+        if (it->is_directory(e2) && !e2) crash_convert_dir(it->path().string());
     }
 }
 
-} // namespace nue::android::native
+// Non-fatal report: stack of the calling thread as text into <directory>/stack.txt (normal context, may allocate).
+bool crash_write_stack_text(const std::string& directory) {
+    std::memset(&g_rec, 0, sizeof g_rec);
+    UnwindState us{0};
+    // g_rec is only scratch here; a concurrent real crash would overwrite it, which is fine (the real one wins).
+    _Unwind_Backtrace(unwind_cb, &us);
+    CrashInfo info;
+    info.signal = 0;
+    info.pid = getpid();
+    info.tid = static_cast<int>(syscall(SYS_gettid));
+    info.unix_time = time(nullptr);
+    info.app_version = g_version;
+    info.abi = g_abi;
+    info.device = g_device;
+    info.sdk_int = g_sdk;
+    char name[16] = {0};
+    prctl(PR_GET_NAME, reinterpret_cast<unsigned long>(name), 0, 0, 0);
+    info.thread_name = name;
+    for (int i = 0; i < us.n; ++i) {
+        Dl_info di;
+        CrashFrame fr;
+        fr.pc = g_rec.frames[i];
+        if (dladdr(reinterpret_cast<void*>(fr.pc), &di) && di.dli_fname) {
+            fr.module = di.dli_fname;
+            fr.module_offset = fr.pc - reinterpret_cast<uint64_t>(di.dli_fbase);
+            if (di.dli_sname) fr.symbol = di.dli_sname;
+        } else {
+            fr.module_offset = fr.pc;
+        }
+        info.frames.push_back(std::move(fr));
+    }
+    std::string text = format_crash_report(info);
+    FILE* o = std::fopen((directory + "/stack.txt").c_str(), "wb");
+    if (!o) return false;
+    std::fwrite(text.data(), 1, text.size(), o);
+    std::fclose(o);
+    return true;
+}
 
-extern "C" void nue_android_install_crash_handler(const char* crash_dir, const char* app_version) {
-    using namespace nue::android::native;
-    if (!crash_dir || !*crash_dir || g_installed) return;
-    std::error_code ec;
-    fs::create_directories(crash_dir, ec);
-    std::snprintf(g_path, sizeof g_path, "%s/last_crash.bin", crash_dir);
+bool crash_install(const CrashHooks& hooks, const char* app_version) {
+    g_hooks = hooks;
+    if (g_installed) return true;
     std::snprintf(g_version, sizeof g_version, "%s", app_version ? app_version : "");
     {
         State& st = state();
@@ -274,8 +341,6 @@ extern "C" void nue_android_install_crash_handler(const char* crash_dir, const c
         std::snprintf(g_abi, sizeof g_abi, "%s", st.device.abi);
         g_sdk = st.device.sdk_int;
     }
-    crash_convert_pending(crash_dir);
-
     stack_t ss{};
     ss.ss_sp = g_altstack;
     ss.ss_size = sizeof g_altstack;
@@ -287,5 +352,39 @@ extern "C" void nue_android_install_crash_handler(const char* crash_dir, const c
     sigemptyset(&sa.sa_mask);
     for (int sig : kSignals) sigaction(sig, &sa, &g_old[sig]);
     g_installed = true;
+    g_entered = 0;
+    return true;
+}
+
+void crash_uninstall() {
+    if (!g_installed) return;
+    for (int sig : kSignals) sigaction(sig, &g_old[sig], nullptr);
+    g_installed = false;
+    g_hooks = CrashHooks();
+}
+
+} // namespace nue::android::native
+
+namespace {
+const char* g_plain_dir = nullptr;
+char g_plain_dir_storage[512];
+
+// Hooks of the stand-alone C API: reports go to one fixed directory.
+const char* plain_begin(int, uint64_t, uint64_t, void*) { return g_plain_dir; }
+bool plain_end(int, uint64_t, uint64_t, const char*, void*) { return true; }
+} // namespace
+
+extern "C" void nue_android_install_crash_handler(const char* crash_dir, const char* app_version) {
+    using namespace nue::android::native;
+    if (!crash_dir || !*crash_dir) return;
+    std::error_code ec;
+    fs::create_directories(crash_dir, ec);
+    std::snprintf(g_plain_dir_storage, sizeof g_plain_dir_storage, "%s", crash_dir);
+    g_plain_dir = g_plain_dir_storage;
+    crash_convert_dir(crash_dir);
+    CrashHooks hooks;
+    hooks.begin = plain_begin;
+    hooks.end = plain_end;
+    crash_install(hooks, app_version);
     NLOGI("crash handler installed, reports in %s", crash_dir);
 }

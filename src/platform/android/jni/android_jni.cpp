@@ -1,4 +1,4 @@
-// JNI glue: JNI_OnLoad, method cache and the natives of org.nue.engine.NueBridge (Java -> native snapshots).
+// JNI glue: method cache and the natives of org.nue.engine.NueBridge (Java -> native snapshots).
 #include <android/native_window_jni.h>
 
 #include <cstring>
@@ -334,6 +334,16 @@ void n_onInputSample(JNIEnv*, jclass, jint sources, jboolean is_virtual, jint kb
     if (changed) st.events.push(make_event(NUE_ANDROID_EVENT_LAST_INPUT, static_cast<int32_t>(now)));
 }
 
+void n_setRotation(JNIEnv*, jclass, jfloat x, jfloat y, jfloat z, jfloat w, jlong ts) {
+    State& st = state();
+    std::lock_guard<std::mutex> lock(st.mu);
+    st.rotation[0] = x;
+    st.rotation[1] = y;
+    st.rotation[2] = z;
+    st.rotation[3] = w;
+    st.rotation_ts = ts;
+}
+
 void n_setGamepadConnected(JNIEnv*, jclass, jboolean connected) {
     State& st = state();
     std::lock_guard<std::mutex> lock(st.mu);
@@ -352,8 +362,13 @@ jint n_importDir(JNIEnv* env, jclass, jstring dir, jstring dest, jstring manifes
 
 void n_importCancel(JNIEnv*, jclass) { state().import_cancel = true; }
 
-void n_onTreePicked(JNIEnv*, jclass, jboolean picked) {
-    state().events.push(make_event(NUE_ANDROID_EVENT_TREE_PICKED, picked ? 1 : 0));
+void n_onTreePicked(JNIEnv* env, jclass, jboolean picked, jstring uri) {
+    State& st = state();
+    {
+        std::lock_guard<std::mutex> lock(st.mu);
+        st.picked_uri = picked ? to_std(env, uri) : std::string();
+    }
+    st.events.push(make_event(NUE_ANDROID_EVENT_TREE_PICKED, picked ? 1 : 0));
 }
 
 void n_installCrashHandler(JNIEnv* env, jclass, jstring dir, jstring version) {
@@ -395,63 +410,23 @@ void n_shutdown(JNIEnv*, jclass) {
     }
 }
 
-const JNINativeMethod kMethods[] = {
-    {"nativeSetDeviceInfo", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JIIZIIZZZZ)V",
-     reinterpret_cast<void*>(n_setDeviceInfo)},
-    {"nativeSetStoragePaths",
-     "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-     reinterpret_cast<void*>(n_setStoragePaths)},
-    {"nativeSetStorageFree", "(JJZ)V", reinterpret_cast<void*>(n_setStorageFree)},
-    {"nativeSetDisplay", "(IIIFF[FZZZ)V", reinterpret_cast<void*>(n_setDisplay)},
-    {"nativeSetSafeArea", "(IIII)V", reinterpret_cast<void*>(n_setSafeArea)},
-    {"nativeOnLifecycle", "(I)V", reinterpret_cast<void*>(n_onLifecycle)},
-    {"nativeOnSurface", "(III)V", reinterpret_cast<void*>(n_onSurface)},
-    {"nativeOnFocus", "(Z)V", reinterpret_cast<void*>(n_onFocus)},
-    {"nativeSetTargetFps", "(I)V", reinterpret_cast<void*>(n_setTargetFps)},
-    {"nativeSetMemory", "(JJZ)V", reinterpret_cast<void*>(n_setMemory)},
-    {"nativeOnTrim", "(I)V", reinterpret_cast<void*>(n_onTrim)},
-    {"nativeOnThermal", "(IF)V", reinterpret_cast<void*>(n_onThermal)},
-    {"nativeOnGameMode", "(I)V", reinterpret_cast<void*>(n_onGameMode)},
-    {"nativeOnPowerSave", "(Z)V", reinterpret_cast<void*>(n_onPowerSave)},
-    {"nativeSetBattery", "(IZ)V", reinterpret_cast<void*>(n_setBattery)},
-    {"nativeSetSustainedSupported", "(Z)V", reinterpret_cast<void*>(n_setSustainedSupported)},
-    {"nativeSetAudio", "(IIZZI)V", reinterpret_cast<void*>(n_setAudio)},
-    {"nativeOnAudioRoute", "(I)V", reinterpret_cast<void*>(n_onAudioRoute)},
-    {"nativeOnAudioFocus", "(I)V", reinterpret_cast<void*>(n_onAudioFocus)},
-    {"nativeOnInputDevice", "(IIIZI)V", reinterpret_cast<void*>(n_onInputDevice)},
-    {"nativeOnInputSample", "(IZIF)V", reinterpret_cast<void*>(n_onInputSample)},
-    {"nativeSetGamepadConnected", "(Z)V", reinterpret_cast<void*>(n_setGamepadConnected)},
-    {"nativeImportRun", "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[JZ)I", reinterpret_cast<void*>(n_importRun)},
-    {"nativeImportDir", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)I", reinterpret_cast<void*>(n_importDir)},
-    {"nativeImportCancel", "()V", reinterpret_cast<void*>(n_importCancel)},
-    {"nativeOnTreePicked", "(Z)V", reinterpret_cast<void*>(n_onTreePicked)},
-    {"nativeInstallCrashHandler", "(Ljava/lang/String;Ljava/lang/String;)V", reinterpret_cast<void*>(n_installCrashHandler)},
-    {"nativeChooseDisplayMode", "([I[I[I[FIF)I", reinterpret_cast<void*>(n_chooseDisplayMode)},
-    {"nativeShutdown", "()V", reinterpret_cast<void*>(n_shutdown)},
-};
+
 
 } // namespace
 
-bool register_natives(JNIEnv* env) {
+namespace {
+
+std::once_flag g_bridge_once;
+
+void init_bridge(JNIEnv* env, jclass cls) {
     State& st = state();
-    jclass local = env->FindClass("org/nue/engine/NueBridge");
-    if (!local) {
-        env->ExceptionClear();
-        NLOGE("org.nue.engine.NueBridge not found: is it kept by R8/ProGuard?");
-        return false;
-    }
-    st.bridge = static_cast<jclass>(env->NewGlobalRef(local));
-    env->DeleteLocalRef(local);
-    if (env->RegisterNatives(st.bridge, kMethods, sizeof(kMethods) / sizeof(kMethods[0])) != JNI_OK) {
-        env->ExceptionClear();
-        NLOGE("RegisterNatives failed (signature mismatch between NueBridge.java and android_jni.cpp)");
-        return false;
-    }
+    env->GetJavaVM(&st.vm);
+    st.bridge = static_cast<jclass>(env->NewGlobalRef(cls));
     auto get = [&](const char* name, const char* sig) {
         jmethodID id = env->GetStaticMethodID(st.bridge, name, sig);
         if (!id) {
             env->ExceptionClear();
-            NLOGE("NueBridge.%s%s missing", name, sig);
+            NLOGE("NueBridge.%s%s missing (R8 removed it? see consumer-rules.pro)", name, sig);
         }
         return id;
     };
@@ -465,21 +440,61 @@ bool register_natives(JNIEnv* env) {
     m.setSustained = get("setSustainedPerformance", "(Z)V");
     m.audioFocus = get("audioFocus", "(I)V");
     m.vibrate = get("vibrate", "(II)V");
+    m.hasVibrator = get("hasVibrator", "()Z");
     m.pickFolder = get("pickGameFolder", "()V");
     m.importStart = get("importStart", "(Ljava/lang/String;Z)Z");
     m.importCancel = get("importCancelFromNative", "()V");
     m.openImportFd = get("openImportFd", "(I)I");
-    return true;
+    m.enableRotation = get("enableRotation", "(Z)V");
+    m.rotationAvailable = get("rotationAvailable", "()Z");
+    m.treeOpen = get("treeOpen", "(Ljava/lang/String;)I");
+    m.treePath = get("treePath", "(I)Ljava/lang/String;");
+    m.treeSize = get("treeSize", "(I)J");
+    m.treeFd = get("treeFd", "(I)I");
+    m.treeClose = get("treeClose", "()V");
+    NLOGI("NUE Android bridge ready (api %d)", NUE_ANDROID_API_VERSION);
 }
+
+} // namespace
+
+void ensure_bridge(JNIEnv* env, jclass cls) { std::call_once(g_bridge_once, init_bridge, env, cls); }
+
+// ---------------------------------------------------------------------------------------- exported JNI entry points
+// No JNI_OnLoad and no RegisterNatives: SDL3 (linked statically into libnue) defines its own JNI_OnLoad, and the
+// JVM resolves these by name from any library loaded by the app's class loader.  The first call (nativeSetDeviceInfo,
+// made by NueActivity.onCreate) caches the VM and the NueBridge class.
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetDeviceInfo(JNIEnv* e, jclass c, jint sdk, jstring abi, jstring manufacturer, jstring model, jstring soc, jlong total_ram, jint mem_class, jint large_class, jboolean low_ram, jint cores, jint page, jboolean touch, jboolean tv, jboolean chromeos, jboolean emulator) { ensure_bridge(e, c); return n_setDeviceInfo(e, c, sdk, abi, manufacturer, model, soc, total_ram, mem_class, large_class, low_ram, cores, page, touch, tv, chromeos, emulator); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetStoragePaths(JNIEnv* e, jclass c, jstring files, jstring ext, jstring cache, jstring game, jstring saves, jstring config, jstring crash) { ensure_bridge(e, c); return n_setStoragePaths(e, c, files, ext, cache, game, saves, config, crash); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetStorageFree(JNIEnv* e, jclass c, jlong internal_free, jlong external_free, jboolean complete) { ensure_bridge(e, c); return n_setStorageFree(e, c, internal_free, external_free, complete); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetDisplay(JNIEnv* e, jclass c, jint w, jint h, jint rotation, jfloat refresh, jfloat dpi, jfloatArray supported, jboolean cutout, jboolean hdr, jboolean wide) { ensure_bridge(e, c); return n_setDisplay(e, c, w, h, rotation, refresh, dpi, supported, cutout, hdr, wide); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetSafeArea(JNIEnv* e, jclass c, jint l, jint t, jint r, jint b) { ensure_bridge(e, c); return n_setSafeArea(e, c, l, t, r, b); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnLifecycle(JNIEnv* e, jclass c, jint event) { ensure_bridge(e, c); return n_onLifecycle(e, c, event); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnSurface(JNIEnv* e, jclass c, jint event, jint w, jint h) { ensure_bridge(e, c); return n_onSurface(e, c, event, w, h); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnFocus(JNIEnv* e, jclass c, jboolean focus) { ensure_bridge(e, c); return n_onFocus(e, c, focus); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetTargetFps(JNIEnv* e, jclass c, jint fps) { ensure_bridge(e, c); return n_setTargetFps(e, c, fps); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetMemory(JNIEnv* e, jclass c, jlong avail, jlong threshold, jboolean low) { ensure_bridge(e, c); return n_setMemory(e, c, avail, threshold, low); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnTrim(JNIEnv* e, jclass c, jint level) { ensure_bridge(e, c); return n_onTrim(e, c, level); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnThermal(JNIEnv* e, jclass c, jint status, jfloat headroom) { ensure_bridge(e, c); return n_onThermal(e, c, status, headroom); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnGameMode(JNIEnv* e, jclass c, jint mode) { ensure_bridge(e, c); return n_onGameMode(e, c, mode); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnPowerSave(JNIEnv* e, jclass c, jboolean on) { ensure_bridge(e, c); return n_onPowerSave(e, c, on); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetBattery(JNIEnv* e, jclass c, jint percent, jboolean charging) { ensure_bridge(e, c); return n_setBattery(e, c, percent, charging); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetSustainedSupported(JNIEnv* e, jclass c, jboolean on) { ensure_bridge(e, c); return n_setSustainedSupported(e, c, on); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetAudio(JNIEnv* e, jclass c, jint rate, jint frames, jboolean low_latency, jboolean pro, jint device_type) { ensure_bridge(e, c); return n_setAudio(e, c, rate, frames, low_latency, pro, device_type); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnAudioRoute(JNIEnv* e, jclass c, jint device_type) { ensure_bridge(e, c); return n_onAudioRoute(e, c, device_type); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnAudioFocus(JNIEnv* e, jclass c, jint change) { ensure_bridge(e, c); return n_onAudioFocus(e, c, change); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnInputDevice(JNIEnv* e, jclass c, jint id, jint added, jint sources, jboolean is_virtual, jint kb_type) { ensure_bridge(e, c); return n_onInputDevice(e, c, id, added, sources, is_virtual, kb_type); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnInputSample(JNIEnv* e, jclass c, jint sources, jboolean is_virtual, jint kb_type, jfloat magnitude) { ensure_bridge(e, c); return n_onInputSample(e, c, sources, is_virtual, kb_type, magnitude); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetGamepadConnected(JNIEnv* e, jclass c, jboolean connected) { ensure_bridge(e, c); return n_setGamepadConnected(e, c, connected); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeSetRotation(JNIEnv* e, jclass c, jfloat x, jfloat y, jfloat z, jfloat w, jlong ts) { ensure_bridge(e, c); return n_setRotation(e, c, x, y, z, w, ts); }
+extern "C" JNIEXPORT jint JNICALL Java_org_nue_engine_NueBridge_nativeImportRun(JNIEnv* e, jclass c, jstring dest, jstring manifest, jobjectArray paths, jlongArray sizes, jboolean fsync_files) { ensure_bridge(e, c); return n_importRun(e, c, dest, manifest, paths, sizes, fsync_files); }
+extern "C" JNIEXPORT jint JNICALL Java_org_nue_engine_NueBridge_nativeImportDir(JNIEnv* e, jclass c, jstring dir, jstring dest, jstring manifest, jboolean fsync_files) { ensure_bridge(e, c); return n_importDir(e, c, dir, dest, manifest, fsync_files); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeImportCancel(JNIEnv* e, jclass c) { ensure_bridge(e, c); return n_importCancel(e, c); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeOnTreePicked(JNIEnv* e, jclass c, jboolean picked, jstring uri) { ensure_bridge(e, c); return n_onTreePicked(e, c, picked, uri); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeInstallCrashHandler(JNIEnv* e, jclass c, jstring dir, jstring version) { ensure_bridge(e, c); return n_installCrashHandler(e, c, dir, version); }
+extern "C" JNIEXPORT jint JNICALL Java_org_nue_engine_NueBridge_nativeChooseDisplayMode(JNIEnv* e, jclass c, jintArray ids, jintArray widths, jintArray heights, jfloatArray refresh, jint current_id, jfloat target_fps) { ensure_bridge(e, c); return n_chooseDisplayMode(e, c, ids, widths, heights, refresh, current_id, target_fps); }
+extern "C" JNIEXPORT void JNICALL Java_org_nue_engine_NueBridge_nativeShutdown(JNIEnv* e, jclass c) { ensure_bridge(e, c); return n_shutdown(e, c); }
 
 } // namespace nue::android::native
 
-extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
-    using namespace nue::android::native;
-    state().vm = vm;
-    JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
-    if (!register_natives(env)) return JNI_ERR;
-    NLOGI("libnue_android loaded (api %d)", NUE_ANDROID_API_VERSION);
-    return JNI_VERSION_1_6;
-}
+// Referenced from platform_android.cpp so a static libnue keeps this object file (and with it the exported JNI entry points).
+extern "C" void nue_android_jni_anchor(void) {}

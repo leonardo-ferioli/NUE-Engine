@@ -44,10 +44,11 @@ public final class NueBridge {
     static native void nativeOnInputDevice(int id, int added, int sources, boolean isVirtual, int keyboardType);
     static native void nativeOnInputSample(int sources, boolean isVirtual, int keyboardType, float magnitude);
     static native void nativeSetGamepadConnected(boolean connected);
+    static native void nativeSetRotation(float x, float y, float z, float w, long timestampNs);
     static native int nativeImportRun(String destRoot, String manifest, String[] paths, long[] sizes, boolean fsync);
     static native int nativeImportDir(String dir, String destRoot, String manifest, boolean fsync);
     static native void nativeImportCancel();
-    static native void nativeOnTreePicked(boolean picked);
+    static native void nativeOnTreePicked(boolean picked, String uri);
     static native void nativeInstallCrashHandler(String crashDir, String version);
     static native int nativeChooseDisplayMode(int[] ids, int[] widths, int[] heights, float[] refresh, int currentId, float target);
     static native void nativeShutdown();
@@ -93,6 +94,10 @@ public final class NueBridge {
         NueInput.vibrate(activity, ms, amplitude);
     }
 
+    public static boolean hasVibrator() {
+        return NueInput.hasVibrator(activity);
+    }
+
     public static void pickGameFolder() {
         NueStorage.pickFolder(activity);
     }
@@ -103,6 +108,35 @@ public final class NueBridge {
 
     public static void importCancelFromNative() {
         NueStorage.importCancel();
+    }
+
+    public static void enableRotation(boolean on) {
+        NueSensors.enable(on);
+    }
+
+    public static boolean rotationAvailable() {
+        return NueSensors.available();
+    }
+
+    // document tree access for the core's import source (platform_ops.import)
+    public static int treeOpen(String uri) {
+        return NueStorage.treeOpen(activity, uri);
+    }
+
+    public static String treePath(int i) {
+        return NueStorage.treePath(i);
+    }
+
+    public static long treeSize(int i) {
+        return NueStorage.treeSize(i);
+    }
+
+    public static int treeFd(int i) {
+        return NueStorage.treeFd(activity, i);
+    }
+
+    public static void treeClose() {
+        NueStorage.treeClose();
     }
 
     public static int openImportFd(int index) {

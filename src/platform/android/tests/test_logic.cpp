@@ -655,3 +655,39 @@ TEST(events, concurrent_producers) {
     }
     CHECK(ordered);
 }
+
+// ------------------------------------------------------------------------------------------------------- cpu
+
+#include "cpu_topology.hpp"
+
+TEST(cpu, snapdragon_8_gen_layout) {
+    // 1 prime 3.3 GHz, 4 gold 3.0 / 2.8, 3 silver 2.0
+    std::vector<uint32_t> khz = {2000000, 2000000, 2000000, 2800000, 2800000, 3000000, 3000000, 3300000};
+    CoreMasks m = classify_cores(khz);
+    CHECK(m.hybrid);
+    CHECK_EQ(m.total, 8u);
+    CHECK_EQ(m.efficiency_count, 3u);
+    CHECK_EQ(m.performance_count, 4u + 1u); // 2.8 / 3.3 = 0.85 counts as performance
+    CHECK_EQ(m.efficiency, uint64_t(0x07));
+    CHECK_EQ(m.performance, uint64_t(0xF8));
+    CHECK_EQ(m.all, uint64_t(0xFF));
+    CHECK_EQ(m.max_khz, 3300000u);
+}
+
+TEST(cpu, symmetric_and_unknown) {
+    CoreMasks sym = classify_cores({2400000, 2400000, 2400000, 2400000});
+    CHECK(!sym.hybrid);
+    CHECK_EQ(sym.performance_count, 4u);
+    CoreMasks none = classify_cores({0, 0});
+    CHECK(!none.hybrid && none.performance == 0 && none.all == 3u);
+    CoreMasks empty = classify_cores({});
+    CHECK_EQ(empty.total, 0u);
+}
+
+TEST(cpu, priority_mapping) {
+    CHECK_EQ(nice_from_priority(0), 0);
+    CHECK_EQ(nice_from_priority(1), 10);
+    CHECK_EQ(nice_from_priority(2), 0);
+    CHECK_EQ(nice_from_priority(5), -16);
+    for (int p = 1; p <= 5; ++p) CHECK_EQ(priority_from_nice(nice_from_priority(p)), p == 0 ? 2 : p);
+}

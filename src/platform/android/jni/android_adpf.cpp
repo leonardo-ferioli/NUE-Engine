@@ -1,4 +1,4 @@
-// ADPF (Android Dynamic Performance Framework) hint session through the NDK PerformanceHint API (API 33+).
+// ADPF (Android Dynamic Performance Framework) hint sessions through the NDK PerformanceHint API (API 33+).
 // The symbols are resolved with dlsym so the library keeps loading on Android 10-12 where they do not exist.
 #include <dlfcn.h>
 
@@ -28,8 +28,6 @@ struct Api {
 
 std::mutex g_mu;
 Api g_api;
-void* g_session = nullptr;
-AdpfTargetTracker g_target;
 
 void load_locked() {
     if (g_api.loaded) return;
@@ -48,16 +46,63 @@ void load_locked() {
 
 namespace nue::android::native {
 
+struct HintSession {
+    void* handle = nullptr;
+    AdpfTargetTracker target;
+};
+
 int adpf_available() {
     std::lock_guard<std::mutex> lock(g_mu);
     load_locked();
     return g_api.manager ? 1 : 0;
 }
 
-void adpf_shutdown() {
+HintSession* adpf_create(const int32_t* tids, size_t count, int64_t target_ns) {
     std::lock_guard<std::mutex> lock(g_mu);
-    if (g_session && g_api.close) g_api.close(g_session);
-    g_session = nullptr;
+    load_locked();
+    if (!g_api.manager || !tids || count == 0 || target_ns <= 0) return nullptr;
+    void* h = g_api.create(g_api.manager, tids, count, target_ns);
+    if (!h) {
+        NLOGW("ADPF: createSession failed (threads of another process, or the device does not support hints)");
+        return nullptr;
+    }
+    HintSession* s = new HintSession();
+    s->handle = h;
+    s->target.needs_update(target_ns);
+    return s;
+}
+
+void adpf_update(HintSession* s, int64_t target_ns) {
+    if (!s) return;
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (s->target.needs_update(target_ns)) g_api.update(s->handle, target_ns);
+}
+
+void adpf_report(HintSession* s, int64_t actual_ns) {
+    if (!s || actual_ns <= 0) return;
+    std::lock_guard<std::mutex> lock(g_mu);
+    g_api.report(s->handle, actual_ns);
+}
+
+void adpf_destroy(HintSession* s) {
+    if (!s) return;
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (s->handle) g_api.close(s->handle);
+    delete s;
+}
+
+namespace {
+HintSession* g_default = nullptr; // the session of the single-session C API
+}
+
+void adpf_shutdown() {
+    HintSession* s;
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        s = g_default;
+        g_default = nullptr;
+    }
+    adpf_destroy(s);
 }
 
 } // namespace nue::android::native
@@ -65,33 +110,32 @@ void adpf_shutdown() {
 extern "C" {
 
 int nue_android_hint_session_start(const int32_t* tids, size_t count, int64_t target_ns) {
+    using namespace nue::android::native;
+    adpf_shutdown();
+    HintSession* s = adpf_create(tids, count, target_ns);
     std::lock_guard<std::mutex> lock(g_mu);
-    load_locked();
-    if (!g_api.manager || !tids || count == 0 || target_ns <= 0) return 0;
-    if (g_session) {
-        g_api.close(g_session);
-        g_session = nullptr;
-    }
-    g_session = g_api.create(g_api.manager, tids, count, target_ns);
-    g_target = AdpfTargetTracker();
-    g_target.needs_update(target_ns); // remember the initial target
-    if (!g_session) {
-        NLOGW("ADPF: createSession failed (no permission for these threads or the device does not support hints)");
-        return 0;
-    }
-    return 1;
+    g_default = s;
+    return s ? 1 : 0;
 }
 
 void nue_android_hint_update_target(int64_t target_ns) {
-    std::lock_guard<std::mutex> lock(g_mu);
-    if (!g_session || !g_target.needs_update(target_ns)) return;
-    g_api.update(g_session, target_ns);
+    using namespace nue::android::native;
+    HintSession* s;
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        s = g_default;
+    }
+    adpf_update(s, target_ns);
 }
 
 void nue_android_hint_report(int64_t actual_ns) {
-    if (actual_ns <= 0) return;
-    std::lock_guard<std::mutex> lock(g_mu);
-    if (g_session) g_api.report(g_session, actual_ns);
+    using namespace nue::android::native;
+    HintSession* s;
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        s = g_default;
+    }
+    adpf_report(s, actual_ns);
 }
 
 void nue_android_hint_session_stop(void) { nue::android::native::adpf_shutdown(); }

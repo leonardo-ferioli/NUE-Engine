@@ -106,7 +106,7 @@ final class NueStorage {
                 a.startActivityForResult(i, REQ_PICK_TREE);
             } catch (RuntimeException e) {
                 Log.e(TAG, "no document picker available: " + e);
-                NueBridge.nativeOnTreePicked(false);
+                NueBridge.nativeOnTreePicked(false, null);
             }
         });
     }
@@ -116,7 +116,7 @@ final class NueStorage {
         if (requestCode != REQ_PICK_TREE) return false;
         Uri uri = (resultCode == Activity.RESULT_OK && data != null) ? data.getData() : null;
         if (uri == null) {
-            NueBridge.nativeOnTreePicked(false);
+            NueBridge.nativeOnTreePicked(false, null);
             return true;
         }
         try {
@@ -126,7 +126,7 @@ final class NueStorage {
         }
         treeUri = uri;
         a.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PREF_TREE, uri.toString()).apply();
-        NueBridge.nativeOnTreePicked(true);
+        NueBridge.nativeOnTreePicked(true, uri.toString());
         return true;
     }
 
@@ -247,6 +247,60 @@ final class NueStorage {
             // files outside of the prefix keep an unusable name so the manifest cannot match them
             paths.set(i, p.regionMatches(true, 0, prefix, 0, prefix.length()) ? p.substring(prefix.length()) : "../" + p);
         }
+    }
+
+    // ------------------------------------------------------------------------------------------ tree access for the core import
+
+    private static List<String> treePaths = new ArrayList<>();
+    private static List<Uri> treeUris = new ArrayList<>();
+    private static List<Long> treeSizes = new ArrayList<>();
+
+    /** Enumerates a content://...tree... URI (blocking, any thread). Returns the number of files, -1 on error. */
+    static synchronized int treeOpen(Activity a, String uriString) {
+        try {
+            Uri tree = Uri.parse(uriString);
+            List<String> p = new ArrayList<>();
+            List<Uri> u = new ArrayList<>();
+            List<Long> s = new ArrayList<>();
+            cancel = false;
+            enumerate(a.getContentResolver(), tree, p, u, s);
+            treePaths = p;
+            treeUris = u;
+            treeSizes = s;
+            return p.size();
+        } catch (RuntimeException e) {
+            Log.e(TAG, "cannot open tree " + uriString, e);
+            return -1;
+        }
+    }
+
+    static synchronized String treePath(int i) {
+        return i >= 0 && i < treePaths.size() ? treePaths.get(i) : null;
+    }
+
+    static synchronized long treeSize(int i) {
+        return i >= 0 && i < treeSizes.size() ? treeSizes.get(i) : -1;
+    }
+
+    static int treeFd(Activity a, int i) {
+        Uri uri;
+        synchronized (NueStorage.class) {
+            if (i < 0 || i >= treeUris.size()) return -1;
+            uri = treeUris.get(i);
+        }
+        try {
+            ParcelFileDescriptor pfd = a.getContentResolver().openFileDescriptor(uri, "r");
+            return pfd != null ? pfd.detachFd() : -1;
+        } catch (Exception e) {
+            Log.w(TAG, "cannot open " + uri + ": " + e);
+            return -1;
+        }
+    }
+
+    static synchronized void treeClose() {
+        treePaths = new ArrayList<>();
+        treeUris = new ArrayList<>();
+        treeSizes = new ArrayList<>();
     }
 
     /** Called by native code on the importing thread; the returned descriptor is owned by the caller. */

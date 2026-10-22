@@ -30,7 +30,12 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments += listOf("-DANDROID_STL=c++_static", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
+                val sdlInclude = rootProject.file(providers.gradleProperty("nue.sdl3.dir").get()).canonicalFile.resolve("include")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                    "-DNUE_SDL3_INCLUDE=" + sdlInclude.absolutePath.replace("\\", "/")
+                )
             }
         }
     }

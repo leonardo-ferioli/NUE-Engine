@@ -124,15 +124,23 @@ final class NueInput {
         NueBridge.nativeOnInputSample(source, virt, kb, magnitude);
     }
 
-    static void vibrate(Activity a, int ms, int amplitude) {
-        if (a == null || ms <= 0) return;
-        Vibrator v;
+    private static Vibrator vibrator(Activity a) {
+        if (a == null) return null;
         if (Build.VERSION.SDK_INT >= 31) {
             VibratorManager vm = (VibratorManager) a.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
-            v = vm != null ? vm.getDefaultVibrator() : null;
-        } else {
-            v = (Vibrator) a.getSystemService(Context.VIBRATOR_SERVICE);
+            return vm != null ? vm.getDefaultVibrator() : null;
         }
+        return (Vibrator) a.getSystemService(Context.VIBRATOR_SERVICE);
+    }
+
+    static boolean hasVibrator(Activity a) {
+        Vibrator v = vibrator(a);
+        return v != null && v.hasVibrator();
+    }
+
+    static void vibrate(Activity a, int ms, int amplitude) {
+        if (ms <= 0) return;
+        Vibrator v = vibrator(a);
         if (v == null || !v.hasVibrator()) return;
         int amp = amplitude <= 0 ? VibrationEffect.DEFAULT_AMPLITUDE : Math.min(255, amplitude);
         v.vibrate(VibrationEffect.createOneShot(ms, amp));

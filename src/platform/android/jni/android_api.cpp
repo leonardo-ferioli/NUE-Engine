@@ -213,10 +213,51 @@ int nue_android_get_audio_info(int desired_rate, int target_latency_ms, NueAndro
 
 void nue_android_audio_focus(int request) { call_void(state().m.audioFocus, static_cast<jint>(request)); }
 
+int nue_android_audio_focus_state(void) {
+    State& st = state();
+    std::lock_guard<std::mutex> lock(st.mu);
+    return st.audio_focus.paused() ? 2 : (st.audio_focus.ducked() ? 1 : 0);
+}
+
+int nue_android_has_vibrator(void) {
+    State& st = state();
+    JniEnv env;
+    if (!env || !st.m.hasVibrator) return 0;
+    jboolean r = env->CallStaticBooleanMethod(st.bridge, st.m.hasVibrator);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 0;
+    }
+    return r ? 1 : 0;
+}
+
 int nue_android_last_input_kind(void) {
     State& st = state();
     std::lock_guard<std::mutex> lock(st.mu);
     return static_cast<int>(st.last_input.last());
+}
+
+int nue_android_rotation_available(void) {
+    State& st = state();
+    JniEnv env;
+    if (!env || !st.m.rotationAvailable) return 0;
+    jboolean r = env->CallStaticBooleanMethod(st.bridge, st.m.rotationAvailable);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 0;
+    }
+    return r ? 1 : 0;
+}
+
+void nue_android_enable_rotation(int on) { call_void(state().m.enableRotation, static_cast<jboolean>(on != 0)); }
+
+int nue_android_get_rotation(float q[4], int64_t* ts) {
+    State& st = state();
+    std::lock_guard<std::mutex> lock(st.mu);
+    if (st.rotation_ts == 0 || !q) return 0;
+    std::memcpy(q, st.rotation, sizeof st.rotation);
+    if (ts) *ts = st.rotation_ts;
+    return 1;
 }
 
 void nue_android_vibrate(int ms, int amplitude) { call_void(state().m.vibrate, static_cast<jint>(ms), static_cast<jint>(amplitude)); }
@@ -225,6 +266,16 @@ int nue_android_get_storage_paths(NueAndroidStoragePaths* out) {
     State& st = state();
     std::lock_guard<std::mutex> lock(st.mu);
     return copy_out(st.storage, out) ? 1 : 0;
+}
+
+size_t nue_android_get_picked_uri(char* buffer, size_t capacity) {
+    State& st = state();
+    std::lock_guard<std::mutex> lock(st.mu);
+    if (buffer && capacity) {
+        std::strncpy(buffer, st.picked_uri.c_str(), capacity - 1);
+        buffer[capacity - 1] = '\0';
+    }
+    return st.picked_uri.size() + 1;
 }
 
 void nue_android_pick_game_folder(void) { call_void(state().m.pickFolder); }
