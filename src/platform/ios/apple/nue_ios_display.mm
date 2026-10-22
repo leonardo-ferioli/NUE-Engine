@@ -145,7 +145,8 @@ int nue_ios_probe_gpu(NueIosGpuInfo* out) {
 #if TARGET_OS_SIMULATOR
     p.is_simulator = true;
 #endif
-    p.recommended_max_working_set = [dev recommendedMaxWorkingSetSize];
+    // recommendedMaxWorkingSetSize needs iOS 16; the engine preset deploys to iOS 15.
+    if (@available(iOS 16.0, macOS 10.12, *)) p.recommended_max_working_set = [dev recommendedMaxWorkingSetSize];
     p.physical_memory = [NSProcessInfo processInfo].physicalMemory;
 
     DeviceCaps c = derive_caps(p);
