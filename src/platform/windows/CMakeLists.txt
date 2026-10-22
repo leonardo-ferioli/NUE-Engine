@@ -26,6 +26,10 @@ add_library(nue_platform_windows STATIC
     display.cpp
     window.cpp
     input.cpp
+    audio.cpp
+    audio_wasapi.cpp
+    storage.cpp
+    diag.cpp
 )
 target_include_directories(nue_platform_windows PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_definitions(nue_platform_windows PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
@@ -34,7 +38,7 @@ if(MSVC)
 else()
     target_compile_options(nue_platform_windows PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
-target_link_libraries(nue_platform_windows PUBLIC kernel32 user32 advapi32 shell32 powrprof avrt winmm dxgi shcore comctl32 wtsapi32)
+target_link_libraries(nue_platform_windows PUBLIC kernel32 user32 advapi32 shell32 powrprof avrt winmm dxgi shcore comctl32 wtsapi32 ole32 pdh)
 
 # An executable that wants the discrete GPU on hybrid-graphics laptops adds the two exported symbols the NVIDIA / AMD drivers look for
 # in the main executable (a static library's exports would be dropped by the linker): nue_win_request_discrete_gpu(<exe target>).

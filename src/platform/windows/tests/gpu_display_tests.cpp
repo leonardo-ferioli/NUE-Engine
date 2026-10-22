@@ -25,7 +25,7 @@ static void test_gpu_enumeration() {
         CHECK(!(a.software && (a.integrated || a.discrete)));
     }
     if (e.high_performance_index >= 0) CHECK(!e.adapters[size_t(e.high_performance_index)].software);
-    if (std::getenv("NUE_TEST_GPU_PROBES")) {   // creates D3D devices (wakes a sleeping discrete GPU), so opt-in
+    if (nuetest::env_set("NUE_TEST_GPU_PROBES")) {   // creates D3D devices (wakes a sleeping discrete GPU), so opt-in
         GpuEnumeration p;
         CHECK_OK(enumerate_gpus(p, false, true));
         for (const auto& a : p.adapters) INFO("probe %s: d3d11 FL11_0 %d, d3d12 FL11_0 %d, UMA/integrated %d", a.name.c_str(), int(a.d3d11_level_11_0), int(a.d3d12_level_11_0), int(a.integrated));
@@ -277,7 +277,7 @@ static void test_gamemode() {
     CHECK(window_is_excluded_from_capture(w.hwnd));
     DWORD affinity = 0;
     GetWindowDisplayAffinity(w.hwnd, &affinity);
-    INFO("display affinity value: 0x%X (0x11 = exclude from capture)", affinity);
+    INFO("display affinity value: 0x%X (0x11 = exclude from capture)", unsigned(affinity));
     CHECK_OK(window_exclude_from_capture(w.hwnd, false));
     CHECK(!window_is_excluded_from_capture(w.hwnd));
 }

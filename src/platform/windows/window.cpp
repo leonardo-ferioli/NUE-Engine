@@ -313,12 +313,11 @@ LRESULT WindowAttachment::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, bool
 
 void emergency_restore_desktop() {
     ClipCursor(nullptr);
-    CURSORINFO ci{};
-    ci.cbSize = sizeof ci;
-    for (int i = 0; i < 32 && GetCursorInfo(&ci) && !(ci.flags & CURSOR_SHOWING); ++i) {
-        ShowCursor(TRUE);
-        ci.cbSize = sizeof ci;
-    }
+    // ShowCursor keeps a per-thread display counter: the pointer is visible while it is >= 0. Raise it to 0 (and undo an overshoot) instead of looping
+    // on GetCursorInfo, whose CURSOR_SHOWING flag is also clear while touch or pen input suppresses the pointer, which is not our doing.
+    int count = ShowCursor(TRUE);
+    for (int i = 0; i < 64 && count < 0; ++i) count = ShowCursor(TRUE);
+    if (count > 0) ShowCursor(FALSE);
     restore_all_changed_display_modes();
 }
 

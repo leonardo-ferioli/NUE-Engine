@@ -275,10 +275,9 @@ static void test_clip_and_destroy() {
     GetClipCursor(&clip);
     CHECK(clip.left == screen.left && clip.right == screen.right && clip.top == screen.top && clip.bottom == screen.bottom);
     emergency_restore_desktop();
-    CURSORINFO ci{};
-    ci.cbSize = sizeof ci;
-    GetCursorInfo(&ci);
-    CHECK(ci.flags & CURSOR_SHOWING);
+    // The display counter is back to exactly 0 (visible, nothing owed): one more hide/show pair leaves -1/0.
+    CHECK(ShowCursor(FALSE) == -1);
+    CHECK(ShowCursor(TRUE) == 0);
 }
 
 static void test_attach_rules() {

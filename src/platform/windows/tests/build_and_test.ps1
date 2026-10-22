@@ -26,8 +26,9 @@ foreach ($cfg in $Configs) {
     Write-Host "=== $cfg -> $dir"
     $saved = @{}; foreach ($k in 'INCLUDE', 'LIB', 'LIBPATH', 'PATH') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
     try {
+        # Both compilers get the Visual Studio environment of the target architecture: clang -m32 cannot find the x86 import libraries without it.
+        Enter-VsEnvironment $(if ($arch -eq 'x86') { 'x86' } else { 'x64' })
         if ($compiler -eq 'msvc') {
-            Enter-VsEnvironment $(if ($arch -eq 'x86') { 'x86' } else { 'x64' })
             & cmake -S $src -B $dir -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl
         } else {
             $flags = if ($arch -eq 'x86') { '-m32 -msse2' } else { '' }
