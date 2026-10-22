@@ -9,8 +9,8 @@
  *              presents through nue_gfx / the Direct3D 9 layer from its own thread.
  *  ENGINE loop The engine owns the loop (mobile, or desktop apps that prefer it): the caller hands callbacks to nue_app_run()
  *              from main(); the engine calls on_init once, then on_event for every event and on_frame once per iteration,
- *              until quit. On Android/iOS nue_app_run() returns immediately to the OS entry point and the callbacks are
- *              driven by the OS run loop (see entry.h for the portable NUE_MAIN macro).
+ *              until quit. On Android/iOS the same loop runs inside the OS entry point's thread (SDL_main); link nue::entry and define nue_main
+ *              (see entry.h).
  *
  * Events are produced by the backend (SDL3, null) and by the platform layer (power, thermal, game mode). The queue is
  * a bounded multi-producer queue; when full the oldest MOUSE_MOTION/GAMEPAD_AXIS/SENSOR/FINGER_MOTION event is dropped first.
@@ -213,8 +213,8 @@ typedef struct nue_app_callbacks {
 } nue_app_callbacks;
 
 /* Run the engine-owned loop: calls nue_init(init) itself (init->loop_model is forced to NUE_LOOP_ENGINE), runs on_init, loops,
- * runs on_quit and nue_shutdown(). Returns the process exit code on desktop. On mobile it hands control to the OS and returns
- * when the OS entry point may return. [call from main / the OS entry point] */
+ * runs on_quit and nue_shutdown(). Returns the process exit code. The loop keeps running while the app is in the background
+ * (events keep flowing; on_frame is not called until it returns to the foreground). [call from main / nue_main] */
 NUE_API int32_t NUE_CALL nue_app_run(const nue_init_desc* init, const nue_app_callbacks* callbacks, int argc, char** argv);
 
 NUE_API void NUE_CALL nue_app_request_quit(void);                  /* [any] queues NUE_EVENT_QUIT; ends nue_app_run's loop */

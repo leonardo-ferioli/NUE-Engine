@@ -47,6 +47,7 @@ typedef struct nue_window_snapshot {
     nue_window_mode mode;
     nue_window_flags flags;                 /* current: RESIZABLE, BORDERLESS, ALWAYS_ON_TOP, MAXIMIZED, MINIMIZED, HIDDEN, HIGH_DPI */
     nue_bool focused, visible, occluded, mouse_inside;
+    nue_bool relative_mouse;                /* relative mouse mode is active */
     nue_rect_i safe_area;
     nue_native_window native;
 } nue_window_snapshot;
