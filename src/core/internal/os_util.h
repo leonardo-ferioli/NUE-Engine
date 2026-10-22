@@ -42,6 +42,7 @@ nue_result os_file_sync(OsHandle h);
 std::string os_executable_dir();       // directory of the running executable, '/' separated, no trailing slash
 std::string os_temp_dir();
 std::string os_getenv(const char* name);
+uint32_t os_process_id();
 
 // Case folding used by path matching: ASCII + Latin-1/Greek/Cyrillic simple folding on UTF-8 text.
 std::string fold_case_utf8(const std::string& s);
