@@ -17,6 +17,6 @@ esac
 
 cd "$IOS_DIR"
 cmake --preset "$PRESET" ${NUE_IOS_TEAM_ID:+-DNUE_IOS_TEAM_ID="$NUE_IOS_TEAM_ID"} ${NUE_IOS_BUNDLE_ID:+-DNUE_IOS_BUNDLE_ID="$NUE_IOS_BUNDLE_ID"}
-BUILD_DIR="$IOS_DIR/../../build_ios_$([ "$PLATFORM" = device ] && echo device || echo sim)"   # same as binaryDir in CMakePresets.json
+BUILD_DIR="$IOS_DIR/../build_ios_$([ "$PLATFORM" = device ] && echo device || echo sim)"   # same as binaryDir in CMakePresets.json
 cmake --build "$BUILD_DIR" --config "$CONFIG" --target nue_ios_sample -- -allowProvisioningUpdates 2>&1 | tail -n 40
 echo "Built: $(find "$BUILD_DIR" -name 'nue_ios_sample.app' -maxdepth 3 | head -n1)"

@@ -6,13 +6,13 @@
       "name": "host-tests",
       "displayName": "Host tests (any OS): pure logic + plist check",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/../../build_ios_host"
+      "binaryDir": "${sourceDir}/../build_ios_host"
     },
     {
       "name": "ios-device",
       "displayName": "iOS device (arm64), Xcode generator, needs macOS + Xcode",
       "generator": "Xcode",
-      "binaryDir": "${sourceDir}/../../build_ios_device",
+      "binaryDir": "${sourceDir}/../build_ios_device",
       "toolchainFile": "${sourceDir}/cmake/ios.toolchain.cmake",
       "cacheVariables": {
         "NUE_IOS_PLATFORM": "device",
@@ -23,7 +23,7 @@
       "name": "ios-simulator",
       "displayName": "iOS Simulator (arm64 on Apple-silicon Macs), Xcode generator",
       "generator": "Xcode",
-      "binaryDir": "${sourceDir}/../../build_ios_sim",
+      "binaryDir": "${sourceDir}/../build_ios_sim",
       "toolchainFile": "${sourceDir}/cmake/ios.toolchain.cmake",
       "cacheVariables": {
         "NUE_IOS_PLATFORM": "simulator",

@@ -6,7 +6,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$HERE/.." && pwd)"
-REPO="$(cd "$IOS_DIR/../.." && pwd)"
+REPO="$(cd "$IOS_DIR/.." && pwd)"
 OUT="${1:-$REPO/build_ios_xcframework}"
 rm -rf "$OUT"; mkdir -p "$OUT"
 
