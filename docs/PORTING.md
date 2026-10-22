@@ -39,6 +39,12 @@ Table fields appended after 0.1.0 (`pre_init`, `owns_lifecycle`, `memory_info_ex
 Events that must reach watchers synchronously (`SURFACE_LOST`, `APP_PAUSING`) do: `nue_internal_push_event` runs watchers on the calling thread before it returns,
 and `nue_gfx_set_auto_events` makes `nue_gfx` suspend its swapchain inside that call. Fill the real `window_id` on surface events.
 
+## Portable mode
+
+An explicit `nue_init_desc.user_data_path` means **portable mode for every writable root**: `user`, `cache`, `settings` and `temp` all live below it
+(`<user>/cache`, `<user>/settings`, ...). A platform layer's `storage_root` must return `NUE_ERR_UNSUPPORTED` for cache/settings/temp in that case so the core
+derives them from the explicit path (tests rely on it: they never touch the real profile).
+
 ## Link dependencies and other modules
 
 Libraries or frameworks a fragment links `PUBLIC` to `nue_platform_obj` (or `nue_texture_obj`) are forwarded by the root CMake to the final `nue` library

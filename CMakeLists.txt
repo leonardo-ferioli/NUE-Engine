@@ -153,6 +153,11 @@ target_compile_definitions(nue_core_obj PRIVATE
     NUE_BUILD_TYPE_STRING="$<CONFIG>"
     NUE_VERSION_STRING_LITERAL="${PROJECT_VERSION}")
 
+# ctest registration must be enabled before any fragment (platform layers register their own tests with add_test)
+if(NUE_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # ---------------------------------------------------------------------------------------------------- platform layer (owned by the platform sessions)
 add_library(nue_platform_obj OBJECT)
 target_link_libraries(nue_platform_obj PUBLIC nue_internal)
@@ -282,7 +287,6 @@ endif()
 
 # ---------------------------------------------------------------------------------------------------- tests, samples
 if(NUE_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
 if(NUE_BUILD_SAMPLES)
