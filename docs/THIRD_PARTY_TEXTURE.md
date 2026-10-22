@@ -39,3 +39,10 @@ All are permissive: source and binary redistribution is allowed with the notices
 components: the packaging step should collect `src/texture/third_party/*/LICENSE*` into the SDK's notices file. Notes: the Javelin folder also holds helper files contributed by Brendan Duncan
 (bitmap and colour classes, see its README) under the same folder licence as redistributed by bimg; no GPL/LGPL/proprietary code and no game data are in the tree; no personal paths appear in the texture sources or docs
 (checked with a search for user names and drive paths).
+
+## Local patches to vendored code
+
+* `etcpak/ProcessRGB.cpp` (4 declarations, marked `NUE:`): the per-block scratch arrays that are written with aligned SSE stores (`buf`, `rgba`, `alpha`, `r`, `rg` in
+  `CompressEtc1Rgb`, `CompressEtc1RgbDither`, `CompressEtc2Rgb`, `CompressEtc2Rgba`, `CompressEacR`, `CompressEacRg`) now carry `alignas(16)`. Upstream relies on the 16-byte stack alignment of
+  x86-64; on 32-bit x86 (the recompiled game is a 32-bit process) a plain local is only 4-byte aligned and the stores crashed (found by the windows-x86 preset, fixed and verified on i686).
+  The AVX2-only helpers were not touched (the module builds SSE4.1 by default); re-check them before enabling `NUE_TEXTURE_SIMD=avx2` on 32-bit.
