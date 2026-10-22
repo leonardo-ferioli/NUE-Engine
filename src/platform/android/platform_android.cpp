@@ -134,10 +134,49 @@ void fill_power_event(nue_event* e) {
     e->payload.power.game_mode = game_mode_from(st.game_mode);
 }
 
+nue_window_id g_main_window = 0;
+
+// The window the game renders into: the focused one, else the last one seen.
+nue_window_id main_window_id() {
+    nue_window w = nue_window_get_focused();
+    if (w) g_main_window = nue_window_get_id(w);
+    return g_main_window;
+}
+
+nue_memory_pressure pressure_to_nue(int p) {
+    switch (p) {
+    case NUE_ANDROID_MEM_MODERATE:
+    case NUE_ANDROID_MEM_BACKGROUND: return NUE_PRESSURE_MODERATE; // trimmed caches are cheap to rebuild
+    case NUE_ANDROID_MEM_LOW: return NUE_PRESSURE_HIGH;
+    case NUE_ANDROID_MEM_CRITICAL: return NUE_PRESSURE_CRITICAL;
+    default: return NUE_PRESSURE_NONE;
+    }
+}
+
+void push_memory_pressure(int android_pressure) {
+    nue_event e;
+    std::memset(&e, 0, sizeof e);
+    e.type = NUE_EVENT_MEMORY_PRESSURE;
+    e.payload.memory.level = static_cast<uint32_t>(pressure_to_nue(android_pressure));
+    uint64_t total = 0, avail = 0;
+    {
+        State& st = state();
+        std::lock_guard<std::mutex> lock(st.mu);
+        total = st.mem.total_ram;
+        avail = st.mem.available_ram > st.mem.low_threshold ? st.mem.available_ram - st.mem.low_threshold : 0;
+    }
+    (void)total;
+    e.payload.memory.available_bytes = avail;
+    nue_internal_push_event(&e);
+}
+
 void push(uint32_t type) {
     nue_event e;
     std::memset(&e, 0, sizeof e);
     e.type = type;
+    if (type == NUE_EVENT_SURFACE_CREATED || type == NUE_EVENT_SURFACE_LOST) e.window_id = main_window_id();
+    if (type == NUE_EVENT_AUDIO_INTERRUPTED || type == NUE_EVENT_AUDIO_RESUMED || type == NUE_EVENT_AUDIO_ROUTE_CHANGED)
+        e.payload.audio_device.device_id = 0;
     if (type == NUE_EVENT_THERMAL_CHANGED || type == NUE_EVENT_POWER_CHANGED || type == NUE_EVENT_LOW_POWER_MODE_CHANGED ||
         type == NUE_EVENT_GAME_MODE_CHANGED)
         fill_power_event(&e);
@@ -241,8 +280,15 @@ void p_pump(void) {
             }
             break;
         case NUE_ANDROID_EVENT_MEMORY:
-            if (ev.i[1] >= NUE_ANDROID_MEM_LOW) push(NUE_EVENT_APP_LOW_MEMORY);
+            if (ev.i[1] > NUE_ANDROID_MEM_NONE) push_memory_pressure(ev.i[1]); // budgets are trimmed by the core on this event
+            if (ev.i[0] < 0) push(NUE_EVENT_APP_LOW_MEMORY);                    // onLowMemory()
             break;
+        case NUE_ANDROID_EVENT_AUDIO_FOCUS:
+            // ducking has no portable event: the state stays readable through nue.android.v1 audio_focus_state
+            if (ev.i[0] == NUE_ANDROID_AUDIO_FOCUS_PAUSE) push(NUE_EVENT_AUDIO_INTERRUPTED);
+            else if (ev.i[0] == NUE_ANDROID_AUDIO_FOCUS_RESUME) push(NUE_EVENT_AUDIO_RESUMED);
+            break;
+        case NUE_ANDROID_EVENT_AUDIO_ROUTE: push(NUE_EVENT_AUDIO_ROUTE_CHANGED); break;
         case NUE_ANDROID_EVENT_THERMAL: push(NUE_EVENT_THERMAL_CHANGED); break;
         case NUE_ANDROID_EVENT_BATTERY_SAVER: push(NUE_EVENT_LOW_POWER_MODE_CHANGED); break;
         case NUE_ANDROID_EVENT_GAME_MODE: push(NUE_EVENT_GAME_MODE_CHANGED); break;
@@ -350,6 +396,116 @@ nue_result p_system_info(nue_system_info* out) {
         out->gpu_count = 1;
     }
     out->display_count = 1;
+    return NUE_OK;
+}
+
+// Process / GPU memory. Android has no fixed per-process cap for native memory: the limit that matters is the low-memory
+// killer, so process_limit stays 0 (unknown) unless the application configured one with nue_android_set_memory_cap, and
+// process_available is what the system can still give above its kill threshold.
+nue_result p_memory_info_ex(nue_memory_info* io) {
+    State& st = state();
+    uint64_t cap, avail, thr, rss = 0, total, shared;
+    int pressure;
+    {
+        std::lock_guard<std::mutex> lock(st.mu);
+        cap = st.memory_cap;
+        avail = st.mem.available_ram;
+        thr = st.mem.low_threshold;
+        total = st.mem.total_ram;
+        pressure = static_cast<int>(st.pressure);
+        shared = st.gpu.probed && st.gpu.device_local_bytes ? st.gpu.device_local_bytes : total;
+    }
+    NueAndroidMemoryBudget mb{};
+    mb.struct_size = sizeof mb;
+    if (nue_android_get_memory_budget(&mb)) rss = mb.rss_bytes;
+    io->process_used = rss;
+    io->process_limit = cap;
+    uint64_t free_above = avail > thr ? avail - thr : 0;
+    io->process_available = cap && cap > rss ? std::min<uint64_t>(cap - rss, free_above) : (cap ? 0 : free_above);
+    io->gpu_dedicated_total = io->gpu_dedicated_available = 0; // unified memory
+    io->gpu_shared_total = shared;
+    io->unified_memory = NUE_TRUE;
+    io->pressure = pressure_to_nue(pressure == static_cast<int>(MemPressure::Background) ? NUE_ANDROID_MEM_MODERATE : pressure);
+    return NUE_OK;
+}
+
+// GPU facts without a device: from the Vulkan / EGL probe (api_info), mapped to the core's format families.
+nue_result p_gpu_probe(nue_gpu_caps* out) {
+    NueAndroidGpuInfo g{};
+    g.struct_size = sizeof g;
+    if (!nue_android_get_gpu_info(&g)) return NUE_ERR_NOT_INITIALIZED;
+    const bool vk = g.prefer_vulkan != 0;
+    const uint32_t caps = vk ? g.vk_tex_caps : g.gles_tex_caps;
+    const nue_format_support base = NUE_FMTSUP_SAMPLE | NUE_FMTSUP_FILTER | NUE_FMTSUP_MIPMAPS;
+    const nue_format_support rt = base | NUE_FMTSUP_RENDER_TARGET | NUE_FMTSUP_BLEND;
+    auto set = [&](nue_format_family f, nue_format_support s) { out->format[f] = s; };
+
+    out->probed = NUE_TRUE;
+    out->renderer = vk ? NUE_RENDERER_VULKAN : NUE_RENDERER_GLES;
+    // Mandatory in OpenGL ES 3.0 and in Vulkan on every device that ships Android 10+ with these formats usable.
+    set(NUE_FMT_RGBA8, rt | NUE_FMTSUP_SRGB);
+    set(NUE_FMT_BGRA8, (caps & NUE_ANDROID_TEX_BGRA8) ? (rt | NUE_FMTSUP_SRGB) : 0);
+    set(NUE_FMT_RGB565, rt);
+    set(NUE_FMT_RGBA4444, rt);
+    set(NUE_FMT_RGB5A1, rt);
+    set(NUE_FMT_R8, rt);
+    set(NUE_FMT_RG8, rt);
+    set(NUE_FMT_R16F, rt);
+    set(NUE_FMT_RGBA16F, rt);
+    set(NUE_FMT_RGBA32F, NUE_FMTSUP_SAMPLE | NUE_FMTSUP_MIPMAPS); // not filterable without an extension: conservative
+    set(NUE_FMT_RGB10A2, rt);
+    set(NUE_FMT_DEPTH16, NUE_FMTSUP_SAMPLE | NUE_FMTSUP_RENDER_TARGET);
+    set(NUE_FMT_DEPTH24_STENCIL8, (caps & NUE_ANDROID_TEX_D24S8) ? (NUE_FMTSUP_SAMPLE | NUE_FMTSUP_RENDER_TARGET) : 0);
+    set(NUE_FMT_DEPTH32F, NUE_FMTSUP_SAMPLE | NUE_FMTSUP_RENDER_TARGET);
+    set(NUE_FMT_DEPTH32F_STENCIL8, (caps & NUE_ANDROID_TEX_D32S8) ? (NUE_FMTSUP_SAMPLE | NUE_FMTSUP_RENDER_TARGET) : 0);
+    const nue_format_support comp = base | NUE_FMTSUP_SRGB;
+    if (caps & NUE_ANDROID_TEX_BC1_3) {
+        set(NUE_FMT_BC1, comp);
+        set(NUE_FMT_BC2, comp);
+        set(NUE_FMT_BC3, comp);
+    }
+    if (caps & NUE_ANDROID_TEX_BC4_5) {
+        set(NUE_FMT_BC4, base);
+        set(NUE_FMT_BC5, base);
+    }
+    if (caps & NUE_ANDROID_TEX_BC6H_7) {
+        set(NUE_FMT_BC6H, base);
+        set(NUE_FMT_BC7, comp);
+    }
+    if (caps & NUE_ANDROID_TEX_ETC2) { // ETC2 + EAC are one feature in Vulkan and mandatory in OpenGL ES 3
+        set(NUE_FMT_ETC1, base);
+        set(NUE_FMT_ETC2_RGB, comp);
+        set(NUE_FMT_ETC2_RGBA, comp);
+        set(NUE_FMT_EAC_R11, base);
+        set(NUE_FMT_EAC_RG11, base);
+    }
+    if (caps & NUE_ANDROID_TEX_ASTC_LDR) set(NUE_FMT_ASTC_LDR, comp); // ASTC HDR / PVRTC / ATC not measured: left 0
+    out->max_texture_2d = g.max_texture_size > 0 ? static_cast<uint32_t>(g.max_texture_size) : 4096;
+    out->max_texture_cube = out->max_texture_2d;
+    out->max_texture_3d = std::min<uint32_t>(out->max_texture_2d, 2048);
+    out->max_array_layers = 256;                          // ES 3.0 / Vulkan guaranteed minimum
+    out->max_anisotropy = (caps & NUE_ANDROID_TEX_ANISO) ? 16 : 1;
+    out->max_render_targets = 4;                          // guaranteed minimum on both APIs
+    out->max_msaa_samples = g.max_msaa > 0 ? static_cast<uint32_t>(g.max_msaa) : 4;
+    out->unified_memory = NUE_TRUE;
+    out->npot_mipmaps = NUE_TRUE;
+    out->texture_compare = NUE_TRUE;
+    out->compute = (vk || g.gles_major > 3 || (g.gles_major == 3 && g.gles_minor >= 1)) ? NUE_TRUE : NUE_FALSE;
+    out->instancing = NUE_TRUE;
+    out->tessellation = NUE_FALSE;
+    out->dedicated_memory_bytes = 0;
+    return NUE_OK;
+}
+
+// Compositor cooperation: Surface.setFrameRate vote + the display mode that fits the frame rate best.
+nue_result p_window_request_refresh(const nue_native_window*, float refresh_hz, float frame_limit_fps) {
+    const float fps = frame_limit_fps > 0 ? frame_limit_fps : refresh_hz;
+    if (fps <= 0) {
+        nue_android_set_frame_rate(0.0f);
+        return NUE_OK;
+    }
+    nue_android_set_frame_rate(fps);
+    nue_android_set_preferred_refresh(fps);
     return NUE_OK;
 }
 
@@ -821,6 +977,10 @@ extern "C" const nue_platform_ops* nue_platform_android_get_ops(void) {
         g_ops.pump = p_pump;
         g_ops.system_info = p_system_info;
         g_ops.memory_info = p_memory_info;
+        g_ops.memory_info_ex = p_memory_info_ex;
+        g_ops.gpu_probe = p_gpu_probe;
+        g_ops.window_request_refresh = p_window_request_refresh;
+        g_ops.owns_lifecycle = NUE_TRUE; // Activity callbacks push the app state; the SDL3 backend must not derive it
         g_ops.storage_root = p_storage_root;
         g_ops.import = &g_import_ops;
         g_ops.power_info = p_power_info;

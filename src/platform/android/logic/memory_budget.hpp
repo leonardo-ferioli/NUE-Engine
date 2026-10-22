@@ -20,7 +20,7 @@ struct SystemMemory {
 };
 
 struct BudgetConfig {
-    uint64_t process_cap = 2ull << 30;     // hard ceiling for the whole process
+    uint64_t process_cap = 0;              // hard ceiling for the whole process; 0 = none (a policy of the application, e.g. 2 GiB)
     double ram_fraction = 0.55;            // never plan to use more than this share of physical RAM
     uint64_t engine_reserve = 192ull << 20; // code, bgfx, driver, audio, stacks: not available for textures
     double soft_fraction = 0.85;           // shedding starts at soft = hard * this

@@ -170,13 +170,17 @@ TEST(memory, trim_levels_map_to_pressure) {
     CHECK(pressure_from_trim_level(0) == MemPressure::None);
 }
 
-TEST(memory, budget_is_capped_at_two_gib_on_big_phones) {
+TEST(memory, budget_follows_configured_cap) {
     SystemMemory s;
     s.total_ram = 12ull << 30;
     s.available_ram = 6ull << 30;
     s.low_threshold = 400ull << 20;
     s.rss = 800ull << 20;
-    Budget b = compute_budget(s, MemPressure::None);
+    BudgetConfig cfg;
+    cfg.process_cap = 2ull << 30; // an application policy, not an engine constant
+    Budget b = compute_budget(s, MemPressure::None, cfg);
+    Budget uncapped = compute_budget(s, MemPressure::None);
+    CHECK(uncapped.hard_limit > b.hard_limit); // no built-in 2 GiB cap
     CHECK_EQ(b.hard_limit, uint64_t(2ull << 30));
     CHECK(b.soft_limit < b.hard_limit && b.soft_limit > (1ull << 30));
     CHECK(b.texture_budget < b.soft_limit);
@@ -200,9 +204,11 @@ TEST(memory, pressure_shrinks_and_requests_release) {
     s.available_ram = 4ull << 30;
     s.low_threshold = 400ull << 20;
     s.rss = 1600ull << 20;
-    Budget none = compute_budget(s, MemPressure::None);
-    Budget low = compute_budget(s, MemPressure::Low);
-    Budget crit = compute_budget(s, MemPressure::Critical);
+    BudgetConfig cfg;
+    cfg.process_cap = 2ull << 30;
+    Budget none = compute_budget(s, MemPressure::None, cfg);
+    Budget low = compute_budget(s, MemPressure::Low, cfg);
+    Budget crit = compute_budget(s, MemPressure::Critical, cfg);
     CHECK(low.soft_limit < none.soft_limit && crit.soft_limit < low.soft_limit);
     CHECK(crit.bytes_to_release > 0);
     CHECK_EQ(crit.bytes_to_release, s.rss - crit.soft_limit);

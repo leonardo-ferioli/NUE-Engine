@@ -1,6 +1,7 @@
 #include "memory_budget.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace nue::android {
 
@@ -17,7 +18,7 @@ Budget compute_budget(const SystemMemory& sys, MemPressure pressure, const Budge
     Budget b;
     b.pressure = pressure;
 
-    uint64_t hard = cfg.process_cap;
+    uint64_t hard = cfg.process_cap ? cfg.process_cap : UINT64_MAX; // 0 = no configured cap
     if (sys.total_ram > 0) hard = std::min<uint64_t>(hard, static_cast<uint64_t>(double(sys.total_ram) * cfg.ram_fraction));
     // What the system can still give: what we already hold plus what is free above the kill threshold.
     if (sys.available_ram > 0) {
@@ -26,6 +27,7 @@ Budget compute_budget(const SystemMemory& sys, MemPressure pressure, const Budge
     }
     // A device that is already in the low state gets no growth room at all.
     if (sys.low_memory) hard = std::min<uint64_t>(hard, std::max<uint64_t>(sys.rss, cfg.engine_reserve));
+    if (hard == UINT64_MAX) hard = 0; // nothing known and no cap: no budget can be derived
     b.hard_limit = hard;
 
     double soft_scale = cfg.soft_fraction;
