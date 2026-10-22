@@ -3,6 +3,7 @@
 #include "nue_test.h"
 
 #include <cstddef>
+#include <cstring>
 
 TEST_CASE(abi_layout) {
     CHECK_EQ(sizeof(nue_event), 64u);

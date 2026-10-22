@@ -5,11 +5,14 @@
 #include "internal/platform_ops.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace nue_test {
 
