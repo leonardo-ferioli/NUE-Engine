@@ -160,6 +160,18 @@ enum {                                      /* nue_asset_resource_info.flags */
     NUE_ASSET_RESFLAG_EDITED   = 1u << 1
 };
 
+/* Texture pixels the way the game file stores them (for lossless transfer, e.g. into a .nuepack and back). */
+typedef struct nue_asset_native_texture {
+    uint32_t struct_size;
+    uint32_t native_format;                 /* the game's own code (NFS: the compression byte 0x22 = DXT1...) */
+    uint32_t tex_format;                    /* nue_tex_format of the stored pixels (palette indices: NUE_TEX_R8_UNORM) */
+    uint32_t width, height, depth, mip_levels;
+    uint32_t flags;                         /* NUE_ASSET_RESFLAG_PALETTED: `palette_size` bytes (256 x B,G,R,A) follow the pixel levels */
+    uint32_t palette_size;
+    const void* data;                       /* all mip levels, level 0 first, then the palette */
+    uint64_t size;
+} nue_asset_native_texture;
+
 /* ============================================================================================== format plugins */
 
 struct nue_asset_open_ctx;
@@ -215,6 +227,8 @@ typedef struct nue_asset_format {
     nue_result (NUE_CALL *index)(void* userdata, nue_asset_container container, void* state, const nue_asset_resource_ops* ops, void* builder);
     /* Pixels of a texture resource: a new image (nue_tex_image_destroy it). NULL when the format has no textures. */
     nue_result (NUE_CALL *get_image)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_tex_image* out_image);
+    /* The stored pixels of a texture resource in the game's own encoding. NULL when the format cannot (get_image still works). */
+    nue_result (NUE_CALL *get_native)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_native_texture* out, void** out_memory);
     /* Serialise the whole container (current nodes + edits) into the sink, rebuilding every offset, size and padding that depends on them. */
     nue_result (NUE_CALL *write)(void* userdata, nue_asset_container container, void* state, uint32_t flags, nue_asset_sink* sink);
     /* Codec the format normally travels in (by file extension, e.g. ".lzc" -> "jdlz"); NULL if none. Used when writing a container that was not read from a
@@ -310,6 +324,14 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_image(nue_asset_contai
 NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_image(nue_asset_container container, uint32_t index, nue_tex_image image);
 /* The pending edit of a resource (NULL when none): for format writers. Owned by the container. */
 NUE_ASSETS_API nue_tex_image NUE_CALL nue_asset_resource_edit(nue_asset_container container, uint32_t index);
+
+/* ---- native texture data (type declared above) ---- */
+/* *out_memory receives the buffer that out->data points into (nue_alloc; free with nue_free). */
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_native(nue_asset_container container, uint32_t index, nue_asset_native_texture* out, void** out_memory);
+/* Replace a texture with data in the game's own encoding (copied). Clears an image edit of the same resource. */
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_native(nue_asset_container container, uint32_t index, const nue_asset_native_texture* native);
+/* The pending native edit (NULL when none): for format writers. Owned by the container. */
+NUE_ASSETS_API const nue_asset_native_texture* NUE_CALL nue_asset_resource_native_edit(nue_asset_container container, uint32_t index);
 
 /* ---- writing ---- */
 typedef uint32_t nue_asset_write_flags;
@@ -458,6 +480,10 @@ NUE_ASSETS_API nue_result NUE_CALL nue_pack_export_container(nue_pack pack, nue_
 NUE_DEFINE_HANDLE(nue_pack_mount);
 NUE_DEFINE_HANDLE(nue_pack_file);
 
+/* Mount an opened container (BUN/LZC...) read-only: "node/<index>" is the payload of a node, "<resource name>.dds" a texture resource as a DDS file. The
+ * container must outlive the mount and must not be edited while the mount is in use. Plain (not compressed) files are read straight from disk with
+ * asynchronous reads. */
+NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create_container(nue_assets_context ctx, nue_asset_container container, nue_pack_mount* out);
 /* Mount a pack file for reading by name. `preferred` picks the variant of textures. The pack stays on disk: reads use positioned/asynchronous file reads
  * (nue_file_read_at, nue_io_read_async) when the pack was opened from a path. */
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create(nue_assets_context ctx, const char* path, nue_pack_variant preferred, nue_pack_mount* out);
@@ -470,7 +496,7 @@ NUE_ASSETS_API void NUE_CALL nue_pack_file_close(nue_pack_file file);
 NUE_ASSETS_API uint64_t NUE_CALL nue_pack_file_size(nue_pack_file file);
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_file_read_at(nue_pack_file file, uint64_t offset, void* buffer, size_t size, size_t* out_read);
 /* Asynchronous read: same contract as nue_io_read_async (include/nue/storage.h); the returned request is polled/waited/released with the nue_io_* functions.
- * For entries kept in memory the request completes immediately. */
+ * For entries kept in memory the read is done before the call returns: the callback has already run and *out_request is 0. */
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_file_read_async(nue_pack_file file, uint64_t offset, void* buffer, size_t size, nue_io_callback callback, void* userdata, nue_io_request* out_request);
 
 /* ============================================================================================== formats shipped with the module */

@@ -253,6 +253,37 @@ nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t reso
     return NUE_OK;
 }
 
+nue_result NUE_CALL get_native(void*, nue_asset_container c, void*, uint32_t resource, nue_asset_native_texture* out, void** out_memory) {
+    nue_asset_resource_info ri;
+    NUE_STRUCT_INIT(&ri);
+    nue_result r = nue_asset_resource_get(c, resource, &ri);
+    if (r < 0) return r;
+    Tpk t;
+    if (!load_tpk(c, ri.node, &t) || ri.sub_index >= t.tex.size()) return NUE_ERR_CORRUPT;
+    const TexRec& x = t.tex[ri.sub_index];
+    const size_t total = size_t(x.image_size) + x.pal_size;
+    uint8_t* mem = static_cast<uint8_t*>(nue_alloc(total, 16));
+    if (!mem) return NUE_ERR_OUT_OF_MEMORY;
+    size_t got = 0;
+    r = nue_asset_node_read(c, t.data_node, t.base_rel + x.placement, mem, size_t(x.image_size), &got);
+    if (r >= 0 && got != x.image_size) r = NUE_ERR_CORRUPT;
+    if (r >= 0 && x.pal_size) {
+        r = nue_asset_node_read(c, t.data_node, t.base_rel + x.pal_off, mem + x.image_size, x.pal_size, &got);
+        if (r >= 0 && got != x.pal_size) r = NUE_ERR_CORRUPT;
+    }
+    if (r < 0) { nue_free(mem); return r; }
+    NUE_STRUCT_INIT(out);
+    out->native_format = x.ct;
+    out->tex_format = format_of_ct(x.ct);
+    out->width = x.width; out->height = x.height; out->depth = 1; out->mip_levels = x.mips;
+    out->flags = x.pal_size ? NUE_ASSET_RESFLAG_PALETTED : 0;
+    out->palette_size = x.pal_size;
+    out->data = mem;
+    out->size = total;
+    *out_memory = mem;
+    return NUE_OK;
+}
+
 // ---------------------------------------------------------------------------------------------------- rebuilding
 static uint32_t log2_floor(uint32_t v) { uint32_t n = 0; while (v > 1) { v >>= 1; ++n; } return n; }
 
@@ -266,11 +297,15 @@ nue_result plan_tpk(nue_asset_container c, const Tpk& t, TpkPlan* out) {
 
     // which resources are these textures?
     std::vector<nue_tex_image> edits(t.tex.size(), nullptr);
+    std::vector<const nue_asset_native_texture*> natives(t.tex.size(), nullptr);
     for (uint32_t r = 0, n = nue_asset_resource_count(c); r < n; ++r) {
         nue_asset_resource_info ri;
         NUE_STRUCT_INIT(&ri);
         nue_asset_resource_get(c, r, &ri);
-        if (ri.kind == NUE_ASSET_RES_TEXTURE && ri.node == t.node && ri.sub_index < edits.size()) edits[ri.sub_index] = nue_asset_resource_edit(c, r);
+        if (ri.kind == NUE_ASSET_RES_TEXTURE && ri.node == t.node && ri.sub_index < edits.size()) {
+            edits[ri.sub_index] = nue_asset_resource_edit(c, r);
+            natives[ri.sub_index] = nue_asset_resource_native_edit(c, r);
+        }
     }
 
     p.tex.resize(t.tex.size());
@@ -290,6 +325,39 @@ nue_result plan_tpk(nue_asset_container c, const Tpk& t, TpkPlan* out) {
         q.image_size = x.image_size;
         q.pal_size = x.pal_size;
         q.pal_src = t.base_rel + x.pal_off;
+        if (natives[k]) {
+            // data in the game's own encoding: validated, then stored as it is
+            const nue_asset_native_texture& nt = *natives[k];
+            const bool pal = ct_paletted(uint8_t(nt.native_format));
+            if (nt.native_format > 0xFF || !ct_known(uint8_t(nt.native_format)) || nt.width > 65535 || nt.height > 65535 || nt.mip_levels > 16 || nt.palette_size != (pal ? 1024u : 0u) ||
+                nt.size < nt.palette_size || chain_size(uint8_t(nt.native_format), nt.width, nt.height, nt.mip_levels) != nt.size - nt.palette_size) {
+                nue_set_last_error("nfs: texture '%s': native data does not match its description", x.name);
+                return NUE_ERR_INVALID_ARGUMENT;
+            }
+            const uint8_t ct = uint8_t(nt.native_format);
+            uint8_t unused_ct;
+            uint32_t code = 0;
+            ct_for_format(pal ? NUE_TEX_BGRA8_UNORM : format_of_ct(ct), &unused_ct, &code);
+            if (pal) code = 41;
+            const uint8_t* bytes = static_cast<const uint8_t*>(nt.data);
+            q.edited = true;
+            q.image.assign(bytes, bytes + (nt.size - nt.palette_size));
+            q.pal_data.assign(bytes + (nt.size - nt.palette_size), bytes + nt.size);
+            q.pal_edited = pal;
+            q.image_size = q.image.size();
+            q.pal_size = nt.palette_size;
+            wr32(q.rec + 0x38, uint32_t(q.image_size));
+            wr32(q.rec + 0x3C, nt.palette_size);
+            wr32(q.rec + 0x40, uint32_t(nue_tex_level_size(format_of_ct(ct), nt.width, nt.height, 1)));
+            wr16(q.rec + 0x44, uint16_t(nt.width));
+            wr16(q.rec + 0x46, uint16_t(nt.height));
+            q.rec[0x48] = uint8_t(log2_floor(nt.width));
+            q.rec[0x49] = uint8_t(log2_floor(nt.height));
+            q.rec[0x4A] = ct;
+            q.rec[0x4E] = uint8_t(nt.mip_levels);
+            if (!fmts.empty() && ct != x.ct) wr32(fmts.data() + k * kFmtSize + 0x14, code);
+            continue;
+        }
         if (!edits[k]) continue;
 
         nue_tex_image_desc d;
@@ -404,7 +472,8 @@ nue_result emit_tpk_data(nue_asset_container c, nue_asset_sink* sink, const TpkP
     uint64_t cur = 0;                                                    // relative to base
     for (const TexPlan& q : plan.tex) {
         if (!q.pal_size) continue;
-        r = copy_from_node(c, sink, plan.data_node, q.pal_src, q.pal_size);
+        if (q.pal_edited) r = nue_asset_sink_write(sink, q.pal_data.data(), q.pal_data.size());
+        else r = copy_from_node(c, sink, plan.data_node, q.pal_src, q.pal_size);
         if (r < 0) return r;
         cur += q.pal_size;
     }

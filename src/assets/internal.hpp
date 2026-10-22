@@ -18,6 +18,7 @@ struct nue_asset_source {
     virtual nue_result read(uint64_t offset, void* buffer, size_t size, size_t* out_read) const = 0;
     virtual uint64_t size() const = 0;
     virtual const void* peek(uint64_t offset, size_t size) const { (void)offset; (void)size; return nullptr; }
+    virtual nue_file backing_file() const { return 0; }          // the engine file behind the source, for asynchronous reads
 };
 
 struct nue_asset_sink {
@@ -83,6 +84,7 @@ public:
     nue_result read(uint64_t offset, void* buffer, size_t size, size_t* out_read) const override;
     uint64_t size() const override { return size_; }
     nue_file handle() const { return file_; }
+    nue_file backing_file() const override { return file_; }
 private:
     nue_file file_ = 0;
     uint64_t size_ = 0;
@@ -141,6 +143,9 @@ struct ResRec {
     nue_asset_resource_info info;
     std::string name;
     nue_tex_image edit = nullptr;
+    bool has_native = false;                                // pending edit in the game's own encoding
+    nue_asset_native_texture native;
+    std::vector<uint8_t> native_data;
 };
 
 // Little helper for hashing names the same way everywhere (FNV-1a 64 over lower case ASCII).
@@ -179,7 +184,12 @@ nue_result container_add_node(nue_asset_container_s* c, const nue_asset_node_inf
 nue_result container_build_index(nue_asset_container_s* c);
 void container_free_state(nue_asset_container_s* c);
 
-// pack (nuepack.cpp)
-struct PackImpl;
+nue_result native_to_image(const nue_asset_native_texture& n, nue_tex_image* out);
+
+// the file behind a pack opened from a path (for asynchronous reads); 0 when the pack lives in memory
+nue_file pack_backing_file(nue_pack pack);
+const void* pack_entry_peek(nue_pack pack, uint32_t index);
+// where a node's payload lives on disk, when it is a plain slice of a file (no codec, no edit): the file and the offset
+bool container_node_file_range(nue_asset_container c, uint32_t node, nue_file* file, uint64_t* offset);   // pointer to the stored bytes of an uncompressed entry when the pack is in memory / mapped
 
 }  // namespace nuea

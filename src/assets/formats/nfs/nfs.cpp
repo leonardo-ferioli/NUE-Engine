@@ -266,7 +266,7 @@ nue_result NUE_CALL write(void*, nue_asset_container c, void*, uint32_t flags, n
             nue_asset_resource_info ri;
             NUE_STRUCT_INIT(&ri);
             nue_asset_resource_get(c, r, &ri);
-            if (ri.kind == NUE_ASSET_RES_TEXTURE && ri.node == i && nue_asset_resource_edit(c, r)) any_edit = true;
+            if (ri.kind == NUE_ASSET_RES_TEXTURE && ri.node == i && (nue_asset_resource_edit(c, r) || nue_asset_resource_native_edit(c, r))) any_edit = true;
         }
         if (!any_edit) continue;
         plans.emplace_back();
@@ -295,6 +295,7 @@ NUE_ASSETS_API nue_result NUE_CALL nue_assets_register_nfs(nue_assets_context ct
     f.close = nfs::close;
     f.index = nfs::index;
     f.get_image = nfs::get_image;
+    f.get_native = nfs::get_native;
     f.write = nfs::write;
     f.default_codec = nfs::default_codec;
     nue_result r = nue_assets_register_format(ctx, &f);

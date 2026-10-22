@@ -47,6 +47,8 @@ struct TexPlan {
     uint8_t rec[kRecSize];
     bool edited = false;
     std::vector<uint8_t> image;                              // edited: the new pixel bytes (all mip levels)
+    std::vector<uint8_t> pal_data;                           // edited with native data: the new palette
+    bool pal_edited = false;
     uint64_t src_off = 0;                                    // unedited: payload relative offset of the image in the source
     uint64_t image_size = 0;
     uint32_t pal_size = 0;
@@ -68,6 +70,7 @@ nue_result NUE_CALL open(void*, nue_asset_open_ctx* oc);
 void NUE_CALL close(void*, void*);
 nue_result NUE_CALL index(void*, nue_asset_container c, void*, const nue_asset_resource_ops* ops, void* builder);
 nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t resource, nue_tex_image* out);
+nue_result NUE_CALL get_native(void*, nue_asset_container c, void*, uint32_t resource, nue_asset_native_texture* out, void** out_memory);
 nue_result NUE_CALL write(void*, nue_asset_container c, void*, uint32_t flags, nue_asset_sink* sink);
 const char* NUE_CALL default_codec(void*, const char* ext);
 

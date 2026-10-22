@@ -301,6 +301,18 @@ NUE_ASSETS_API uint32_t NUE_CALL nue_asset_node_find(nue_asset_container contain
     return NUE_ASSET_NO_NODE;
 }
 
+namespace nuea {
+bool container_node_file_range(nue_asset_container container, uint32_t node, nue_file* file, uint64_t* offset) {
+    nue_asset_container_s* c = cont(container);
+    if (!c || node >= c->nodes.size() || c->codec || c->nodes[node].edited || !c->original) return false;
+    nue_file f = c->original->backing_file();
+    if (!f) return false;
+    *file = f;
+    *offset = c->nodes[node].info.offset;
+    return true;
+}
+}  // namespace nuea
+
 // ---------------------------------------------------------------------------------------------------- resources
 NUE_ASSETS_API uint32_t NUE_CALL nue_asset_resource_count(nue_asset_container container) { return container ? uint32_t(cont(container)->res.size()) : 0; }
 
@@ -311,7 +323,12 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get(nue_asset_container co
     ResRec& r = c->res[index];
     nue_asset_resource_info i = r.info;
     i.name = r.name.c_str();
-    if (r.edit) {
+    if (r.has_native) {
+        i.flags = (i.flags & ~uint32_t(NUE_ASSET_RESFLAG_PALETTED)) | NUE_ASSET_RESFLAG_EDITED | (r.native.flags & NUE_ASSET_RESFLAG_PALETTED);
+        i.format = (r.native.flags & NUE_ASSET_RESFLAG_PALETTED) ? uint32_t(NUE_TEX_BGRA8_UNORM) : r.native.tex_format;
+        i.width = r.native.width; i.height = r.native.height; i.depth = r.native.depth ? r.native.depth : 1; i.mip_levels = r.native.mip_levels;
+        i.native_format = r.native.native_format; i.data_size = r.native.size;
+    } else if (r.edit) {
         i.flags |= NUE_ASSET_RESFLAG_EDITED;
         nue_tex_image_desc d;
         NUE_STRUCT_INIT(&d);
@@ -331,6 +348,37 @@ NUE_ASSETS_API uint32_t NUE_CALL nue_asset_resource_find(nue_asset_container con
     return NUE_ASSET_NO_NODE;
 }
 
+namespace nuea {
+
+// A native edit as an image: palettised data (256 x B,G,R,A) is expanded to BGRA8.
+nue_result native_to_image(const nue_asset_native_texture& n, nue_tex_image* out) {
+    const bool pal = (n.flags & NUE_ASSET_RESFLAG_PALETTED) != 0;
+    nue_tex_image_desc d;
+    NUE_STRUCT_INIT(&d);
+    d.format = pal ? NUE_TEX_BGRA8_UNORM : nue_tex_format(n.tex_format);
+    d.width = n.width; d.height = n.height; d.depth = n.depth ? n.depth : 1; d.mip_levels = n.mip_levels;
+    nue_tex_image im = nullptr;
+    nue_result r = nue_tex_image_create(&d, &im);
+    if (r < 0) return r;
+    const uint8_t* src = static_cast<const uint8_t*>(n.data);
+    const uint8_t* palette = src + (n.size - n.palette_size);
+    uint64_t off = 0;
+    for (uint32_t l = 0; l < n.mip_levels; ++l) {
+        nue_tex_level_view v;
+        NUE_STRUCT_INIT(&v);
+        nue_tex_image_get_level(im, l, 0, 0, &v);
+        const uint64_t bytes = pal ? uint64_t(v.width) * v.height * v.depth : v.size;
+        if (off + bytes > n.size - n.palette_size) { nue_tex_image_destroy(im); return NUE_ERR_CORRUPT; }
+        if (pal) { for (uint64_t k = 0; k < bytes; ++k) std::memcpy(static_cast<uint8_t*>(v.data) + k * 4, palette + size_t(src[off + k]) * 4, 4); }
+        else std::memcpy(v.data, src + off, size_t(v.size));
+        off += bytes;
+    }
+    *out = im;
+    return NUE_OK;
+}
+
+}  // namespace nuea
+
 NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_image(nue_asset_container container, uint32_t index, nue_tex_image* out_image) {
     nue_asset_container_s* c = cont(container);
     if (!c || !out_image) return NUE_ERR_INVALID_ARGUMENT;
@@ -338,6 +386,7 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_image(nue_asset_contai
     if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
     ResRec& r = c->res[index];
     if (r.edit) return nue_tex_image_clone(r.edit, out_image);
+    if (r.has_native) return native_to_image(r.native, out_image);
     if (r.info.kind != NUE_ASSET_RES_TEXTURE || !c->fmt->format.get_image) return NUE_ERR_UNSUPPORTED;
     return c->fmt->format.get_image(c->fmt->format.userdata, container, c->state, index, out_image);
 }
@@ -353,8 +402,50 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_image(nue_asset_contai
     if (res < 0) return res;
     if (r.edit) nue_tex_image_destroy(r.edit);
     r.edit = copy;
+    r.has_native = false;
+    r.native_data.clear();
     c->dirty = true;
     return NUE_OK;
+}
+
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_native(nue_asset_container container, uint32_t index, nue_asset_native_texture* out, void** out_memory) {
+    nue_asset_container_s* c = cont(container);
+    if (!c || !out || !out_memory) return NUE_ERR_INVALID_ARGUMENT;
+    *out_memory = nullptr;
+    if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
+    ResRec& r = c->res[index];
+    if (r.has_native) {
+        void* mem = nue_alloc(r.native_data.size() ? r.native_data.size() : 1, 16);
+        if (!mem) return NUE_ERR_OUT_OF_MEMORY;
+        std::memcpy(mem, r.native_data.data(), r.native_data.size());
+        *out = r.native;
+        out->data = mem;
+        *out_memory = mem;
+        return NUE_OK;
+    }
+    if (r.info.kind != NUE_ASSET_RES_TEXTURE || !c->fmt->format.get_native || r.edit) return NUE_ERR_UNSUPPORTED;
+    return c->fmt->format.get_native(c->fmt->format.userdata, container, c->state, index, out, out_memory);
+}
+
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_native(nue_asset_container container, uint32_t index, const nue_asset_native_texture* n) {
+    nue_asset_container_s* c = cont(container);
+    if (!c || !n || !n->data || n->struct_size < sizeof(nue_asset_native_texture)) return NUE_ERR_INVALID_ARGUMENT;
+    if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
+    ResRec& r = c->res[index];
+    if (r.info.kind != NUE_ASSET_RES_TEXTURE) return NUE_ERR_UNSUPPORTED;
+    if (n->palette_size > n->size || n->width == 0 || n->height == 0 || n->mip_levels == 0) return NUE_ERR_INVALID_ARGUMENT;
+    r.native_data.assign(static_cast<const uint8_t*>(n->data), static_cast<const uint8_t*>(n->data) + size_t(n->size));
+    r.native = *n;
+    r.native.data = r.native_data.data();
+    r.has_native = true;
+    if (r.edit) { nue_tex_image_destroy(r.edit); r.edit = nullptr; }
+    c->dirty = true;
+    return NUE_OK;
+}
+
+NUE_ASSETS_API const nue_asset_native_texture* NUE_CALL nue_asset_resource_native_edit(nue_asset_container container, uint32_t index) {
+    nue_asset_container_s* c = cont(container);
+    return c && index < c->res.size() && c->res[index].has_native ? &c->res[index].native : nullptr;
 }
 
 NUE_ASSETS_API nue_tex_image NUE_CALL nue_asset_resource_edit(nue_asset_container container, uint32_t index) {

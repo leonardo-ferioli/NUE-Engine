@@ -146,6 +146,11 @@ inline std::vector<uint8_t> make_bun(const std::vector<TexSpec>& tex, bool secon
     bun.chunk(0x00030201u, noise(4464, 3));
     bun.pad(128);
     bun.chunk(0x00030203u, noise(1048, 4));
+    {
+        std::vector<uint8_t> pattern(3000);
+        for (size_t i = 0; i < pattern.size(); ++i) pattern[i] = uint8_t("chunk-data "[i % 11]);
+        bun.chunk(0x00030220u, pattern);                // compressible: the package stores it with JDLZ
+    }
     if (second_pack) {
         bun.pad(256);
         add_tpk(bun, "SECOND", 0x1234ABCDu, {{"ONLY_ONE", 0xABCDEF01u, 0x24, 8, 8, 2, 9}});
