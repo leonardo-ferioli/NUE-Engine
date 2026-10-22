@@ -31,6 +31,14 @@ The game creates its own HWND (the native widescreen fix hooks `CreateWindowExA`
 then `nue_gfx_create(window)`. NUE only observes the window (events, DPI, display, refresh rate), never destroys it, and the game's window procedure keeps priority.
 The d3d9 `Reset` with new back buffer sizes maps to `nue_gfx_resize`.
 
+## Textures and memory
+
+The translator asks `nue_gfx_get_gpu_caps` (or `nue_gpu_probe` before a device exists) which `nue_format_family` values the GPU samples. At `CreateTexture` /
+`UnlockRect` it hands DXT/uncompressed data to `nue_texture` (nue-texture session) with those caps; the texture module transcodes when the GPU cannot sample the
+format (BC on Apple/most mobile GPUs) and caches the result. Every GPU allocation is requested through the `texture` budget (`nue_budget_request`, `memory.h`);
+the layer registers an eviction hook that drops MANAGED-pool copies and unused levels under pressure. No size is hard-coded: the limit is a policy resolved from
+`nue_memory_info` (see `ARCHITECTURE.md`, section Memory).
+
 ## Renderer selection
 
 Order per platform (overridable by `nue_gfx_desc.renderer` and config key `gfx.renderer`): Windows D3D11, Vulkan, D3D12, OpenGL; Linux Vulkan, OpenGL, GLES;

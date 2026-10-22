@@ -3,10 +3,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 
 namespace nue_test {
 inline int& failures() { static int n = 0; return n; }
 inline int& checks() { static int n = 0; return n; }
+inline void on_terminate() {
+    try { throw; } catch (const std::exception& e) { std::printf("  UNCAUGHT EXCEPTION: %s\n", e.what()); } catch (...) { std::printf("  UNCAUGHT NON-STD EXCEPTION\n"); }
+    std::abort();
+}
 }  // namespace nue_test
 
 #define CHECK(cond) \
@@ -22,7 +27,7 @@ inline int& checks() { static int n = 0; return n; }
          if (!(d_ <= (eps))) { ++nue_test::failures(); std::printf("  FAIL %s:%d: %s ~ %s (%g vs %g)\n", __FILE__, __LINE__, #a, #b, da_, db_); } } while (0)
 #define TEST_CASE(name) static void name()
 
-#define TEST_MAIN_BEGIN int main() { int status_ = 0;
+#define TEST_MAIN_BEGIN int main() { int status_ = 0; std::setvbuf(stdout, nullptr, _IONBF, 0); std::set_terminate(nue_test::on_terminate);
 #define RUN(name) do { std::printf("[ test] %s\n", #name); name(); } while (0)
 #define TEST_MAIN_END \
     std::printf("%d checks, %d failures\n", nue_test::checks(), nue_test::failures()); \

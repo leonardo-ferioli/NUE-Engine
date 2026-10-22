@@ -55,6 +55,9 @@ typedef struct nue_display_info {
     nue_bool is_primary;
     nue_bool hdr_enabled;
     uint32_t reserved[8];
+    /* appended in 0.1.1 */
+    float min_refresh_hz, max_refresh_hz;   /* range the display/compositor can switch between (VRR panels, Steam Deck OLED 45-90 Hz); 0 = fixed/unknown */
+    nue_bool variable_refresh;              /* VRR / adaptive sync is available */
 } nue_display_info;
 
 /* [any] Enumerate connected displays. Fills up to `capacity` ids; *out_count gets the total number. */
@@ -136,6 +139,14 @@ NUE_API nue_result NUE_CALL nue_window_flash(nue_window window, nue_bool until_f
 NUE_API nue_result NUE_CALL nue_window_set_mode(nue_window window, nue_window_mode mode, const nue_display_mode* exclusive_mode);
 NUE_API nue_result NUE_CALL nue_window_move_to_display(nue_window window, nue_display_id display);
 
+/* Cooperating with a compositor that owns the refresh rate (gamescope, Steam Deck, Android's frame rate API, iOS ProMotion): tell the system how
+ * fast the game really renders so it can pick a matching refresh rate and pace presents. Both calls are requests: read nue_window_get_refresh_rate
+ * afterwards and watch NUE_EVENT_DISPLAY_CHANGED. 0 releases the request. A request the platform cannot take still stores the value, so
+ * nue_frame_limiter_wait (core.h) can pace to it in software. [event] */
+NUE_API nue_result NUE_CALL nue_window_request_refresh_rate(nue_window window, float hz);
+NUE_API nue_result NUE_CALL nue_window_set_frame_limit(nue_window window, float fps);
+NUE_API float NUE_CALL nue_window_get_frame_limit(nue_window window);                                   /* [any] 0 = none requested */
+
 /* Snapshot queries [any]. */
 NUE_API nue_window_mode NUE_CALL nue_window_get_mode(nue_window window);
 NUE_API nue_window_flags NUE_CALL nue_window_get_flags(nue_window window);
@@ -148,7 +159,8 @@ NUE_API nue_display_id NUE_CALL nue_window_get_display(nue_window window);
 NUE_API float NUE_CALL nue_window_get_refresh_rate(nue_window window);         /* Hz of the display it is on (current mode), 0 = unknown */
 NUE_API nue_bool NUE_CALL nue_window_has_focus(nue_window window);
 NUE_API nue_bool NUE_CALL nue_window_is_visible(nue_window window);
-/* Insets, in logical units, that must stay free of essential UI (notch, rounded corners, gesture bars, taskbar). Zero on desktop windowed. */
+/* The SAFE RECTANGLE inside the window, in logical units (SDL convention): x/y = left/top inset, w/h = the remaining size. Everything outside it may be hidden
+ * by a notch, rounded corners, gesture bars or a taskbar. Equals the whole window on desktop windowed. */
 NUE_API nue_result NUE_CALL nue_window_get_safe_area(nue_window window, nue_rect_i* out_rect);
 
 /* Native handle(s) for renderers and interop. [any] The handle is valid until the window is destroyed (Android: until SURFACE_LOST). */

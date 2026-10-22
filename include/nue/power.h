@@ -52,6 +52,10 @@ typedef struct nue_power_info {
     float thermal_headroom;                 /* Android: forecast 0..1+ (1 = throttling threshold); < 0 unknown */
     nue_bool display_keep_awake_active;     /* our own keep-awake request is in force */
     uint32_t reserved[6];
+    /* appended in 0.1.1 (struct_size guards them) */
+    int32_t tdp_watts_current;              /* handhelds (Steam Deck, ROG Ally): current sustained power limit, -1 unknown */
+    int32_t tdp_watts_min, tdp_watts_max;   /* adjustable range, -1 unknown */
+    nue_bool suspend_supported;             /* NUE_EVENT_SYSTEM_SUSPENDING / RESUMED can be delivered */
 } nue_power_info;
 
 NUE_API nue_result NUE_CALL nue_power_get_info(nue_power_info* out);
@@ -94,13 +98,16 @@ typedef struct nue_power_request {
     nue_bool disable_power_throttling;      /* Windows: opt out of EcoQoS/power throttling for the process */
     nue_bool prefer_low_latency_audio;      /* Android: request the performance mode; others: raise audio thread class */
     uint32_t reserved[6];
+    /* appended in 0.1.1 */
+    int32_t tdp_watts;                      /* 0 = leave to the system; otherwise ask for this sustained limit where the device allows it (clamped to its range) */
 } nue_power_request;
 
 typedef uint32_t nue_power_applied;     /* bit mask: which parts of the request the platform honoured */
 enum {
     NUE_POWER_APPLIED_PROFILE = 1u << 0, NUE_POWER_APPLIED_GAME_HINT = 1u << 1, NUE_POWER_APPLIED_KEEP_AWAKE = 1u << 2,
     NUE_POWER_APPLIED_GPU = 1u << 3, NUE_POWER_APPLIED_CPU = 1u << 4, NUE_POWER_APPLIED_TIMER = 1u << 5,
-    NUE_POWER_APPLIED_FRAME_TIME = 1u << 6, NUE_POWER_APPLIED_THROTTLING = 1u << 7, NUE_POWER_APPLIED_AUDIO = 1u << 8
+    NUE_POWER_APPLIED_FRAME_TIME = 1u << 6, NUE_POWER_APPLIED_THROTTLING = 1u << 7, NUE_POWER_APPLIED_AUDIO = 1u << 8,
+    NUE_POWER_APPLIED_TDP = 1u << 9
 };
 
 /* Replace the active request with this one (state-based: pass the full wanted state; an all-zero request releases everything).

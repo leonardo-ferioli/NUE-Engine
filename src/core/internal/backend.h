@@ -31,6 +31,7 @@ typedef struct nue_backend_init {
     const nue_init_desc* desc;              /* the caller's descriptor (flags, loop model, app strings) */
     nue_bool headless;
     nue_bool deterministic;
+    nue_bool platform_owns_lifecycle;   /* the platform layer pushes NUE_EVENT_APP_* itself: do not derive app state from window events */
 } nue_backend_init;
 
 /* ------------------------------------------------------------------------------------------------ video */
@@ -47,6 +48,7 @@ typedef struct nue_window_snapshot {
     nue_window_mode mode;
     nue_window_flags flags;                 /* current: RESIZABLE, BORDERLESS, ALWAYS_ON_TOP, MAXIMIZED, MINIMIZED, HIDDEN, HIGH_DPI */
     nue_bool focused, visible, occluded, mouse_inside;
+    nue_bool relative_mouse;                /* relative mouse mode is active */
     nue_rect_i safe_area;
     nue_native_window native;
 } nue_window_snapshot;
