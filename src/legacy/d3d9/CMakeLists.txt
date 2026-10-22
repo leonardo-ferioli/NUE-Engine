@@ -1,6 +1,8 @@
-# nue_d3d9: a general Direct3D 9 -> bgfx translator library (no game, no guest, no Windows types in its public headers).
-#   cmake -S nue_d3d9 -B build_nue -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
-#   cmake --build build_nue
+# nue_d3d9 (the engine's legacy_d3d9 module): a general Direct3D 9 -> bgfx translator library (no game, no guest, no Windows types in its
+# public headers), the bgfx adapter, the drop-in d3d9.dll (Windows) and their tools.
+#   From the engine:  cmake --preset windows-x64 -DNUE_WITH_LEGACY_D3D9=ON   (windows-x86 for the 32-bit d3d9.dll of the game)
+#   On its own:       cmake -S src/legacy/d3d9 -B build_d3d9 -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+# Needs the bgfx.cmake submodule: git submodule update --init --recursive --depth 1 third_party/bgfx.cmake
 cmake_minimum_required(VERSION 3.21)
 project(nue_d3d9 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
@@ -9,19 +11,23 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-get_filename_component(REPO "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+get_filename_component(NUE_D3D9_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)   # src/legacy/d3d9 -> repository root
+set(NUE_BGFX_CMAKE_DIR "${NUE_D3D9_REPO_ROOT}/third_party/bgfx.cmake" CACHE PATH "bgfx.cmake checkout (bgfx, bx, bimg) used by the Direct3D 9 layer")
 option(NUE_WITH_BGFX "Build the bgfx adapter and the tools that draw" ON)
 option(NUE_STATIC_CRT "Link the C/C++ runtime statically (use it for the 32-bit d3d9.dll so the game folder needs no redistributable)" OFF)
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-    # 32-bit x86: the ASTC decoder of bimg wants the 64-bit popcount intrinsic, which does not exist there
-    add_compile_options("-D_mm_popcnt_u64(v)=(_mm_popcnt_u32((unsigned)(v))+_mm_popcnt_u32((unsigned)((unsigned long long)(v)>>32)))")
+    # 32-bit x86: the ASTC decoder of bimg wants the 64-bit popcount intrinsic, which does not exist there; SSE 4.2 for the 32-bit popcount
+    add_compile_options("-D_mm_popcnt_u64(v)=(_mm_popcnt_u32((unsigned)(v))+_mm_popcnt_u32((unsigned)((unsigned long long)(v)>>32)))" -msse4.2)
 endif()
 if(NUE_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")   # /MT: no Visual C++ redistributable needed next to the game
 endif()
 
 # SPIRV-Cross (Apache-2.0), vendored by bgfx: SPIR-V -> GLSL ES / GLSL / MSL / HLSL.
-set(BGFX_ROOT "${REPO}/third_party/bgfx.cmake")
+set(BGFX_ROOT "${NUE_BGFX_CMAKE_DIR}")
+if(NOT EXISTS "${BGFX_ROOT}/bgfx/3rdparty/spirv-cross/spirv_cross.cpp")
+    message(FATAL_ERROR "legacy_d3d9: ${BGFX_ROOT} is empty; run: git submodule update --init --recursive --depth 1 third_party/bgfx.cmake")
+endif()
 set(SPIRV_CROSS "${BGFX_ROOT}/bgfx/3rdparty/spirv-cross")
 add_library(spirv_cross STATIC
     ${SPIRV_CROSS}/spirv_cfg.cpp ${SPIRV_CROSS}/spirv_cpp.cpp ${SPIRV_CROSS}/spirv_cross.cpp ${SPIRV_CROSS}/spirv_cross_parsed_ir.cpp
@@ -54,7 +60,9 @@ if(NUE_WITH_BGFX)
     set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_RENDERER_WEBGPU OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
-    add_subdirectory(${BGFX_ROOT} ${CMAKE_BINARY_DIR}/bgfx_build EXCLUDE_FROM_ALL)
+    if(NOT TARGET bgfx)   # another module of the engine may have added bgfx already
+        add_subdirectory(${BGFX_ROOT} ${CMAKE_BINARY_DIR}/bgfx_build EXCLUDE_FROM_ALL)
+    endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         foreach(t bx bimg bgfx)
             target_compile_options(${t} PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/dll/x86_stdcall_fix.h)
@@ -121,6 +129,8 @@ if(NUE_WITH_BGFX)
     endif()
 endif()
 
+# console-only unit tests (no window, no GPU): part of ctest. The tools above (nue_state_test and the others) need a GPU and the system
+# Direct3D 9 and open hidden windows: they are run by hand with the path of d3d9.dll, never from CI.
 enable_testing()
 add_executable(nue_tests tests/tests.cpp)
 target_link_libraries(nue_tests PRIVATE nue_d3d9)
