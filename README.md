@@ -16,6 +16,8 @@
 <p align="center">
   <a href="#why">Why</a> &middot;
   <a href="#the-stack">The stack</a> &middot;
+  <a href="#beyond-direct3d-9">Beyond Direct3D 9</a> &middot;
+  <a href="#built-for-reverse-engineering">Reverse engineering</a> &middot;
   <a href="#what-you-get">What you get</a> &middot;
   <a href="#status">Status</a> &middot;
   <a href="#build">Build</a> &middot;
@@ -50,6 +52,48 @@ There are two ways in:
 
 The legacy ABI sits on top of the native one and never the other way round, so a native program links no legacy code. Platform
 code is isolated in one layer per operating system, with SDL3 underneath for the parts that are the same everywhere.
+
+This is how one call travels through it:
+
+<p align="center">
+  <img alt="A Direct3D 9 call travelling from the recompiled game through the legacy ABI, the native ABI and the platform layer to the GPU" src="assets/flow.gif" width="860">
+</p>
+
+## Beyond Direct3D 9
+
+Direct3D 9 is where NUE started, not where it ends. The plan is to extend the same engine to the machines games were written for,
+from Xbox One and PlayStation down to the Nintendo 64, handhelds included. Each source platform gets its own legacy layer, the
+equivalent of `nue_d3d9`, on top of the same native ABI. Only that layer is written again. Everything underneath, on the four
+platforms NUE runs on, stays the same.
+
+<p align="center">
+  <img alt="The legacy layer changes with the source platform while the native ABI and the platform layers stay the same" src="assets/legacy-layers.gif" width="860">
+</p>
+
+| Source platform | Layer | State |
+|---|---|---|
+| Windows, Direct3D 9 | `legacy_d3d9` | In development |
+| Windows, Win32, DirectSound, DirectInput | `legacy_win32`, `legacy_dsound`, `legacy_dinput` | Planned |
+| Xbox One | `legacy_d3d11` | Planned |
+| PlayStation family | one layer per console API | Planned |
+| Nintendo 64 | `legacy_rdp` | Planned |
+| Handhelds | one layer per system | Planned |
+
+Only the Direct3D 9 layer exists today. The rest is design, listed in the [roadmap](docs/ROADMAP.md), and
+[how to write a legacy layer](docs/LEGACY_LAYERS.md) says what each one is made of.
+
+## Built for reverse engineering
+
+Writing a layer means finding out what a game really asks of its platform. NUE is built around a loop that makes that quick:
+record the calls a game makes, keep them in a versioned trace, replay them with no game running, and compare the result with a
+reference. The loop exists today for Direct3D 9, with a call recorder, trace tools, a headless replay tool with a deterministic
+call hash, a bisect by draw range and ground-truth tests against the real runtime. The plan is the same loop for every layer.
+
+<p align="center">
+  <img alt="The reverse engineering loop: record, trace, replay, compare, and a difference goes back to the start" src="assets/reverse-engineering.gif" width="860">
+</p>
+
+The tools and the workflow are in [Reverse engineering with NUE](docs/REVERSE_ENGINEERING.md).
 
 ## Native on every platform
 
@@ -130,6 +174,10 @@ Presets: `windows-x86`, `windows-x64`, `linux-x64`, `android-arm64`, `ios-arm64`
 - [Architecture](docs/ARCHITECTURE.md)
 - [Native API](docs/API.md)
 - [The two ABIs](docs/ABI.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Writing a legacy layer](docs/LEGACY_LAYERS.md)
+- [Reverse engineering with NUE](docs/REVERSE_ENGINEERING.md)
+- [Contributing](CONTRIBUTING.md)
 - [Porting a platform](docs/PORTING.md)
 - [Graphics and the Direct3D 9 seam](docs/GFX_D3D9_SEAM.md)
 - [Status](docs/STATUS.md)
