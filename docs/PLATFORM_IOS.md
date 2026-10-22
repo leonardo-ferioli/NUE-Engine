@@ -4,6 +4,20 @@ Backend notes for the iOS platform of the NUE engine: what exists, how it is org
 **what has and has not been verified**. macOS 13+ shares most of this code (UIKit pieces would be replaced by AppKit ones later).
 Step-by-step build instructions in Spanish: [PLATFORM_IOS.es.md](PLATFORM_IOS.es.md).
 
+> **Repository move.** The engine is becoming its own repository (`leonardo-ferioli/nue-engine`, private). Its root is the former `nue_engine/`
+> directory, so every path in this document that starts with `nue_engine/` loses that prefix there (`nue_engine/ios/...` -> `ios/...`,
+> `nue_engine/src/platform/ios/...` -> `src/platform/ios/...`). The CI workflow `.github/workflows/nue-ios.yml` currently lives at the old
+> repository root and uses `nue_engine/...` paths and `working-directory: nue_engine`; it must be adapted (drop the prefix) when it moves.
+> `nue_engine/ios/CMakeLists.txt` locates the sources relatively (`../src/platform/ios`) and the public headers through `../include`, so it
+> keeps working unchanged inside the new layout.
+>
+> **Two ABIs.** The engine will expose a NATIVE ABI (`nue_*`, stable C API) and a LEGACY ABI (`nue_legacy`: Win32 subset, COM-style
+> Direct3D 9 / DirectSound / DirectInput objects, 32-bit guest pointers and handle tables) layered on top of the native one. The iOS backend
+> stays independent of its callers: it only implements `nue_platform_ops` and the `nue_ios.h` services. For iOS the legacy layer, like
+> everything else, must never need generated code (no JIT): the recompiled game runs as ahead-of-time compiled code. What the legacy layer
+> needs from iOS (audio streams, input and touch events, file handles for the sandboxed data, a view that plays the role of an HWND) will
+> come from `docs/ABI.md` (nue-core) and is not implemented here yet.
+
 ## 1. Verification status (read this first)
 
 The author works on Windows. There is no macOS, Xcode or Apple SDK on that machine, so **no Apple code in this backend has ever been compiled
