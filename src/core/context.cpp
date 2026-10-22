@@ -214,7 +214,7 @@ NUE_API nue_result NUE_CALL nue_init(const nue_init_desc* user_desc) {
             break;
         default:
 #if defined(NUE_HAS_SDL3)
-            c.backend = (headless || g_deterministic.load()) ? nue_backend_null_get() : nue_backend_sdl3_get();
+            { const nue_backend* sdl = nue_backend_sdl3_get(); c.backend = (headless || g_deterministic.load() || !sdl) ? nue_backend_null_get() : sdl; }
 #else
             c.backend = nue_backend_null_get();
 #endif
