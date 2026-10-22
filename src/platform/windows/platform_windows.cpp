@@ -685,7 +685,9 @@ nue_result win_storage_root(nue_root_kind kind, const nue_init_desc* desc, char*
             break;
         }
         case NUE_ROOT_TEMP: {
-            if (desc && desc->user_data_path && desc->user_data_path[0]) return NUE_ERR_UNSUPPORTED;   // portable mode: temp lives below the user folder too
+            // Portable mode: temp lives below the user folder. Answered explicitly (not UNSUPPORTED) because the core's fallback for temp is a folder in %TEMP% shared by
+            // every process with the same app id, which made concurrently running tests clear each other's scratch space.
+            if (desc && desc->user_data_path && desc->user_data_path[0]) { path = path_from_utf8(desc->user_data_path) + L"\\temp"; break; }
             std::wstring t;
             if (!known_folder_path(KnownFolder::Temp, t).ok) return NUE_ERR_BACKEND;
             path = t + L"\\" + path_from_utf8(sanitize_file_name(org)) + L"\\" + path_from_utf8(sanitize_file_name(app));

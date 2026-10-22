@@ -59,15 +59,36 @@ static void test_mmcss() {
     t.join();
 }
 
+// The system timer period is a machine-wide value that follows a timeBeginPeriod request on the next clock interrupt (up to one coarse tick, ~16 ms), not
+// instantly: reading it straight after the call raced with that update (seen as a failure in about 2 of 3 full ctest runs). Wait for it, bounded.
+static bool wait_timer_at_most(double ms, double& last_seen) {
+    for (int i = 0; i < 100; ++i) {
+        TimerResolutionInfo t;
+        if (!query_timer_resolution(t)) return true;   // cannot be read on this system: nothing to assert
+        last_seen = t.current_ms;
+        if (t.current_ms <= ms + 1e-6) return true;
+        Sleep(5);
+    }
+    return false;
+}
+
 static void test_timers() {
     TEST_BEGIN("timer resolution and precise sleep");
     TimerResolutionInfo info;
     if (query_timer_resolution(info)) INFO("timer: coarsest %.3f ms, finest %.3f ms, current %.3f ms", info.minimum_ms, info.maximum_ms, info.current_ms);
     {
+        // Windows 11 only honours a timeBeginPeriod request machine-wide while the requesting process counts as foreground/visible; this console test has no window,
+        // so without the opt-out the system stayed at 15.625 ms in some runs (about 2 of 3 full ctest runs, depending on which window had the focus). The product does
+        // the same thing: power_apply(disable_power_throttling) sets PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION before asking for a period.
+        CHECK_OK(process_disable_power_throttling(true));
         TimerResolutionScope scope;
         CHECK_OK(scope.begin(1));
-        TimerResolutionInfo in_effect;
-        if (query_timer_resolution(in_effect)) { INFO("with timeBeginPeriod(1): current %.3f ms", in_effect.current_ms); CHECK(in_effect.current_ms <= 1.0 + 1e-6); }
+        double seen = 0;
+        const bool reached = wait_timer_at_most(1.0, seen);
+        INFO("with timeBeginPeriod(1): current %.3f ms", seen);
+        CHECK_MSG(reached, "system timer stayed at %.3f ms for 500 ms after timeBeginPeriod(1)", seen);
+        scope.end();
+        CHECK_OK(process_reset_power_throttling());
     }
     PreciseSleeper sleeper;
     INFO("high-resolution waitable timer: %s", sleeper.high_resolution() ? "yes" : "no (fallback)");

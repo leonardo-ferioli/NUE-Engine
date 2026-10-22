@@ -92,9 +92,24 @@ static void test_storage() {
     d.game_data_path = "D:/Game/Data";
     CHECK(ops()->storage_root(NUE_ROOT_USER, &d, buf, sizeof buf, &need) == NUE_OK && std::string(buf) == "D:\\Portable\\Saves");   // overrides win, separators normalised
     CHECK(ops()->storage_root(NUE_ROOT_DATA, &d, buf, sizeof buf, &need) == NUE_OK && std::string(buf) == "D:\\Game\\Data");
+    // Portable mode (explicit user folder): cache and settings are left to the core (<user>/cache, <user>/settings); temp is answered below the user folder so that
+    // concurrently running instances (tests with ctest -j) never share a scratch directory.
+    CHECK(ops()->storage_root(NUE_ROOT_CACHE, &d, buf, sizeof buf, &need) == NUE_ERR_UNSUPPORTED);
+    CHECK(ops()->storage_root(NUE_ROOT_SETTINGS, &d, buf, sizeof buf, &need) == NUE_ERR_UNSUPPORTED);
+    CHECK(ops()->storage_root(NUE_ROOT_TEMP, &d, buf, sizeof buf, &need) == NUE_OK && std::string(buf) == "D:\\Portable\\Saves\\temp");
     char tiny[8];
     CHECK(ops()->storage_root(NUE_ROOT_USER, &d, tiny, sizeof tiny, &need) == NUE_OK_PARTIAL && need == 17 && std::strlen(tiny) == 7);   // truncated, full size reported
     CHECK(ops()->storage_root(nue_root_kind(77), &d, buf, sizeof buf, &need) == NUE_ERR_UNSUPPORTED);
+}
+
+// Machine-wide timer period: it follows a request on the next clock interrupt, so poll (bounded) instead of reading it right after power_apply.
+static bool timer_us_reaches(uint32_t at_most_us, uint32_t& seen) {
+    for (int i = 0; i < 100; ++i) {
+        if (ops()->timer_resolution_get(&seen) != NUE_OK) return false;
+        if (seen > 0 && seen <= at_most_us) return true;
+        Sleep(5);
+    }
+    return false;
 }
 
 static void test_power() {
@@ -124,7 +139,7 @@ static void test_power() {
     CHECK_OK(process_query_power_throttling(ts));
     CHECK(ts.execution_speed_forced && ts.execution_speed == Support::No);
     uint32_t granted_us = 0;
-    CHECK(ops()->timer_resolution_get(&granted_us) == NUE_OK && granted_us <= 1000);
+    CHECK_MSG(timer_us_reaches(1000, granted_us), "timer stayed at %u us", granted_us);
     nue_power_info during;
     ops()->power_info(&during);
     CHECK(during.display_keep_awake_active);
@@ -139,9 +154,8 @@ static void test_power() {
     r.timer_resolution_us = 500;
     CHECK(ops()->power_apply(&r, &applied) == NUE_OK);
     uint32_t us = 0;
-    CHECK(ops()->timer_resolution_get(&us) == NUE_OK);
+    CHECK_MSG(timer_us_reaches(1000, us), "timer stayed at %u us", us);
     INFO("timer resolution after asking for 500 us: %u us", us);
-    CHECK(us > 0 && us <= 1000);
 
     // an all-zero request releases everything
     nue_power_request none;

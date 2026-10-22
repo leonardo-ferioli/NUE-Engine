@@ -175,6 +175,10 @@ or deliberately not done, with the reason.
 - **`clang -m32` needs the Visual Studio environment** (LIB/INCLUDE of the x86 toolchain), otherwise lld cannot find `kernel32.lib` etc. The first x86 run of this
   backend was silently an x64 build because of a script bug; the x86 results above are from the corrected script.
 - Windows 11: `Sleep(10)` lasts about 15.6 ms at the default timer resolution; use `PreciseSleeper`.
+- **Windows 11 ignores a window-less process' `timeBeginPeriod`.** Measured: a console test asking for 1 ms left the machine-wide timer at 15.625 ms for the whole
+  500 ms it waited, in roughly 2 of 3 full test runs (it depended on what had the focus), and honoured the request otherwise. Opting out first with
+  `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION` (`process_disable_power_throttling`, which `power_apply` does when `disable_power_throttling` is set) makes the request
+  hold. A game that needs a fine timer must set that opt-out together with the period, and a headless run (server, test) must not rely on the request.
 
 ## Not done / next block
 
