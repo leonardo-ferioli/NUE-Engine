@@ -184,6 +184,21 @@ nue_result win_timer_resolution_get(uint32_t* out) {
 
 thread_local MmcssScope t_games;   // registered by power_apply on the calling thread when the game hint asks for it
 
+// MMCSS sets the thread's base priority from the task profile in the registry of THIS machine ("Games" measured at 9 on a Windows 11 laptop, 11 on a Windows Server
+// 2025 runner; "Audio" 13, "Pro Audio" 15 = TIME_CRITICAL). The project forbids anything near TIME_CRITICAL, so a registration that lands at 13 or above is undone and the
+// thread keeps plain ABOVE_NORMAL instead.
+bool mmcss_begin_capped(MmcssScope& scope, const wchar_t* task) {
+    if (scope.active()) return true;
+    if (!scope.begin(task).ok) return false;
+    const int p = GetThreadPriority(GetCurrentThread());
+    if (p >= 13 || p == THREAD_PRIORITY_TIME_CRITICAL) {
+        scope.end();
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+        return false;
+    }
+    return true;
+}
+
 nue_result win_power_apply(const nue_power_request* r, nue_power_applied* out_applied) {
     if (!r) return NUE_ERR_INVALID_ARGUMENT;
     PlatformState& st = S();
@@ -216,7 +231,7 @@ nue_result win_power_apply(const nue_power_request* r, nue_power_applied* out_ap
     if (r->game_hint == NUE_GAME_HINT_NONE || r->game_hint == NUE_GAME_HINT_PAUSED || r->game_hint == NUE_GAME_HINT_MENU) {
         t_games.end();
     } else if (want(true)) {
-        if (t_games.active() || t_games.begin(L"Games").ok) got(NUE_POWER_APPLIED_GAME_HINT);
+        if (mmcss_begin_capped(t_games, L"Games")) got(NUE_POWER_APPLIED_GAME_HINT);
     }
 
     // keep awake
@@ -611,8 +626,10 @@ nue_result win_system_info(nue_system_info* out) {
     out->gpu_count = 0;
     GpuEnumeration g;
     if (enumerate_gpus(g, false, false).ok) {
+        bool have_hardware = false;
+        for (const auto& a : g.adapters) have_hardware |= !a.software;
         for (const auto& a : g.adapters) {
-            if (a.software || out->gpu_count >= NUE_MAX_GPUS) continue;
+            if ((a.software && have_hardware) || out->gpu_count >= NUE_MAX_GPUS) continue;   // software rasterisers are listed only when nothing else exists (virtual machines, CI)
             nue_gpu_info& gi = out->gpus[out->gpu_count++];
             std::memset(&gi, 0, sizeof gi);
             set_text(gi.name, a.name);
@@ -735,7 +752,7 @@ nue_result win_thread_set_priority(const nue_native_thread_ref* ref, nue_thread_
     // "Playback" 10, "Audio" 13, "Pro Audio" 15 (= TIME_CRITICAL, which the project forbids), so only "Games" respects the cap.
     if (t.current) t_audio_class.end();
     if (!thread_set_priority(t.handle, win32_priority(p)).ok) return NUE_ERR_ACCESS_DENIED;
-    if (t.current && p == NUE_THREAD_PRIORITY_REALTIME) t_audio_class.begin(L"Games");
+    if (t.current && p == NUE_THREAD_PRIORITY_REALTIME) mmcss_begin_capped(t_audio_class, L"Games");
     return NUE_OK;
 }
 

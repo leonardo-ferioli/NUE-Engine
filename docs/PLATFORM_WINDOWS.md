@@ -168,6 +168,10 @@ or deliberately not done, with the reason.
 - **MMCSS raises thread priority into the real-time range.** Measured on Windows 11: a thread registered with "Games" runs at base priority 9 (the normal
   class' ABOVE_NORMAL), "Playback" 10, "Audio" 13, "Pro Audio" 15 (= TIME_CRITICAL). The project forbids TIME_CRITICAL (the responsiveness incident), so the layer
   uses "Games" for `NUE_THREAD_PRIORITY_REALTIME` and the game hint, and its own WASAPI render thread defaults to "Playback"; "Pro Audio" is opt-in per stream.
+  The numbers come from each machine's MMCSS profile in the registry and differ: "Games" landed at 11 (not 9) on the Windows Server 2025 CI runner. The layer therefore
+  reads the priority after registering and undoes any registration that lands at 13 or above, leaving the thread at plain ABOVE_NORMAL.
+- **Virtual machines and CI runners have no hardware GPU.** DXGI offers only the Microsoft Basic Render Driver; `system_info` lists it when nothing else exists (it is hidden
+  when a real adapter is present), while `gpu_probe` and `memory_info_ex` keep ignoring software adapters, so the core falls back to its conservative table there.
 
 - **clang 23 and `__try`/`__except`:** a hardware fault (not a call) inside `__try` is **not caught** unless `-fasync-exceptions` is used; on x86 that option
   corrupted callee-saved registers in the caller in our test (vector returned through a garbage `sret` pointer). The backend therefore never relies on

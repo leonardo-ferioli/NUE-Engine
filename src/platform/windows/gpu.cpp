@@ -36,6 +36,10 @@ bool contains(const std::string& hay, const char* needle) { return lower(hay).fi
 constexpr uint64_t GiB = 1ull << 30;
 }  // namespace
 
+bool is_software_adapter(uint32_t flags, uint32_t vendor, uint32_t device) {
+    return (flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 || (vendor == 0x1414 && (device == 0x8C || device == 0x8D));
+}
+
 bool looks_integrated(uint32_t vendor, const std::string& name, uint64_t dedicated) {
     switch (vendor) {
         case 0x10DE: return false;                         // NVIDIA has no PC integrated GPU
@@ -135,7 +139,7 @@ Status enumerate_gpus(GpuEnumeration& out, bool with_memory_budget, bool with_pr
         info.dedicated_video_memory = d.DedicatedVideoMemory;
         info.dedicated_system_memory = d.DedicatedSystemMemory;
         info.shared_system_memory = d.SharedSystemMemory;
-        info.software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 || (d.VendorId == 0x1414 && d.DeviceId == 0x8C);
+        info.software = is_software_adapter(d.Flags, d.VendorId, d.DeviceId);
         if (!info.software) {
             info.integrated = looks_integrated(d.VendorId, info.name, d.DedicatedVideoMemory);
             info.discrete = !info.integrated;
@@ -175,7 +179,7 @@ Status enumerate_gpus(GpuEnumeration& out, bool with_memory_budget, bool with_pr
             ComPtr<IDXGIAdapter1> a;
             if (factory6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_MINIMUM_POWER, IID_PPV_ARGS(&a)) == DXGI_ERROR_NOT_FOUND) break;
             DXGI_ADAPTER_DESC1 d{};
-            if (FAILED(a->GetDesc1(&d)) || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) continue;
+            if (FAILED(a->GetDesc1(&d)) || is_software_adapter(d.Flags, d.VendorId, d.DeviceId)) continue;
             for (size_t k = 0; k < out.adapters.size(); ++k) if (out.adapters[k].luid.LowPart == d.AdapterLuid.LowPart && out.adapters[k].luid.HighPart == d.AdapterLuid.HighPart) { out.power_saving_index = int(k); break; }
             break;
         }
@@ -207,7 +211,7 @@ GpuMemorySnapshot query_gpu_memory() {
             HRESULT hr = SUCCEEDED(factory.As(&f6)) ? f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)) : factory->EnumAdapters1(i, &a);
             if (hr == DXGI_ERROR_NOT_FOUND || FAILED(hr)) break;
             DXGI_ADAPTER_DESC1 d{};
-            if (FAILED(a->GetDesc1(&d)) || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) continue;
+            if (FAILED(a->GetDesc1(&d)) || is_software_adapter(d.Flags, d.VendorId, d.DeviceId)) continue;
             adapter = a;
             chosen = d.AdapterLuid;
             integrated = looks_integrated(d.VendorId, to_utf8(d.Description), d.DedicatedVideoMemory);
@@ -244,7 +248,7 @@ Status probe_d3d11(const std::vector<uint32_t>& formats, D3D11Probe& out) {
         hr = SUCCEEDED(factory.As(&f6)) ? f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)) : factory->EnumAdapters1(i, &a);
         if (FAILED(hr)) break;
         DXGI_ADAPTER_DESC1 d{};
-        if (SUCCEEDED(a->GetDesc1(&d)) && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) { adapter = a; desc = d; break; }
+        if (SUCCEEDED(a->GetDesc1(&d)) && !is_software_adapter(d.Flags, d.VendorId, d.DeviceId)) { adapter = a; desc = d; break; }
     }
     if (!adapter) return Status::fail("no hardware adapter", ERROR_NOT_FOUND);
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0,

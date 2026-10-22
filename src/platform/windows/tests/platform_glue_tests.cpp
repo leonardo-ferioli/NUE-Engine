@@ -64,7 +64,7 @@ static void test_system() {
     CHECK(si.arch == (sizeof(void*) == 4 ? NUE_ARCH_KIND_X86 : NUE_ARCH_KIND_X64));
     CHECK(si.cpu_name[0] != 0 && si.cpu_logical_cores >= 1 && si.cpu_physical_cores >= 1 && si.cpu_physical_cores <= si.cpu_logical_cores);
     CHECK(si.memory_total_bytes > (512ull << 20) && si.memory_available_bytes > 0 && si.memory_available_bytes <= si.memory_total_bytes);
-    CHECK(si.gpu_count >= 1 && si.gpus[0].name[0] != 0 && si.gpus[0].vendor_id != 0);
+    CHECK(si.gpu_count >= 1 && si.gpus[0].name[0] != 0 && si.gpus[0].vendor_id != 0);   // a VM or CI runner lists its software adapter (Microsoft Basic Render Driver)
     CHECK(si.display_count >= 1 && si.locale[0] != 0);
 #if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
     CHECK(si.cpu_features & NUE_CPU_SSE2);
@@ -215,7 +215,7 @@ static void test_threads() {
     CHECK(ops()->thread_set_priority(nullptr, NUE_THREAD_PRIORITY_REALTIME) == NUE_OK);   // MMCSS "Games" on this thread
     const int rt = GetThreadPriority(GetCurrentThread());
     INFO("priority of this thread after REALTIME (MMCSS Games, base priority 9): %d", rt);
-    CHECK(rt == THREAD_PRIORITY_ABOVE_NORMAL || rt == 9);   // MMCSS reports its absolute base priority; 9 is the normal class' ABOVE_NORMAL. Never 15 (TIME_CRITICAL).
+    CHECK(rt == THREAD_PRIORITY_ABOVE_NORMAL || (rt >= 9 && rt <= 12));   // MMCSS reports its absolute base priority from the machine's profile (9 on a laptop, 11 on Windows Server 2025); never 13+ (the layer undoes those)   // MMCSS reports its absolute base priority; 9 is the normal class' ABOVE_NORMAL. Never 15 (TIME_CRITICAL).
     CHECK(ops()->thread_set_priority(nullptr, NUE_THREAD_PRIORITY_NORMAL) == NUE_OK && GetThreadPriority(GetCurrentThread()) == THREAD_PRIORITY_NORMAL);
     INFO("priority after NORMAL: %d", GetThreadPriority(GetCurrentThread()));
     CHECK(ops()->thread_set_name("nue glue test") == NUE_OK);
