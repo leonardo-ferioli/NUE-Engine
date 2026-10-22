@@ -10,7 +10,8 @@
  *   mixer.h     software mixer (voices, buses, 3D)
  *   storage.h   virtual file system, async read, integrity, game data import
  *   power.h     power/thermal/game mode, thread priority and affinity, performance hints
- *   system.h    system info and capabilities
+ *   system.h    system info, platform class (SteamOS, gamescope...) and capabilities
+ *   memory.h    memory info, pressure events, configurable budgets with eviction hooks
  *   gfx.h       graphics context (bgfx) and the Direct3D 9 layer seam
  *   diag.h      crash reports, assertions, counters, frame stats, trace
  *   null_backend.h  test control of the headless backend (not included here)
@@ -29,7 +30,15 @@
 #include "nue/storage.h"
 #include "nue/power.h"
 #include "nue/system.h"
+#include "nue/memory.h"
 #include "nue/gfx.h"
 #include "nue/diag.h"
+
+/* Optional modules, present when their headers are installed (owned by their own sessions). */
+#if defined(__has_include)
+#  if __has_include("nue/texture.h")
+#    include "nue/texture.h"
+#  endif
+#endif
 
 #endif /* NUE_NUE_H */
