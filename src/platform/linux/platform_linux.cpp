@@ -933,6 +933,17 @@ void p_pump() {
     st.last_pushed = now;
 }
 
+#if defined(NUE_LINUX_RUNTIME)
+// logind announced suspend / resume (watcher thread): tell the core the whole device sleeps, and move the app state so audio and GPU go quiet.
+void on_system_sleep(bool sleeping) {
+    nue_event ev;
+    std::memset(&ev, 0, sizeof ev);
+    ev.type = sleeping ? NUE_EVENT_SYSTEM_SUSPENDING : NUE_EVENT_SYSTEM_RESUMED;
+    nue_internal_push_event(&ev);
+    nue_internal_set_app_state(sleeping ? NUE_APP_STATE_BACKGROUND : NUE_APP_STATE_FOREGROUND);
+}
+#endif
+
 nue_result p_init(const nue_backend_init* bi) {
     if (g) return NUE_OK_NOOP;
     auto* st = new State;
@@ -980,7 +991,7 @@ nue_result p_init(const nue_backend_init* bi) {
         set_cap(c, NUE_CAP_KEEP_AWAKE);  // power_apply tries ScreenSaver + PowerManagement; the SDL backend adds its own inhibition
         // Suspend / resume: logind tells us before the system sleeps (laptops, Steam Deck). The game is moved to BACKGROUND so
         // audio and GPU go quiet, and back to FOREGROUND on resume.
-        if (st->suspend.start([](bool sleeping) { nue_internal_set_app_state(sleeping ? NUE_APP_STATE_BACKGROUND : NUE_APP_STATE_FOREGROUND); }))
+        if (st->suspend.start(on_system_sleep))
             set_cap(c, NUE_CAP_LIFECYCLE_PAUSE);
     }
     if (read_drm_devices(*st->fs).size() > 1) set_cap(c, NUE_CAP_GPU_PREFERENCE);
