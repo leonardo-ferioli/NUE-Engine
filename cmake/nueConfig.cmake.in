@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+# find_package(nue 0.1 CONFIG REQUIRED)
+#   target_link_libraries(game PRIVATE nue::nue)          # the engine
+#   target_link_libraries(game PRIVATE nue::entry)        # optional: portable entry point, you define int nue_main(int, char**)
+include("${CMAKE_CURRENT_LIST_DIR}/nueTargets.cmake")
+check_required_components(nue)
