@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="250" viewBox="0 0 960 250" role="img" aria-label="Direct3D 9 calls travel through the NUE layer and a shader translator to bgfx">
+<style>
+.bg{fill:#ffffff}.box{fill:#f6f8fa;stroke:#d0d7de}.cell{fill:#ffffff;stroke:#d0d7de}
+.yours{fill:none;stroke:#8c959f;stroke-dasharray:5 4}.t{fill:#1f2328}.m{fill:#656d76}
+.ar{stroke:#8c959f;fill:none}.hi{fill:#eaeef2;stroke:#8c959f}
+@media (prefers-color-scheme: dark){
+.bg{fill:#0d1117}.box{fill:#161b22;stroke:#30363d}.cell{fill:#0d1117;stroke:#30363d}
+.yours{stroke:#6e7681}.t{fill:#e6edf3}.m{fill:#8b949e}.ar{stroke:#6e7681}.hi{fill:#21262d;stroke:#6e7681}}
+</style>
+<rect class="bg" width="960" height="250" rx="14"/>
+<rect class="yours" x="24.0" y="40" width="160" height="124" rx="10"/>
+<text x="40.0" y="68" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Direct3D 9 calls</text>
+<text x="40.0" y="92" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">from the recompiled</text>
+<text x="40.0" y="110" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">game, unchanged</text>
+<path class="ar" d="M189.0 102.0 H207.0 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="212.0" y="40" width="160" height="124" rx="10"/>
+<text x="228.0" y="68" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Direct3D 9 layer</text>
+<text x="228.0" y="92" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">device, resources,</text>
+<text x="228.0" y="110" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">state, fixed function</text>
+<path class="ar" d="M377.0 102.0 H395.0 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="400.0" y="40" width="160" height="124" rx="10"/>
+<text x="416.0" y="68" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Shader translator</text>
+<text x="416.0" y="92" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">SM 1 to 3 bytecode</text>
+<text x="416.0" y="110" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">to SPIR-V, then HLSL,</text>
+<text x="416.0" y="128" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">MSL or GLSL</text>
+<path class="ar" d="M565.0 102.0 H583.0 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="588.0" y="40" width="160" height="124" rx="10"/>
+<text x="604.0" y="68" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">bgfx</text>
+<text x="604.0" y="92" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">one renderer API,</text>
+<text x="604.0" y="110" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">a render thread</text>
+<path class="ar" d="M753.0 102.0 H771.0 m-6 -5 l6 5 l-6 5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect class="box" x="776.0" y="40" width="160" height="124" rx="10"/>
+<text x="792.0" y="68" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">The GPU</text>
+<text x="792.0" y="92" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">Vulkan, Direct3D 11/12,</text>
+<text x="792.0" y="110" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">Metal, OpenGL ES</text>
+<path class="ar" d="M212.0 180 v8 H748.0 v-8" stroke-width="1.4"/>
+<text x="480.0" y="206" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">legacy_d3d9, in NUE Engine</text>
+<text x="480.0" y="230" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle">The layer talks to a small GPU interface, so another renderer can replace bgfx without touching the Direct3D 9 code.</text>
+</svg>

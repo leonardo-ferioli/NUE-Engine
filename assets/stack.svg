@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-label="The NUE Engine stack">
+<style>
+.bg{fill:#ffffff}.layer{fill:#f6f8fa;stroke:#d0d7de}.cell{fill:#ffffff;stroke:#d0d7de}
+.yours{fill:none;stroke:#8c959f;stroke-dasharray:5 4}.ext{fill:none;stroke:#d0d7de;stroke-dasharray:2 3}
+.t{fill:#1f2328}.m{fill:#656d76}.br{stroke:#8c959f;fill:none}
+@media (prefers-color-scheme: dark){
+.bg{fill:#0d1117}.layer{fill:#161b22;stroke:#30363d}.cell{fill:#0d1117;stroke:#30363d}
+.yours{stroke:#6e7681}.ext{stroke:#30363d}.t{fill:#e6edf3}.m{fill:#8b949e}.br{stroke:#6e7681}}
+</style>
+<rect class="bg" width="960" height="430" rx="14"/>
+<rect class="yours" x="40" y="28" width="720" height="64" rx="10"/>
+<text x="60" y="56" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" text-anchor="start">Recompiled game</text>
+<text x="60" y="77" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">generated C or C++ and the game's own patches</text>
+<rect class="layer" x="40" y="108" width="720" height="84" rx="10"/>
+<text x="60" y="134" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Legacy ABI</text>
+<text x="170" y="134" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">for Windows-era games, built on the native ABI</text>
+<rect class="cell" x="52.0" y="148" width="135.2" height="32" rx="6"/>
+<text x="119.6" y="169.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Win32 subset</text>
+<rect class="cell" x="195.2" y="148" width="129.3" height="32" rx="6"/>
+<text x="259.8" y="169.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Direct3D 9</text>
+<rect class="cell" x="332.4" y="148" width="129.3" height="32" rx="6"/>
+<text x="397.1" y="169.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">DirectSound</text>
+<rect class="cell" x="469.7" y="148" width="129.3" height="32" rx="6"/>
+<text x="534.3" y="169.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">DirectInput</text>
+<rect class="cell" x="607.0" y="148" width="141.0" height="32" rx="6"/>
+<text x="677.5" y="169.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Guest memory</text>
+<rect class="layer" x="40" y="208" width="720" height="100" rx="10"/>
+<text x="60" y="234" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Native ABI</text>
+<text x="170" y="234" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">stable C API with a C++ wrapper</text>
+<rect class="cell" x="52.0" y="246" width="132.8" height="26" rx="6"/>
+<text x="118.4" y="264.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Core</text>
+<rect class="cell" x="192.8" y="246" width="132.8" height="26" rx="6"/>
+<text x="259.2" y="264.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Lifecycle</text>
+<rect class="cell" x="333.6" y="246" width="132.8" height="26" rx="6"/>
+<text x="400.0" y="264.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Window</text>
+<rect class="cell" x="474.4" y="246" width="132.8" height="26" rx="6"/>
+<text x="540.8" y="264.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Input</text>
+<rect class="cell" x="615.2" y="246" width="132.8" height="26" rx="6"/>
+<text x="681.6" y="264.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Audio</text>
+<rect class="cell" x="52.0" y="276" width="143.0" height="26" rx="6"/>
+<text x="123.5" y="294.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Storage</text>
+<rect class="cell" x="203.0" y="276" width="243.1" height="26" rx="6"/>
+<text x="324.5" y="294.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Power and game mode</text>
+<rect class="cell" x="454.0" y="276" width="143.0" height="26" rx="6"/>
+<text x="525.5" y="294.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Graphics</text>
+<rect class="cell" x="605.0" y="276" width="143.0" height="26" rx="6"/>
+<text x="676.5" y="294.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Textures</text>
+<rect class="layer" x="40" y="324" width="720" height="64" rx="10"/>
+<text x="60" y="348" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start">Platform layers</text>
+<rect class="cell" x="52.0" y="356" width="149.3" height="26" rx="6"/>
+<text x="126.7" y="374.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Windows</text>
+<rect class="cell" x="209.3" y="356" width="224.0" height="26" rx="6"/>
+<text x="321.3" y="374.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Linux and SteamOS</text>
+<rect class="cell" x="441.3" y="356" width="149.3" height="26" rx="6"/>
+<text x="516.0" y="374.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Android</text>
+<rect class="cell" x="598.7" y="356" width="149.3" height="26" rx="6"/>
+<text x="673.3" y="374.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">iOS</text>
+<rect class="ext" x="40" y="400" width="720" height="22" rx="6"/>
+<text x="400.0" y="415" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle">SDL3, bgfx and the operating system</text>
+<path class="br" d="M782 28 h10 V92 h-10" stroke-width="1.4"/>
+<text x="804" y="65.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="start">your project</text>
+<path class="br" d="M782 108 h10 V388 h-10" stroke-width="1.4"/>
+<text x="804" y="253.0" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="start">NUE Engine</text>
+</svg>
