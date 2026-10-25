@@ -13,7 +13,8 @@ texture pack chunk ids and the palettised texture types (see `docs/THIRD_PARTY_A
 |---|---|
 | `.BUN` | a chunk stream (section 3). Not compressed |
 | `.LZC` | a `.BUN` wrapped in one JDLZ stream (section 2). `GlobalB.lzc` decodes to exactly `GLOBALB.BUN`, `InGameCommon.lzc` to `InGameCommon.bun` |
-| `STREAM*.BUN`, `L4R*.BUN` | the same chunk stream (tracks / city); same rules, world chunks are not interpreted |
+| `STREAM*.BUN`, `L4R*.BUN` | the same chunk stream (tracks / city): solids and texture packs are read (sections 4 and 5), the placement tables are kept opaque |
+| `CARS/*/GEOMETRY.BIN`, `TEXTURES.BIN`, `VINYLS.BIN` | the same chunk stream: car solids (section 5) and car texture packs (4.6) |
 
 The installed game has 70 `.BUN`/`.LZC` files (67 + 3); one (`FRONTEND/FRONTA.BUN`) is empty (0 bytes) and is a valid, empty container.
 
