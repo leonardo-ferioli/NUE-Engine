@@ -30,7 +30,7 @@ struct Context {
     // cold cache: source level hash + target format -> (file, level)
     std::mutex index_mutex;
     std::unordered_map<std::string, LevelRef> level_index;
-    std::list<std::pair<std::string, std::shared_ptr<Image>>> loaded;       // small LRU of whole cache files read for level lookups
+    std::atomic<bool> index_dirty{false};
     std::atomic<uint64_t> level_hits{0}, level_misses{0}, runtime_encodes{0};
 
     // async requests
@@ -60,6 +60,8 @@ nue_result cook_image(Context& c, const ConvertOptions& o, uint32_t class_mask, 
 std::string level_hash(Fmt f, uint32_t w, uint32_t h, const void* data, size_t size);      // 32 hex characters
 bool lookup_level(Context& c, const std::string& hash, Fmt target, std::vector<uint8_t>& out);
 void cache_scan(Context& c);
+void index_save(Context& c);                                                              // writes <cache>/index.nuei (done after a cook and at shutdown)
+bool index_load(Context& c);
 void cache_trim(Context& c, uint64_t max_bytes);
 nue_tex_encode_params encode_params_for(const Context& c, const nue_tex_plan& plan, nue_tex_usage usage, uint32_t req_flags);
 void snapshot_caps(Context& c, nue_tex_caps* out);

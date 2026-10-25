@@ -34,7 +34,7 @@ extern "C" {
 /* Version of this API and of the codec set. NUE_TEX_CODEC_VERSION is mixed into every cache key: bump it whenever a codec change can alter
  * the bytes it produces, so old cache entries are ignored (they are never wrong, only unused). */
 #define NUE_TEX_API_VERSION   1u
-#define NUE_TEX_CODEC_VERSION 1u
+#define NUE_TEX_CODEC_VERSION 2u      /* 2: fast 128-bit content hashes replace SHA-256 in cache keys and level index */
 
 /* ============================================================================================== formats */
 
@@ -647,7 +647,19 @@ typedef struct nue_tex_runtime_stats {
     uint64_t indexed_levels;            /* source levels known to the index */
     uint32_t reserved[4];
 } nue_tex_runtime_stats;
-NUE_API nue_result NUE_CALL nue_tex_context_get_runtime_stats(nue_tex_context ctx, nue_tex_runtime_stats* out);                  /* rebuild the statistics from the directory (drops corrupt files) */
+NUE_API nue_result NUE_CALL nue_tex_context_get_runtime_stats(nue_tex_context ctx, nue_tex_runtime_stats* out);
+
+/* Where the time goes (cumulative nanoseconds spent inside each phase, summed over all threads that ran it; nested phases overlap: convert contains decode, encode and mips). For profiling the cook and the lookups. */
+typedef struct nue_tex_profile {
+    uint32_t struct_size;
+    uint64_t alpha_scan_ns, plan_ns, source_hash_ns, cache_lookup_ns, drop_mips_ns, convert_ns, decode_ns, encode_ns, mips_ns, level_hash_ns, store_ns, lookup_ns, load_ns;
+    uint64_t hashed_bytes;              /* bytes run through SHA-256 */
+    uint32_t reserved[4];
+} nue_tex_profile;
+NUE_API void NUE_CALL nue_tex_profile_get(nue_tex_profile* out);
+NUE_API void NUE_CALL nue_tex_profile_reset(void);
+/* Cumulative encode time and encoded pixels per target format since the last reset (all threads). */
+NUE_API void NUE_CALL nue_tex_profile_encode(nue_tex_format format, uint64_t* out_ns, uint64_t* out_pixels);                  /* rebuild the statistics from the directory (drops corrupt files) */
 
 /* Convert an image for this device: plan + (cache lookup | convert + cache store). `source_key` may be NULL (the key is computed from the bytes).
  * out_plan may be NULL. The result is owned by the caller. */
@@ -662,7 +674,9 @@ typedef struct nue_tex_convert_request {
 } nue_tex_convert_request;
 NUE_API nue_result NUE_CALL nue_tex_context_convert(nue_tex_context ctx, const nue_tex_convert_request* request, nue_tex_image* out_image, nue_tex_plan* out_plan,
                                                      nue_bool* out_cache_hit);
-/* Convert one image for every device class in `class_mask` (NUE_TEX_CLASS_MASK_ALL = everything), skipping variants that already exist, and store the results. [any] */
+/* Convert one image for every device class in `class_mask` (NUE_TEX_CLASS_MASK_ALL = everything), skipping variants that already exist, and store the results. [any]
+ * Colour space: variants for sRGB sampling (ASTC has a separate sRGB encode; ETC2/BC/PVRTC share their bytes with the linear one) are cooked only when request->flags has NUE_TEX_REQ_SRGB,
+ * because they cost a second encode. The Direct3D 9 layer of NFSU2 never samples textures as sRGB. */
 NUE_API nue_result NUE_CALL nue_tex_cook_image(nue_tex_context ctx, const nue_tex_convert_request* request, uint32_t class_mask, nue_tex_cook_result* out);
 
 /* Asynchronous conversion for textures that show up at run time. The request is queued at `priority` (HIGH for something about to be drawn);

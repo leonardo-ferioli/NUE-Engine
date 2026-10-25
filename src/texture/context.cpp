@@ -34,7 +34,8 @@ std::string cache_key(const Image& src, const nue_tex_plan& plan, const nue_tex_
     feed(h, ver);
     feed(h, src.desc.format); feed(h, src.desc.width); feed(h, src.desc.height); feed(h, src.desc.depth);
     feed(h, src.desc.mip_levels); feed(h, src.desc.layers); feed(h, src.desc.faces);
-    h.update(src.data.data(), src.data.size());
+    if (!src.has_digest) { ProfScope ph(P_SRCHASH); src.digest = fast_hash128(src.data.data(), src.data.size()); src.has_digest = true; }
+    feed(h, src.digest);
     feed(h, plan.target_format); feed(h, plan.action); feed(h, plan.skip_mips); feed(h, plan.quality);
     h.update(plan.shader_swizzle, 5);
     feed(h, ep.quality); feed(h, ep.flags); feed(h, ep.alpha_threshold); h.update(ep.swizzle, 5);
@@ -93,6 +94,7 @@ void index_add(Context& c, const std::string& path, const KeyValues& kv, const K
     while (pos + 32 <= s.size()) {
         const uint32_t level = idx % m.levels, face = (idx / m.levels) % m.faces, layer = idx / (m.levels * m.faces);
         c.level_index[s.substr(pos, 32) + ":" + std::to_string((int)target)] = LevelRef{path, level, layer, face};
+        c.index_dirty = true;
         pos += 33;
         ++idx;
     }
@@ -121,11 +123,67 @@ void cache_store(Context& c, const std::string& key, const Image& im, const nue_
 
 }  // namespace
 
+// ---- persisted index: opening a cache of thousands of files must not mean opening thousands of files
+static const char kIndexMagic[8] = {'N', 'U', 'E', 'I', '1', 0, 0, 0};
+
+static std::string index_path(const Context& c) { return c.cache_dir + "/index.nuei"; }
+
+void index_save(Context& c) {
+    if (c.cache_dir.empty()) return;
+    std::vector<uint8_t> out(kIndexMagic, kIndexMagic + 8);
+    auto put32 = [&](uint32_t v) { const uint8_t* b = reinterpret_cast<const uint8_t*>(&v); out.insert(out.end(), b, b + 4); };
+    auto puts = [&](const std::string& s) { put32(uint32_t(s.size())); out.insert(out.end(), s.begin(), s.end()); };
+    {
+        std::lock_guard<std::mutex> l(c.index_mutex);
+        put32(NUE_TEX_CODEC_VERSION);
+        put32(uint32_t(c.level_index.size()));
+        put32(uint32_t(c.entries.load())); put32(uint32_t(c.entries.load() >> 32));
+        put32(uint32_t(c.bytes.load())); put32(uint32_t(c.bytes.load() >> 32));
+        const size_t root = c.cache_dir.size() + 1;
+        for (const auto& kv : c.level_index) {
+            puts(kv.first);
+            puts(kv.second.path.compare(0, root, c.cache_dir + "/") == 0 ? kv.second.path.substr(root) : kv.second.path);
+            put32(kv.second.level); put32(kv.second.layer); put32(kv.second.face);
+        }
+        c.index_dirty = false;
+    }
+    const uint32_t crc = crc32(0, out.data(), out.size());
+    out.insert(out.end(), reinterpret_cast<const uint8_t*>(&crc), reinterpret_cast<const uint8_t*>(&crc) + 4);
+    write_file_atomic(index_path(c).c_str(), out.data(), out.size());
+}
+
+bool index_load(Context& c) {
+    std::vector<uint8_t> b;
+    if (c.cache_dir.empty() || !read_file(index_path(c).c_str(), b) || b.size() < 20 || std::memcmp(b.data(), kIndexMagic, 8) != 0) return false;
+    uint32_t crc;
+    std::memcpy(&crc, &b[b.size() - 4], 4);
+    if (crc32(0, b.data(), b.size() - 4) != crc) return false;
+    size_t pos = 8;
+    auto get32 = [&](uint32_t& v) { if (pos + 4 > b.size() - 4) return false; std::memcpy(&v, &b[pos], 4); pos += 4; return true; };
+    auto gets = [&](std::string& s) { uint32_t n; if (!get32(n) || pos + n > b.size() - 4) return false; s.assign(reinterpret_cast<const char*>(&b[pos]), n); pos += n; return true; };
+    uint32_t version = 0, count = 0, e0, e1, b0, b1;
+    if (!get32(version) || version != NUE_TEX_CODEC_VERSION || !get32(count) || !get32(e0) || !get32(e1) || !get32(b0) || !get32(b1)) return false;
+    std::unordered_map<std::string, LevelRef> idx;
+    idx.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        std::string key, rel;
+        LevelRef r;
+        if (!gets(key) || !gets(rel) || !get32(r.level) || !get32(r.layer) || !get32(r.face)) return false;
+        r.path = c.cache_dir + "/" + rel;
+        idx.emplace(std::move(key), std::move(r));
+    }
+    std::lock_guard<std::mutex> l(c.index_mutex);
+    c.level_index = std::move(idx);
+    c.entries = (uint64_t(e1) << 32) | e0; c.bytes = (uint64_t(b1) << 32) | b0; c.scanned = true;
+    c.index_dirty = false;
+    return true;
+}
+
 void cache_scan(Context& c) {
     if (c.cache_dir.empty()) return;
     uint64_t n = 0, bytes = 0;
     std::error_code ec;
-    { std::lock_guard<std::mutex> l(c.index_mutex); c.level_index.clear(); c.loaded.clear(); }
+    { std::lock_guard<std::mutex> l(c.index_mutex); c.level_index.clear(); }
     for (fs::recursive_directory_iterator it(u8path(c.cache_dir), ec), end; !ec && it != end; it.increment(ec)) {
         if (!it->is_regular_file(ec) || it->path().extension() != ".ktx2") continue;
         ++n; bytes += it->file_size(ec);
@@ -135,6 +193,7 @@ void cache_scan(Context& c) {
         if (ktx2_read_meta(path.c_str(), kv, m)) index_add(c, path, kv, m);
     }
     c.entries = n; c.bytes = bytes; c.scanned = true;
+    index_save(c);
 }
 
 void cache_trim(Context& c, uint64_t max_bytes) {
@@ -157,6 +216,7 @@ void cache_trim(Context& c, uint64_t max_bytes) {
     uint64_t n = 0;
     for (size_t k = i; k < files.size(); ++k) ++n;
     c.entries = n; c.bytes = total;
+    c.index_dirty = true;
 }
 
 void snapshot_caps(Context& c, nue_tex_caps* out) { std::lock_guard<std::mutex> l(c.mutex); *out = c.caps; }
@@ -174,14 +234,8 @@ nue_tex_encode_params encode_params_for(const Context& c, const nue_tex_plan& pl
 }
 
 std::string level_hash(Fmt f, uint32_t w, uint32_t h, const void* data, size_t size) {
-    Sha256 s;
-    const char tag[] = "NUE-TEX-LEVEL";
-    s.update(tag, sizeof tag);
-    s.update(&f, sizeof f); s.update(&w, sizeof w); s.update(&h, sizeof h);
-    s.update(data, size);
-    uint8_t d[32];
-    s.finish(d);
-    return hex(d, 16);          // 128 bits are plenty to identify a level
+    // format and size are folded into the seed: the same bytes as a different format or size are a different level
+    return hex128(fast_hash128(data, size, (uint64_t(f) << 48) ^ (uint64_t(w) << 24) ^ uint64_t(h) ^ 0x4e5545u));
 }
 
 static nue_result plan_for(const Context& c, const ConvertOptions& o, const nue_tex_caps& caps, nue_tex_plan* plan, nue_tex_alpha_info* alpha_out) {
@@ -194,12 +248,14 @@ static nue_result plan_for(const Context& c, const ConvertOptions& o, const nue_
     rq.policy = &o.policy;
     rq.alpha_info = o.alpha_info;
     if (rq.alpha_info == NUE_TEX_ALPHA_INFO_UNKNOWN && !o.no_scan) {
+        ProfScope ps(P_ALPHA);
         nue_tex_scan_result sr; NUE_STRUCT_INIT(&sr);
         if (nue_tex_scan_level(src.desc.format, src.desc.width, src.desc.height, src.level_ptr(0, 0, 0), size_t(src.level_size(0, 0, 0)), &sr) >= 0) rq.alpha_info = sr.alpha_info;
     }
     (void)c;
     if (alpha_out) *alpha_out = rq.alpha_info;
     NUE_STRUCT_INIT(plan);
+    ProfScope pp(P_PLAN);
     return nue_tex_make_plan(&caps, &rq, plan);
 }
 
@@ -220,6 +276,7 @@ nue_result context_convert(Context& c, const ConvertOptions& o, Image** out, nue
     const Image* work = &src;
     std::unique_ptr<Image> dropped;
     if (plan.skip_mips) {
+        ProfScope pd(P_DROP);
         nue_tex_image tmp = nullptr;
         r = nue_tex_image_drop_top_mips(handle(const_cast<Image*>(&src)), plan.skip_mips, &tmp);
         if (r < 0) return r;
@@ -234,6 +291,7 @@ nue_result context_convert(Context& c, const ConvertOptions& o, Image** out, nue
     std::string key;
     if (cacheable) {
         key = cache_key(*work, plan, ep, mp, uint32_t(o.usage));
+        ProfScope pc(P_CACHE);
         if (store_only && cache_exists(c, key)) { ++c.hits; if (cache_hit) *cache_hit = true; return NUE_OK; }
         Image* hit = nullptr;
         if (!store_only && cache_load(c, key, &hit)) {
@@ -251,18 +309,24 @@ nue_result context_convert(Context& c, const ConvertOptions& o, Image** out, nue
     if (lossy && !o.cooking) ++c.runtime_encodes;
     ep.executor = reinterpret_cast<nue_tex_executor>(c.executor);
     Image* res = nullptr;
-    r = image_convert(*work, plan.target_format, work->levels(), &ep, &mp, &res);
+    { ProfScope pv(P_CONVERT); r = image_convert(*work, plan.target_format, work->levels(), &ep, &mp, &res); }
     if (r < 0) return r;
     if (cacheable) {
         // hashes of the SOURCE level behind every stored level, so a run-time lookup by content can find it
-        std::string hashes;
-        for (uint32_t layer = 0; layer < work->layers(); ++layer)
-            for (uint32_t face = 0; face < work->faces(); ++face)
-                for (uint32_t l = 0; l < work->levels(); ++l) {
-                    if (!hashes.empty()) hashes += ',';
-                    hashes += level_hash(work->desc.format, work->w(l), work->h(l), work->level_ptr(l, layer, face), size_t(work->level_size(l, layer, face)));
-                }
-        cache_store(c, key, *res, plan, hashes);
+        if (!work->has_level_hashes) {
+            ProfScope pl(P_LEVELHASH);
+            std::string hashes;
+            for (uint32_t layer = 0; layer < work->layers(); ++layer)
+                for (uint32_t face = 0; face < work->faces(); ++face)
+                    for (uint32_t l = 0; l < work->levels(); ++l) {
+                        if (!hashes.empty()) hashes += ',';
+                        hashes += level_hash(work->desc.format, work->w(l), work->h(l), work->level_ptr(l, layer, face), size_t(work->level_size(l, layer, face)));
+                    }
+            work->level_hashes = std::move(hashes);
+            work->has_level_hashes = true;
+        }
+        ProfScope ps(P_STORE);
+        cache_store(c, key, *res, plan, work->level_hashes);
     }
     if (store_only) delete res; else *out = res;
     return NUE_OK;
@@ -270,8 +334,6 @@ nue_result context_convert(Context& c, const ConvertOptions& o, Image** out, nue
 
 bool lookup_level(Context& c, const std::string& hash, Fmt target, std::vector<uint8_t>& out) {
     LevelRef ref;
-    std::shared_ptr<Image> file;
-    Fmt used = target;
     {
         std::lock_guard<std::mutex> l(c.index_mutex);
         auto it = c.level_index.find(hash + ":" + std::to_string((int)target));
@@ -283,26 +345,10 @@ bool lookup_level(Context& c, const std::string& hash, Fmt target, std::vector<u
             if (twin == target) return false;
             it = c.level_index.find(hash + ":" + std::to_string((int)twin));
             if (it == c.level_index.end()) return false;
-            used = twin;
         }
         ref = it->second;
-        for (auto li = c.loaded.begin(); li != c.loaded.end(); ++li)
-            if (li->first == ref.path) { file = li->second; c.loaded.splice(c.loaded.begin(), c.loaded, li); break; }
     }
-    if (!file) {
-        std::vector<uint8_t> bytes;
-        Image* im = nullptr;
-        if (!read_file(ref.path.c_str(), bytes) || ktx2_load(bytes.data(), bytes.size(), 0, &im, nullptr) < 0) return false;
-        file.reset(im);
-        std::lock_guard<std::mutex> l(c.index_mutex);
-        c.loaded.emplace_front(ref.path, file);
-        while (c.loaded.size() > 6) c.loaded.pop_back();
-    }
-    if (ref.level >= file->levels() || ref.layer >= file->layers() || ref.face >= file->faces()) return false;
-    (void)used;
-    const uint8_t* p = file->level_ptr(ref.level, ref.layer, ref.face);
-    out.assign(p, p + size_t(file->level_size(ref.level, ref.layer, ref.face)));
-    return true;
+    return ktx2_read_level(ref.path.c_str(), ref.level, ref.layer, ref.face, out);       // just the bytes of that level
 }
 
 // A variant is identified by what the bytes depend on. Colour-space twins of everything but ASTC hold the same bytes (the sRGB flag only changes how the GPU reads them).
@@ -325,7 +371,8 @@ nue_result cook_image(Context& c, const ConvertOptions& in, uint32_t class_mask,
     // The D3D9 layer asks for a plan with what it knows: it may know the alpha (or not) and whether the texture is sampled as sRGB. Cook every combination it can ask for.
     struct Mode { nue_tex_alpha_info alpha; bool no_scan; bool srgb; };
     std::vector<Mode> modes;
-    for (int srgb = 0; srgb < 2; ++srgb) {
+    const int srgb_passes = (base.flags & NUE_TEX_REQ_SRGB) ? 2 : 1;          // sRGB ASTC variants are real extra encodes: only when the content can be sampled as sRGB
+    for (int srgb = 0; srgb < srgb_passes; ++srgb) {
         modes.push_back({scanned, false, srgb != 0});
         if (scanned != NUE_TEX_ALPHA_INFO_UNKNOWN) modes.push_back({NUE_TEX_ALPHA_INFO_UNKNOWN, true, srgb != 0});
     }
@@ -391,12 +438,16 @@ nue_result NUE_CALL nue_tex_context_create(const nue_tex_context_desc* desc, nue
         c->executor = new Executor(ed);
         c->owns_executor = true;
     }
-    cache_scan(*c);                                       // builds the cold-cache index of what is already converted
+    if (!index_load(*c)) cache_scan(*c);                  // the persisted index of what is already converted, or one scan of the folder
     *out = reinterpret_cast<nue_tex_context>(c.release());
     return NUE_OK;
 }
 
-void NUE_CALL nue_tex_context_destroy(nue_tex_context cx) { delete ctx(cx); }
+void NUE_CALL nue_tex_context_destroy(nue_tex_context cx) {
+    if (!cx) return;
+    if (ctx(cx)->index_dirty) index_save(*ctx(cx));
+    delete ctx(cx);
+}
 
 nue_result NUE_CALL nue_tex_context_get_caps(nue_tex_context cx, nue_tex_caps* out) {
     if (!cx || !out) return NUE_ERR_INVALID_HANDLE;

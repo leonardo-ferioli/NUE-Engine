@@ -185,6 +185,7 @@ TEST_CASE(a_cache_can_be_copied_to_another_machine) {
     CHECK_EQ(nue_tex_cook_image(c1, &rq, NUE_TEX_CLASS_MASK_ALL, &cr), NUE_OK);
     CHECK(cr.stored >= 2);
     nue_tex_context_destroy(c1);
+    CHECK(fs::exists(fs::path(a) / "index.nuei"));                                        // the level index is persisted: reopening does not read every file
     fs::copy(a, b, fs::copy_options::recursive);
     nue_tex_caps_for_class(NUE_TEX_DEVICE_ANDROID_ASTC, &caps);                          // ...used on a phone
     cd.cache_dir = b.c_str();

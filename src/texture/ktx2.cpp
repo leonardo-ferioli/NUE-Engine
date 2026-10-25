@@ -206,6 +206,26 @@ nue_result ktx2_load(const uint8_t* data, size_t size, uint32_t flags, Image** o
 #include <filesystem>
 namespace nuetex {
 
+bool ktx2_read_level(const char* utf8_path, uint32_t level, uint32_t layer, uint32_t face, std::vector<uint8_t>& out) {
+#ifdef _WIN32
+    std::ifstream f(std::filesystem::u8path(utf8_path), std::ios::binary);
+#else
+    std::ifstream f(utf8_path, std::ios::binary);
+#endif
+    Header h;
+    if (!f || !f.read(reinterpret_cast<char*>(&h), sizeof h) || std::memcmp(h.ident, kIdent, 12) != 0 || h.supercompression != 0) return false;
+    const uint32_t levels = h.level_count ? h.level_count : 1, layers = h.layer_count ? h.layer_count : 1, faces = h.face_count ? h.face_count : 1;
+    if (level >= levels || layer >= layers || face >= faces) return false;
+    LevelIndex li;
+    f.seekg(std::streamoff(sizeof h + uint64_t(level) * sizeof li));
+    if (!f.read(reinterpret_cast<char*>(&li), sizeof li)) return false;
+    const uint64_t count = uint64_t(layers) * faces, per = li.length / count;
+    if (per * count != li.length || per == 0 || per > (1ull << 31)) return false;
+    out.resize(size_t(per));
+    f.seekg(std::streamoff(li.offset + (uint64_t(layer) * faces + face) * per));
+    return bool(f.read(reinterpret_cast<char*>(out.data()), std::streamsize(per)));
+}
+
 bool ktx2_read_meta(const char* utf8_path, KeyValues& kv, Ktx2Meta& meta) {
 #ifdef _WIN32
     std::ifstream f(std::filesystem::u8path(utf8_path), std::ios::binary);

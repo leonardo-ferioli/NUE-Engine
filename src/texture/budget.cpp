@@ -76,6 +76,7 @@ void enforce(Budget& b) {
             std::lock_guard<std::mutex> l(b.m);
             if (b.used <= b.limit || !b.evict || b.evicting) return;
             need = b.used - b.limit;
+            need += std::min<uint64_t>(b.limit / 32, 16ull << 20);          // hysteresis: free a little more than the overshoot so the next adds do not each trigger a round
             b.evicting = true;
             ++b.over_events;
             std::vector<std::pair<uint64_t, uint32_t>> order;

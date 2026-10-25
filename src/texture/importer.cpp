@@ -65,7 +65,8 @@ struct Importer {
             current = it.name;
         }
         nue_tex_image h = nullptr;
-        nue_result r = it.load ? it.load(it.user, &h) : nue_tex_image_load_file(it.path.c_str(), NUE_TEX_FILE_AUTO, 0, &h);
+        nue_result r;
+        { ProfScope pf(P_LOAD); r = it.load ? it.load(it.user, &h) : nue_tex_image_load_file(it.path.c_str(), NUE_TEX_FILE_AUTO, 0, &h); }
         if (r < 0 || !h) { ok = false; log(4, "import %s: cannot load (%s)", it.name.c_str(), "load error"); }
         else src = img(h);
         bool hit = false;

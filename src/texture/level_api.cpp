@@ -77,7 +77,11 @@ nue_result NUE_CALL nue_tex_encode_level(nue_tex_format format, uint32_t w, uint
     }
     if (fi->kind != NUE_TEX_KIND_BLOCK) return NUE_ERR_UNSUPPORTED;
     const nue_tex_encode_params p = get_params(params);
-    return encode_blocks(format, w, h, fl, src, src_pitch, dst, p);
+    const auto t0 = std::chrono::steady_clock::now();
+    const nue_result r = encode_blocks(format, w, h, fl, src, src_pitch, dst, p);
+    g_enc_ns[format] += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
+    g_enc_px[format] += uint64_t(w) * h;
+    return r;
 }
 
 nue_result NUE_CALL nue_tex_convert_level(nue_tex_format sf, nue_tex_format df, uint32_t w, uint32_t h, const void* src, size_t src_size, void* dst, size_t dst_size,
@@ -96,8 +100,10 @@ nue_result NUE_CALL nue_tex_convert_level(nue_tex_format sf, nue_tex_format df, 
     if (si->kind == di->kind && si->linear_twin == di->linear_twin && si->block_bytes == di->block_bytes) { std::memcpy(dst, src, size_t(ssz)); return NUE_OK; }
     const size_t pxs = fl ? 16 : 4;
     std::vector<uint8_t> tmp(size_t(w) * h * pxs);
-    nue_result r = nue_tex_decode_level(sf, w, h, src, src_size, mid, tmp.data(), tmp.size(), p.executor);
+    nue_result r;
+    { ProfScope pd(P_DECODE); r = nue_tex_decode_level(sf, w, h, src, src_size, mid, tmp.data(), tmp.size(), p.executor); }
     if (r < 0) return r;
+    ProfScope pe(P_ENCODE);
     return nue_tex_encode_level(df, w, h, mid, tmp.data(), size_t(w) * pxs, dst, dst_size, &p);
 }
 

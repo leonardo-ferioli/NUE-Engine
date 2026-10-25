@@ -135,6 +135,7 @@ nue_result NUE_CALL nue_tex_d3d9_convert_level(nue_tex_d3d9_texture th, uint32_t
     if (lossy && !(c.flags & NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE)) {
         // Cold conversion: nothing is encoded now. The level is found by the content of the source bytes in the cache the import cooked.
         const uint32_t lw = nue_tex_mip_extent(t.desc.width, level), lh = nue_tex_mip_extent(t.desc.height, level);
+        ProfScope pl(P_LOOKUP);
         std::vector<uint8_t> cooked;
         if (x == 0 && y == 0 && w == lw && h == lh && lookup_level(c, level_hash(t.src, w, h, packed.data(), packed.size()), t.info.gpu_format, cooked) && cooked.size() == gpu_size) {
             std::memcpy(dst, cooked.data(), gpu_size);

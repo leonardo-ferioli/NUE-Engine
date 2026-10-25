@@ -190,6 +190,52 @@ with "unknown"; 50-150 us per level (hash + copy). Caveat: this replay uses the 
 **Encoders not needed by these numbers:** BC2 (the game has 1460 DXT3 textures but the conversion path decodes them, it never encodes BC2); only a modding tool that replaces a DXT3 texture would need it (the assets session asked for it as a nicety, today it falls back to BC3).
 No BC4/BC5/DXT5/BC7/HDR source exists in the game; PVRTC2, ATC and ETC2-A1 are irrelevant for it.
 
+## 7c. Quality regression, NEON, speed and budget on the real textures (2026-10-25)
+
+**Quality regression** (`test_real_quality`, opt-in: `NUE_TEX_REAL_DIR=<folder with the extracted DDS>`; without it the test reports "skipped" and passes; nothing is committed). For the device classes `android_astc` and `android_etc2` every texture is planned and
+converted exactly as the cook does and compared with the decoded source; the per `source -> target` averages (PSNR, SSIM, CIEDE2000, textures below 30 dB) must stay inside the baseline table in the test (margins: PSNR -1.0 dB, SSIM -0.01, dE +15 % + 0.25, share below 30 dB +3 points; groups of fewer than 40 textures are printed but not judged, so `NUE_TEX_REAL_STRIDE` can be used for a quick run). `NUE_TEX_REAL_PRINT_BASELINE=1` prints a new table to accept a deliberate codec change. Run on every 10th texture of the dump (612 textures, 40 s): all eight rows inside the margins
+(e.g. DXT3 -> ASTC 4x4 58.0 dB / SSIM 0.999; DXT1 -> ETC2 RGB8 36.8 dB / 0.985; DXT1+alpha -> ETC2 RGBA8 36.3 dB / 0.878). Conversions that are bit exact (RGBA8 fallbacks) report 99 dB and are not in the baseline.
+
+**ARM NEON.** The compile-time ISA is chosen with `NUE_TEXTURE_SIMD=auto|none|sse2|sse41|avx2|neon`. What could be checked on the host (Windows x64) is the equivalence of the code paths: `test_simd` decodes a fixed set of blocks of every decoder and
+encodes a fixed synthetic image with every encoder, and compares with a golden file (`tests/texture/data/simd_golden.bin`, produced by the scalar build). It passes for `none`, `sse2`, `sse41` (default) and `avx2`, and for the 32-bit x86 build:
+decoders are **bit exact across all instruction sets**; astc-encoder, PVRTC and BC4/BC5 encoders produce identical bytes in every set; the etcpak based encoders (BC1, BC3, BC7, ETC, EAC) differ between their scalar/SSE/AVX2 code paths by up to 1.5 dB PSNR
+(scalar BC1 +0.7 dB, AVX2 BC7 -1.2 dB, AVX2 ETC2 +1.5 dB against SSE4.1), so the test accepts 2.5 dB for them. Consequence for the cache: a cook made with another instruction set is a *different but equivalent* result, never a cache-key issue (the key does not contain the ISA).
+The NEON build was **compiled** with Android NDK 28.2 for arm64-v8a (standalone module, tests and `nue_texconv`), but **not run**: no emulator or device was available. `tests/texture/run_on_android.sh` pushes the test executables and the golden file with `adb` and runs them;
+it is ready for the emulator nue-android is preparing. Until then NEON is "compiled, reviewed, not executed".
+
+**Speed** (cook of `TRACKS/STREAML4RB`, 473 textures, every device class, one thread, SSE4.1, Release, `nue_texconv cook --profile`): **29-31 s -> 19.3 s** after the hotspot work below. Per target format, thread time of the encoder:
+
+| Target | Encoder | MPixel/s per thread |
+|---|---|---|
+| ETC2 RGB8 / RGBA8 | etcpak | 29.6 / 30.0 (AVX2 build: ~91) |
+| PVRTC1 4bpp | Javelin | 8.2 |
+| ASTC 6x5 / 4x4 | astc-encoder (quality 60 / 98 mapping) | 1.55 / 1.18 (AVX2: +5 %) |
+
+The decode (0.2 s) and the level hashing (6 ms) are noise (1-2 %); **ASTC takes 75 % of the cook** (11.5 s + 1.1 s of 15.3 s encode); that is the price of ASTC quality and the knob is the effort (`nue_tex_policy.quality`, mapped to astc-encoder presets); a faster preset was not adopted without
+a quality decision. Removed hotspots (measured, in order): (1) the *sRGB ASTC variants* were cooked for every texture although the game never asks for them; now they exist only when the request carries `NUE_TEX_REQ_SRGB` (`cook_image`);
+(2) SHA-256 of every source level (the cold lookup key) replaced by a 128-bit non-cryptographic multiply-fold hash (`fast_hash128`; the cache is local, not a security boundary) and the source digest is computed once per image; the cache folder shrank from 223 to 178 MB for the same textures.
+Remaining: writing the cache files (KTX2 + atomic rename) is 16 % of the thread time, ASTC is the rest.
+**Opening the cache** at start-up was 1.7-5 s for 31892 indexed levels because every `.ktx2` was opened; the index is now persisted (`<cache>/index.nuei`, CRC protected, codec-version stamped, paths relative so the cache stays movable, rebuilt by a scan when absent or damaged):
+**4.96 s (first open, builds it) -> 0.09 s**. A cold lookup at run time now reads only the bytes of the requested level (`ktx2_read_level`) instead of loading the file; the replay through the D3D9 seam is 100 % served from the cache at 270-300 us per level, dominated by opening one file per lookup.
+
+**Texture budget with `nue_pack convert` (nue-assets) on real packs, for an Android-class and a desktop-class device.** Memory per pack (`nue_pack convert --target ...`; source = DXT as shipped; RGBA8 = what the current D3D9 layer fallback would use):
+
+| Pack | Textures | Source MB | Android ASTC MB | Android ETC2 MB | Desktop BC MB | RGBA8 MB |
+|---|---|---|---|---|---|---|
+| FrontB (menus) | 499 | 4.4 | 4.4 | 4.6 | 4.4 | 18.3 |
+| GlobalB | 211 | 6.7 | 7.3 | 7.6 | 7.3 | 11.9 |
+| InGameRace | 43 | 0.25 | 0.25 | 0.26 | 0.25 | 1.1 |
+| IntroNis01 | 6 | 0.33 | 0.37 | 0.67 | 0.33 | 2.7 |
+| STREAML4RC | 266 | 6.9 | 10.3 | 15.0 | 9.7 | 48.7 |
+| STREAML4RA | 1836 | 42.9 | 50.0 | 81.0 | 46.2 | 310.7 |
+| STREAML4RD | 1916 | 44.6 | (budget rejected, see below) | (rejected) | 47.8 | 323.8 |
+
+Findings: (a) `nue_pack`'s variant choice is its own fixed mapping and **does not call the planner**: DXT1 goes to ETC2 RGBA8 on ETC2 devices (the planner picks ETC2 RGB8 for opaque DXT1, half the memory: STREAML4RA 81 MB instead of ~44-52 MB) and to ASTC 6x5 for every DXT1 on ASTC devices
+(the planner uses ETC2 RGB8 for the 4026 opaque ones). The planner exists in this module (`nue_tex_make_plan`); nue-assets should call it or `nue_tex_cook_image`. (b) For STREAML4RD the Android variants were rejected because the engine's `assets` budget refused a 134 MB build: this is the budget doing its job, with a limit that the assets session configured; it is not a texture-module limit.
+(c) `nue_texconv budget-sim <dump> --device CLASS --available-mb N --preset P` plays every scene of the dump in order through the texture budget with LRU eviction (evict callback frees real sizes). Totals, planned by this module: all scenes together 153.0 MB (Android ASTC), 155.8 MB (desktop BC) against 985.6 MB as RGBA8.
+Android ASTC, `low_memory_mobile` on a 1 GB device (limit 122.9 MB): the global/front-end/NIS packs stay resident (~22 MB, pinned), tracks A, B, C, D load (peak 123.0 MB) and the budget evicts 11.6 + 11.8 + 7.9 MB = **31.3 MB in 8 eviction rounds** while D, F, G stream in; resident at the end 121.7 MB, nothing rejected.
+Android ASTC, `mobile` on 4 GB (limit 819 MB): all 153.0 MB resident, no eviction. Desktop BC, `desktop` on 16 GB (limit 5734 MB): 155.8 MB resident, no eviction. (The simulation loads each pack as a whole; a real race needs one track plus the shared packs, ~65 MB.)
+
 ## 8. Memory (budget API, model, D3D9 layer numbers)
 
 * **No built-in limit.** `nue_tex_budget_policy`: unlimited | bytes | fraction of the available memory the host reports | preset (`LOW_MEMORY_MOBILE` 12 % with a 64 MiB floor, `MOBILE` 20 %,
@@ -236,9 +282,21 @@ Seam cost at play time: SHA-256 of the level plus a copy (test_cold); the encode
 | Import pipeline, async requests | tested (resume via cache, pause, cancel, failures) |
 | Budget | tested (LRU, pinned, run-time policy change, presets); bridge to the engine budget manager tested in the engine build |
 | D3D9 seam | tested against synthetic DXT data; **not wired into nue_d3d9** (other owner) |
-| nue_texconv | info/convert/compare/plan/scan/bench/formats/caps work; `scan` has not seen real game textures |
-| Real game textures | **not tested**: the game's textures live in its own archives; an extraction or a DDS dump from the d3d9 layer is needed (`nue_texconv scan <dir>` then runs the planner and the totals) |
-| Other platforms | only built and run on Windows x64 here; Linux/Android/iOS builds are CI's job, NEON path unexercised |
+| nue_texconv | info/convert/compare/plan/scan/cook/bench/budget-sim/formats/classes/caps work, run on the real textures |
+| Real game textures | tested on the 6119 extracted textures (section 7b, 7c): scan, quality regression (opt-in test), cook, replay through the D3D9 seam, budget simulation. **Not seen:** the dump of what the game really uploads during a race (pending from the legacy-d3d9 session) |
+| Other platforms | run on Windows x64 and 32-bit x86 (all suites), SIMD sets none/sse2/sse41/avx2 equivalent (`test_simd`); Android arm64 (NEON) **compiled with the NDK, not run** (no emulator yet, `tests/texture/run_on_android.sh` ready); Linux/macOS/iOS builds are CI's job |
+
+### 10b. Backlog (decided not to build now, with the reason)
+
+Decision of the main session (2026-10-25), after the real-texture numbers: do not write these until a real need appears.
+
+* **BC2 (DXT3) encoder**: the game ships 1460 DXT3 textures but every plan decodes them and encodes to ASTC/ETC2/BC3; BC2 would only be written by a modding tool that replaces a DXT3 texture (BC3 is the fallback today).
+* **PVRTC 2bpp and PVRTC2 encoders and decoders, ATC decoder/encoder, ETC2 RGB-A1 decoder/encoder**: no source texture in the game uses them and no device class in the presets needs them (Apple PVRTC-only A7 is the single PVRTC consumer and it is served by PVRTC1 4bpp);
+  no open encoder exists for PVRTC2/2bpp (PVRTexLib is proprietary); the decoders can be ported from bimg (BSD-2) when a texture arrives in those formats.
+* **KTX2 supercompression (zstd/BasisLZ)**: refused with an error, not misread.
+* **Apple PVRTC non-square**: falls back to RGBA8 (+300 MB for the game); a padded or 16-bit fallback would fix it.
+* **ASTC effort**: a faster astc-encoder preset (medium instead of thorough for 6x5) would cut the cook by a large share (ASTC is 75 % of it) at a quality cost; needs a decision; the level-3 run was not completed.
+* **NEON on a device**: the arm64 build and the golden test exist, they have not been executed.
 
 ## 11. Requests to other owners
 

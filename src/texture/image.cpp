@@ -131,7 +131,7 @@ nue_result image_convert(const Image& src, Fmt dst_format, uint32_t dst_levels, 
             for (uint32_t l = existing; l < L; ++l) {
                 FloatLevel next;
                 const uint32_t w = dst->w(l), h = dst->h(l), dp = dst->d(l);
-                mip_downsample(prev, w, h, dp, mp, srgb_filter, next);
+                { ProfScope pm(P_MIPS); mip_downsample(prev, w, h, dp, mp, srgb_filter, next); }
                 if (coverage >= 0) mip_fix_alpha_coverage(next, coverage);
                 const uint64_t ds = nue_tex_level_size(dst_format, w, h, 1);
                 for (uint32_t z = 0; z < dp; ++z) {

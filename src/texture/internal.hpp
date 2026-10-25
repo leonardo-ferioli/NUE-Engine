@@ -2,6 +2,8 @@
 #pragma once
 #include "nue/texture.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -29,6 +31,16 @@ inline bool is_rgba32f(Fmt f) { return f == NUE_TEX_RGBA32_FLOAT; }
 
 void log(int level, const char* fmt, ...);
 
+// Phase timers (nue_tex_profile).
+enum ProfSlot { P_ALPHA, P_PLAN, P_SRCHASH, P_CACHE, P_DROP, P_CONVERT, P_DECODE, P_ENCODE, P_MIPS, P_LEVELHASH, P_STORE, P_LOOKUP, P_LOAD, P_HASHED_BYTES, P_COUNT };
+extern std::atomic<uint64_t> g_prof[P_COUNT];
+extern std::atomic<uint64_t> g_enc_ns[NUE_TEX_FORMAT_COUNT], g_enc_px[NUE_TEX_FORMAT_COUNT];
+struct ProfScope {
+    int slot; std::chrono::steady_clock::time_point t0;
+    explicit ProfScope(int s) : slot(s), t0(std::chrono::steady_clock::now()) {}
+    ~ProfScope() { g_prof[slot].fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()), std::memory_order_relaxed); }
+};
+
 // Pixel pack/unpack for uncompressed formats (pixel.cpp). dst/src RGBA8 or RGBA32F rows of `count` pixels.
 nue_result unpack_row(Fmt f, const void* src, uint32_t count, bool to_float, void* dst);
 nue_result pack_row(Fmt f, const void* src, uint32_t count, bool from_float, void* dst);
@@ -51,6 +63,11 @@ template <class F> void parallel_for(nue_tex_executor ex, uint32_t n, uint32_t m
 uint32_t crc32(uint32_t crc, const void* data, size_t size);
 void sha256(const void* data, size_t size, uint8_t out[32]);
 struct Sha256 { uint32_t s[8]; uint64_t len; uint8_t buf[64]; uint32_t used; Sha256(); void update(const void*, size_t); void finish(uint8_t out[32]); };
+
+// Fast 128-bit content hash (two multiply-fold lanes, 32 bytes per step, several GB/s). Not cryptographic: it identifies texture content in a local cache, nothing is adversarial.
+struct Hash128 { uint64_t a, b; };
+Hash128 fast_hash128(const void* data, size_t size, uint64_t seed = 0);
+std::string hex128(const Hash128& h);
 
 float srgb_to_linear(float c);
 float linear_to_srgb(float c);

@@ -8,6 +8,8 @@
 //   nue_texconv bench [--size N] [--threads N] [--seconds S]
 //   nue_texconv cook <srcdir> <cachedir> [--classes all|class,class,...] [--threads N] [--priority balanced|quality|speed|memory]
 //                                        cold conversion of every DDS/KTX2/PNG under srcdir into every device format at once (the cache can be copied to other machines)
+//   nue_texconv budget-sim <root> --device CLASS --available-mb N [--preset low_memory_mobile|mobile|desktop|high_end|unlimited] [--limit-mb N]
+//                                        texture memory per scene (<root>/<folder>/<file>/*.dds) for a device class, then a session that loads the scenes in order through the texture budget
 //   nue_texconv formats | classes | caps CLASS
 //   nue_texconv scan <dir> [--device CLASS]          plan every DDS/KTX2/PNG under a directory and print the totals (real game textures)
 #include "nue/texture.h"
@@ -264,10 +266,117 @@ static int cmd_cook(int argc, char** argv) {
     nue_tex_cache_stats st; NUE_STRUCT_INIT(&st);
     nue_tex_cache_scan(cx);
     nue_tex_cache_get_stats(cx, &st);
+    if (has_flag(argc, argv, "--profile")) {
+        nue_tex_profile pf; NUE_STRUCT_INIT(&pf); nue_tex_profile_get(&pf);
+        auto ms = [](uint64_t ns) { return ns / 1e6; };
+        std::printf("\nprofile (thread-seconds; phases nest): load %.0f ms, alpha scan %.0f, plan %.0f, source hash %.0f, cache lookup %.0f, drop mips %.0f, convert %.0f (decode %.0f, mips %.0f, encode %.0f), level hashes %.0f, store %.0f; %.1f MB hashed\n",
+                    ms(pf.load_ns), ms(pf.alpha_scan_ns), ms(pf.plan_ns), ms(pf.source_hash_ns), ms(pf.cache_lookup_ns), ms(pf.drop_mips_ns), ms(pf.convert_ns), ms(pf.decode_ns), ms(pf.mips_ns), ms(pf.encode_ns), ms(pf.level_hash_ns), ms(pf.store_ns), pf.hashed_bytes / 1048576.0);
+    }
+    if (has_flag(argc, argv, "--profile")) {
+        std::printf("encode by target (thread time):\n");
+        nue_tex_format list[NUE_TEX_FORMAT_COUNT];
+        const uint32_t n = nue_tex_format_list(list, NUE_TEX_FORMAT_COUNT);
+        for (uint32_t i = 0; i < n; ++i) {
+            uint64_t ns = 0, px = 0;
+            nue_tex_profile_encode(list[i], &ns, &px);
+            if (px) std::printf("  %-22s %9.1f s  %8.1f MPixel  %6.2f MPixel/s per thread\n", nue_tex_format_name(list[i]), ns / 1e9, px / 1e6, px / 1e6 / (ns / 1e9));
+        }
+    }
     std::printf("\ndone: %u textures (%u failed), %.1f s; cache now %llu files, %.1f MB\n", p.done, p.failed, p.elapsed_seconds, (unsigned long long)st.entries, st.bytes / 1048576.0);
     nue_tex_importer_destroy(imp);
     nue_tex_context_destroy(cx);
     return p.failed ? 1 : 0;
+}
+
+struct SimScene { std::string name; uint32_t textures = 0; uint64_t shipped = 0, planned = 0, rgba8 = 0; std::vector<uint64_t> sizes; };
+static uint64_t g_sim_evicted = 0;
+static nue_tex_budget g_sim_budget = nullptr;
+static std::vector<std::pair<nue_tex_resource_id, uint64_t>> g_sim_live;      // id, bytes (the "game" side bookkeeping)
+
+static uint64_t NUE_CALL sim_evict(void*, const nue_tex_resource_id* c, uint32_t n, uint64_t need) {
+    uint64_t freed = 0;
+    for (uint32_t i = 0; i < n && freed < need; ++i) {
+        for (size_t k = 0; k < g_sim_live.size(); ++k)
+            if (g_sim_live[k].first == c[i]) { freed += g_sim_live[k].second; g_sim_live.erase(g_sim_live.begin() + long(k)); break; }
+        nue_tex_budget_remove(g_sim_budget, c[i]);
+    }
+    g_sim_evicted += freed;
+    return freed;
+}
+
+static int cmd_budget_sim(int argc, char** argv) {
+    if (argc < 3) return 2;
+    nue_tex_caps caps;
+    nue_tex_caps_for_class(nue_tex_device_class_from_name(arg_value(argc, argv, "--device") ? arg_value(argc, argv, "--device") : "android_astc"), &caps);
+    nue_tex_policy pol; fill_policy(argc, argv, &pol);
+    std::map<std::string, SimScene> scenes;
+    for (const auto& e : fs::recursive_directory_iterator(argv[2])) {
+        if (!e.is_regular_file() || e.path().extension() != ".dds") continue;
+        const fs::path rel = fs::relative(e.path(), argv[2]);
+        auto it = rel.begin();
+        std::string folder = it != rel.end() ? it->string() : "", file = "";
+        if (it != rel.end()) ++it;
+        if (it != rel.end()) file = it->string();
+        if (file == "GLOBALB" || file == "InGameCommon" || file == "GlobalB" || file == "GLOBALB.BUN") continue;        // same content as the other global packs (reported by the assets session)
+        nue_tex_image im;
+        if (nue_tex_image_load_file(e.path().string().c_str(), NUE_TEX_FILE_AUTO, 0, &im) < 0) continue;
+        nue_tex_image_desc d; NUE_STRUCT_INIT(&d); nue_tex_image_get_desc(im, &d);
+        nue_tex_level_view v; NUE_STRUCT_INIT(&v); nue_tex_image_get_level(im, 0, 0, 0, &v);
+        nue_tex_scan_result sr; NUE_STRUCT_INIT(&sr); nue_tex_scan_level(d.format, v.width, v.height, v.data, size_t(v.size), &sr);
+        nue_tex_plan_request rq; NUE_STRUCT_INIT(&rq);
+        rq.source_format = d.format; rq.width = d.width; rq.height = d.height; rq.depth = d.depth; rq.mip_levels = d.mip_levels; rq.layers = d.layers; rq.faces = d.faces;
+        rq.alpha_info = sr.alpha_info; rq.policy = &pol;
+        nue_tex_plan plan; NUE_STRUCT_INIT(&plan);
+        if (nue_tex_make_plan(&caps, &rq, &plan) >= 0) {
+            SimScene& s = scenes[folder + "/" + file];
+            s.name = folder + "/" + file; ++s.textures; s.shipped += plan.source_bytes; s.planned += plan.target_bytes;
+            s.rgba8 += nue_tex_chain_size(NUE_TEX_RGBA8_UNORM, d.width, d.height, d.depth, d.mip_levels, d.layers, d.faces);
+            s.sizes.push_back(plan.target_bytes);
+        }
+        nue_tex_image_destroy(im);
+    }
+    uint64_t ts = 0, tp = 0, tr = 0;
+    std::printf("%-34s %6s %10s %10s %12s   (%s)\n", "scene", "tex", "shipped MB", "planned MB", "RGBA8 MB", nue_tex_device_class_name(caps.device_class));
+    for (auto& kv : scenes) {
+        const SimScene& s = kv.second;
+        std::printf("%-34s %6u %10.1f %10.1f %12.1f\n", s.name.c_str(), s.textures, s.shipped / 1048576.0, s.planned / 1048576.0, s.rgba8 / 1048576.0);
+        ts += s.shipped; tp += s.planned; tr += s.rgba8;
+    }
+    std::printf("%-34s %6s %10.1f %10.1f %12.1f\n", "ALL SCENES TOGETHER", "", ts / 1048576.0, tp / 1048576.0, tr / 1048576.0);
+
+    // session: pinned global packs, then every other scene loaded in order through the budget (the next one is loaded before the previous is released: streaming overlap)
+    nue_tex_budget_policy bp; NUE_STRUCT_INIT(&bp);
+    const uint64_t avail = (arg_value(argc, argv, "--available-mb") ? (uint64_t)std::atoll(arg_value(argc, argv, "--available-mb")) : 0) << 20;
+    if (const char* l = arg_value(argc, argv, "--limit-mb")) { bp.mode = NUE_TEX_BUDGET_BYTES; bp.limit_bytes = (uint64_t)std::atoll(l) << 20; }
+    else {
+        const char* ps = arg_value(argc, argv, "--preset") ? arg_value(argc, argv, "--preset") : "unlimited";
+        nue_tex_budget_preset pr = !std::strcmp(ps, "low_memory_mobile") ? NUE_TEX_BUDGET_PRESET_LOW_MEMORY_MOBILE : !std::strcmp(ps, "mobile") ? NUE_TEX_BUDGET_PRESET_MOBILE : !std::strcmp(ps, "desktop") ? NUE_TEX_BUDGET_PRESET_DESKTOP :
+                                    !std::strcmp(ps, "high_end") ? NUE_TEX_BUDGET_PRESET_HIGH_END : NUE_TEX_BUDGET_PRESET_UNLIMITED;
+        nue_tex_budget_policy_preset(pr, avail, &bp);
+    }
+    nue_tex_budget_create(&bp, sim_evict, nullptr, &g_sim_budget);
+    const uint64_t limit = nue_tex_budget_resolve(&bp);
+    std::printf("\nsession through the texture budget: limit %s%.1f MB (of %llu MB available)\n", limit == UINT64_MAX ? "none " : "", limit == UINT64_MAX ? 0.0 : limit / 1048576.0, (unsigned long long)(avail >> 20));
+    uint64_t peak = 0;
+    for (auto& kv : scenes) {
+        const SimScene& s = kv.second;
+        const bool pinned = s.name.compare(0, 6, "GLOBAL") == 0;
+        const uint64_t before_evicted = g_sim_evicted;
+        uint32_t overflow = 0;
+        for (uint64_t sz : s.sizes) {
+            nue_tex_resource_id id = 0;
+            if (nue_tex_budget_add(g_sim_budget, sz, pinned ? NUE_TEX_RES_PINNED : 0, &id) >= 0) g_sim_live.push_back({id, sz});
+            else ++overflow;
+        }
+        nue_tex_budget_stats st; NUE_STRUCT_INIT(&st); nue_tex_budget_get_stats(g_sim_budget, &st);
+        peak = std::max(peak, st.used);
+        std::printf("  after %-34s resident %8.1f MB, evicted by this scene %8.1f MB%s\n", s.name.c_str(), st.used / 1048576.0, (g_sim_evicted - before_evicted) / 1048576.0, overflow ? " (some did not fit)" : "");
+    }
+    nue_tex_budget_stats st; NUE_STRUCT_INIT(&st); nue_tex_budget_get_stats(g_sim_budget, &st);
+    std::printf("session end: resident %.1f MB, peak %.1f MB, evicted in total %.1f MB in %llu eviction rounds, over-limit events %u\n", st.used / 1048576.0, st.peak / 1048576.0, g_sim_evicted / 1048576.0,
+                (unsigned long long)st.evictions_requested, st.over_budget_events);
+    nue_tex_budget_destroy(g_sim_budget);
+    return 0;
 }
 
 // ---------------------------------------------------------------------------------------------------- benchmark
@@ -376,6 +485,7 @@ int main(int argc, char** argv) {
     else if (cmd == "scan") rc = cmd_scan(argc, argv);
     else if (cmd == "bench") rc = cmd_bench(argc, argv);
     else if (cmd == "cook") rc = cmd_cook(argc, argv);
+    else if (cmd == "budget-sim") rc = cmd_budget_sim(argc, argv);
     else if (cmd == "formats") {
         nue_tex_format list[NUE_TEX_FORMAT_COUNT];
         const uint32_t n = nue_tex_format_list(list, NUE_TEX_FORMAT_COUNT);

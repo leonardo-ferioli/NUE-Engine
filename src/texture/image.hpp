@@ -10,6 +10,10 @@ struct Image {
     std::vector<uint8_t> data;
     std::vector<uint64_t> offsets;      // [layer][face][level]
     std::vector<uint64_t> sizes;
+    // content digests computed once per image and reused by every variant (cook): the hash of all the bytes, and the hash of every level (comma separated)
+    mutable bool has_digest = false, has_level_hashes = false;
+    mutable Hash128 digest{0, 0};
+    mutable std::string level_hashes;
 
     uint32_t layers() const { return desc.layers; }
     uint32_t faces() const { return desc.faces; }
