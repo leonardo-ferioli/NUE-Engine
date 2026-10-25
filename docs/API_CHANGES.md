@@ -17,6 +17,15 @@ Internal contracts for implementers: `src/core/internal/backend.h` (devices) and
 * The SDK installs completely (`nue::entry`, `nue::assets` exported under those names, tools, docs, SDL3 for static SDKs) and `samples/consume_sdk` proves it, see `docs/ABI.md` 3.1.
 * Portable mode (explicit `user_data_path`) keeps cache, settings and temp below it even when a platform layer is linked (the platform layer is not asked for those roots).
 
+## 0.1.3 (additive; gfx session)
+
+* `gfx.h`: MANAGED mode is real with `-DNUE_WITH_GFX=ON` (`nue_gfx_create` initialises bgfx). New: `nue_gfx_desc.native_window` (adopt a window the caller owns), `.max_draw_calls`;
+  `nue_gfx_native.platform_ndt/platform_nwh/generation`; `nue_gfx_caps.vendor_id/device_id/max_*_handles`; `nue_gfx_state` + `nue_gfx_get_state` (the `TestCooperativeLevel` answer),
+  `nue_gfx_reset_device`, `nue_gfx_apply_pending`, `nue_gfx_report_device_lost`, `nue_gfx_get_shader_cache_dir`, `nue_gfx_request_capture` + `nue_gfx_capture_fn`, GPU memory
+  (`nue_gfx_memory_request/report`, `nue_gfx_add/remove_evictor`, `nue_gfx_evict_fn`), `nue_gfx_get_tex_caps`, notification `NUE_GFX_NOTIFY_DEVICE_RESET`. Thread rules rewritten in the header
+  (render thread = the thread that created the context; other threads only record changes). Behaviour: `nue_gfx_get_gpu_caps` merges the live renderer's caps (returns `NUE_OK`, was
+  always `NUE_OK_PARTIAL`) except for NOOP contexts; the null backend's invented window handles are refused by real renderers. See `GFX.md`, requests in `REQUESTS_gfx.md`.
+
 ## 0.1.2 (additive)
 
 * `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).

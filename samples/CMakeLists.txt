@@ -7,6 +7,9 @@ foreach(dir IN LISTS NUE_SAMPLE_DIRS)
         if(name STREQUAL "hello_window" AND NOT NUE_HAVE_SDL3)
             continue()   # needs nue::entry, which comes with the SDL3 backend
         endif()
+        if(name STREQUAL "hello_gfx")
+            continue()   # has its own CMakeLists.txt (gfx session), added below when the graphics module is built
+        endif()
         add_executable(nue_sample_${name} "${dir}/main.cpp")
         target_link_libraries(nue_sample_${name} PRIVATE nue::nue nue_internal)
         if(name STREQUAL "hello_window")
@@ -15,3 +18,7 @@ foreach(dir IN LISTS NUE_SAMPLE_DIRS)
         endif()
     endif()
 endforeach()
+
+if(NUE_WITH_GFX AND NUE_HAVE_SDL3 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/hello_gfx/CMakeLists.txt")
+    add_subdirectory(hello_gfx)
+endif()

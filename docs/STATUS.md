@@ -39,12 +39,12 @@ Last update: core block 4 (consumable SDK, ABI guard, real file mapping). Legend
 | gfx: renderer list, PREPARE mode lifecycle (resize/suspend/resume/listeners/destroy), NOOP renderer | gfx | tested | n/a | test_events |
 | SDL3 backend: displays + modes, windows (create, size, mode, DPI, safe area, native handle, attach HWND/X11 where SDL allows), cursor clip/relative, text input, keyboard/mouse/touch/gamepad event translation, gamepad state/rumble/LED/sensors/mappings, device sensors, audio devices + streams (SDL converts formats), lifecycle events, fullscreen policy under gamescope | all | - | tested with the dummy video/audio drivers (windows, events, audio callback, mixer on a real SDL stream, gamepad API without devices) | test_sdl3 |
 | SDL3 backend: real displays/GPU surfaces/devices, hot-plugged gamepads, IME, touch, sensors, X11/Wayland/Android/iOS behaviour | all | - | **written, not run** on any real device | - |
-| gfx MANAGED mode (bgfx init/reset/frame), caps | gfx | **not implemented** (returns NUE_ERR_UNSUPPORTED) | n/a | test_events |
+| gfx MANAGED mode (bgfx init/reset/frame/shutdown, renderer choice + config, suspend/resume, device lost/reset, capture, caps, tex caps, GPU budget, shader cache dir, bgfx log routing), `-DNUE_WITH_GFX=ON` | gfx | **implemented**; tested on NOOP (bgfx Noop renderer, null backend) and on **real Direct3D 11** (Windows x64, hidden window, pixels read back); `GFX.md` section 10 | Windows x64 D3D11 on the dev machine; Vulkan/D3D12/GL/Linux/Android/iOS **not run** (Android/iOS built by CI only) | nue_gfx_test_lifecycle, nue_gfx_smoke, nue_gfx_local_d3d11_hidden (label gpu, manual) |
 | memory info + budgets (policies, config overrides, eviction hooks, pressure events, per-class defaults) | memory | tested (simulated machines) | n/a | test_memory |
 | memory info from a real machine | memory | needs `memory_info`/`memory_info_ex` from the platform layers (generic layer reports nothing) | n/a | test_memory (sanity only) |
 | timers (`nue_timer_*`), frame limiter | core | tested (virtual clock + a real-time smoke test) | shared | test_hooks |
 | refresh-rate / frame-limit requests, screen keyboard, glyph override, TDP fields, platform class flags, suspend/audio-interruption events | window/input/power/system/app | tested at API level; real effect needs the platform layers (`window_request_refresh`, `screen_keyboard`, `system_info`, `power_*`) | - | test_hooks |
-| GPU capability probe (`nue_gpu_probe`) | gfx | conservative per-platform assumption, `probed = false` (tested); real probe needs the platform `gpu_probe` | n/a | test_hooks |
+| GPU capability probe (`nue_gpu_probe`, `nue_gfx_get_gpu_caps`) | gfx | platform `gpu_probe` (all four layers have one) or the conservative table (`probed = false`); `nue_gfx_get_gpu_caps` merges the live bgfx caps per format family (incl. `NUE_FMTSUP_EMULATED`) | live merge run on D3D11 only | test_hooks, nue_gfx_local_d3d11_hidden |
 | init order (pre_init -> storage -> settings -> backend -> platform), appended platform-ops fields guarded by struct_size | core | tested | n/a | test_hooks, all suites |
 | diag: reports, notes, breadcrumbs, asserts, counters, frame stats, Chrome trace | diag | tested | n/a | test_diag |
 | diag: crash handler installation | diag | core side written; needs a platform layer (`crash_install`), none exist yet | n/a | test_diag (reports "unsupported") |
@@ -67,7 +67,7 @@ Last update: core block 4 (consumable SDK, ABI guard, real file mapping). Legend
 * Texture hook: `nue_texture_obj` target and `NUE_HAS_TEXTURE`; the module itself belongs to nue-texture.
 
 * The SDL3 backend has no raw-joystick support for devices SDL cannot map as gamepads, no capture streams, no haptics (platform ops own phone vibration), no real-device validation.
-* `nue_gfx` MANAGED mode (bgfx init / reset / frame inside the engine) and the `NUE_WITH_GFX` module are the one remaining core skeleton: `cmake/NueGfx.cmake` stops with an error and `nue_gfx_create` returns `NUE_ERR_UNSUPPORTED` for MANAGED. The legacy D3D9 layer does not need it (it uses PREPARE mode); native games that want the engine to own bgfx do.
+* `nue_gfx` MANAGED mode needs `-DNUE_WITH_GFX=ON` (default OFF; bgfx is a recursive submodule). See `GFX.md`.
 * The i386 System V layout (`alignof(uint64_t) == 4`) has no ABI table; nothing in the supported matrix builds for it.
 * The null backend's audio device accepts any format; conversion inside streams is only exercised when a real backend negotiates another format.
 * Timestamp domain: the null backend in deterministic mode replaces the engine clock; the SDL3 backend will use the OS monotonic clock.

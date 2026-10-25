@@ -6,11 +6,12 @@
 #   target_link_libraries(game PRIVATE nue::assets)       # optional: asset containers / .nuepack (separate library)
 #   target_link_libraries(game PRIVATE nue::legacy)       # only when the SDK was built with the legacy ABI layer
 # Variables set for the consumer: nue_SHARED (SDK is a shared library), nue_STATIC_CRT (Windows: built against the static C runtime),
-# nue_HAS_SDL3 (the SDL3 backend is compiled in), nue_OS (windows|linux|android|ios|macos).
+# nue_HAS_SDL3 (the SDL3 backend is compiled in), nue_HAS_GFX (nue_gfx MANAGED mode, bgfx), nue_OS (windows|linux|android|ios|macos).
 set(nue_SHARED "@NUE_CONFIG_SHARED@")
 set(nue_STATIC_CRT "@NUE_CONFIG_STATIC_CRT@")
 set(nue_HAS_SDL3 "@NUE_HAVE_SDL3@")
 set(nue_OS "@NUE_OS@")
+set(nue_HAS_GFX "@NUE_CONFIG_HAS_GFX@")   # nue_gfx MANAGED mode (bgfx) is compiled in
 
 # A static-CRT SDK (the 32-bit launcher builds) only links with a consumer on the same C runtime: select it when the project has not chosen one.
 # (Set before the consumer creates its targets; an explicit CMAKE_MSVC_RUNTIME_LIBRARY always wins.)
@@ -21,6 +22,9 @@ endif()
 include(CMakeFindDependencyMacro)
 if(nue_HAS_SDL3)
     find_dependency(SDL3)   # SDL3 was installed alongside the SDK (SDL3Config.cmake): static libnue links it, nue::entry needs SDL_RunApp from it
+endif()
+if(nue_HAS_GFX AND NOT nue_SHARED)
+    find_dependency(bgfx)   # bgfx, bx, bimg were installed alongside a static SDK (bgfxConfig.cmake); a shared SDK folds them into the library
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/nueTargets.cmake")
 check_required_components(nue)

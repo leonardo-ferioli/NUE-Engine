@@ -17,8 +17,13 @@
  * In both modes nue_gfx keeps listeners informed (resize, surface lost/created, suspend/resume, vsync change) so the Direct3D 9
  * layer can implement IDirect3DDevice9::Reset/TestCooperativeLevel semantics from them.
  *
- * Thread: nue_gfx_create/destroy/resize on the event thread; nue_gfx_present and everything bgfx related on the render thread
- * (the thread that called bgfx::init - for the d3d9 layer, the game's thread). Queries are [any].
+ * Thread rules.
+ *   RENDER THREAD = the thread that called bgfx::init: in MANAGED mode the thread that calls nue_gfx_create(); in PREPARE mode whichever thread the client
+ *   initialises bgfx on (for the d3d9 layer with worker_thread=1, its worker). bgfx's API may only be used from that thread. [render] functions below must
+ *   be called from it: nue_gfx_create, nue_gfx_destroy, nue_gfx_present, nue_gfx_apply_pending, nue_gfx_reset_device (MANAGED mode). Every other call is
+ *   [any] (resize, suspend, resume, vsync and the window events may arrive on the event thread): in MANAGED mode they only record the change and the
+ *   render thread applies it in its next nue_gfx_present / nue_gfx_apply_pending (called on the render thread itself, they apply it at once).
+ *   Listeners are notified synchronously on the thread that triggers the change.
  */
 #ifndef NUE_GFX_H
 #define NUE_GFX_H
@@ -68,6 +73,11 @@ typedef struct nue_gfx_desc {
     uint32_t transient_vertex_mb, transient_index_mb;   /* 0 = bgfx default (~6 MB / 2 MB); the d3d9 layer uses 64 / 16 */
     const char* shader_cache_dir;           /* VFS path, e.g. "cache:shaders" (created on demand); NULL = none */
     uint32_t reserved[8];
+    /* appended in 0.1.3 */
+    const nue_native_window* native_window; /* instead of `window`: adopt a native window the caller owns (an HWND the game created). Never destroyed, never moved; the
+                                               size comes from `width`/`height` (required) and is updated with nue_gfx_resize. NULL = use `window` */
+    uint32_t max_draw_calls;                /* 0 = bgfx default */
+    uint32_t reserved2[7];
 } nue_gfx_desc;
 
 typedef struct nue_gfx_native {
@@ -79,6 +89,11 @@ typedef struct nue_gfx_native {
     int32_t pixel_width, pixel_height;
     nue_bool bgfx_initialized;              /* true in MANAGED mode after create, or in PREPARE mode after nue_gfx_notify_initialized */
     nue_bool single_threaded;
+    /* appended in 0.1.3 */
+    uint64_t platform_ndt;                  /* bgfx PlatformData.ndt for this window (X11 Display*, wl_display*, 0 elsewhere) */
+    uint64_t platform_nwh;                  /* bgfx PlatformData.nwh (HWND, X11 Window id, wl_egl_window* or wl_surface*, ANativeWindow*, CAMetalLayer*...) */
+    uint32_t generation;                    /* incremented every time the device was recreated (nue_gfx_reset_device): GPU objects of earlier generations are gone */
+    uint32_t reserved[5];
 } nue_gfx_native;
 
 typedef struct nue_gfx_caps {
@@ -90,6 +105,9 @@ typedef struct nue_gfx_caps {
     uint32_t max_anisotropy;
     nue_bool compute, instancing, texture_compare, hdr10, occlusion_query;
     uint32_t reserved[8];
+    /* appended in 0.1.3 */
+    uint32_t vendor_id, device_id;          /* PCI ids of the adapter the renderer uses, 0 unknown */
+    uint32_t max_draw_calls, max_texture_handles, max_buffer_handles;
 } nue_gfx_caps;
 
 /* ---- GPU texture / limits capabilities (for nue_texture, the Direct3D 9 layer and quality policies) -------------------------------------- */
@@ -160,6 +178,53 @@ NUE_API nue_result NUE_CALL nue_gfx_resume(nue_gfx gfx);
 /* MANAGED mode: submit the frame (bgfx::frame). Returns the frame number. PREPARE mode: NUE_ERR_BAD_STATE (the owner calls bgfx::frame). */
 NUE_API nue_result NUE_CALL nue_gfx_present(nue_gfx gfx, uint32_t* out_frame_number);
 
+/* ---- state, device reset, frame (0.1.3) ------------------------------------------------------------------------------------------------------ */
+
+/* What a client needs to answer IDirect3DDevice9::TestCooperativeLevel: OK -> D3D_OK; SUSPENDED / DEVICE_LOST -> D3DERR_DEVICELOST; NEEDS_RESET ->
+ * D3DERR_DEVICENOTRESET (call nue_gfx_reset_device, recreate the GPU objects, continue). */
+typedef enum nue_gfx_state {
+    NUE_GFX_STATE_OK = 0,
+    NUE_GFX_STATE_SUSPENDED,                /* the surface is gone / the app is in the background: nothing is presented until nue_gfx_resume */
+    NUE_GFX_STATE_DEVICE_LOST,              /* the renderer reported device removal and cannot be reset yet (still suspended) */
+    NUE_GFX_STATE_NEEDS_RESET,              /* the device was lost and can be recreated now: nue_gfx_reset_device */
+    NUE_GFX_STATE_ORPHANED                  /* the window was destroyed under the context: only nue_gfx_destroy is legal */
+} nue_gfx_state;
+
+NUE_API nue_gfx_state NUE_CALL nue_gfx_get_state(nue_gfx gfx);                                      /* [any] */
+/* [render] MANAGED mode: shut bgfx down and initialise it again (same renderer, flags and window; re-reads the native handle). Every GPU object created
+ * before is gone: native.generation increases. NUE_OK_NOOP when the state is OK and `force` is false. PREPARE mode: only clears the lost state and
+ * notifies (the client owns bgfx). */
+NUE_API nue_result NUE_CALL nue_gfx_reset_device(nue_gfx gfx, nue_bool force);
+/* [render] Apply the resize / vsync / suspend / resume changes recorded by other threads without presenting. Returns NUE_OK_NOOP if there were none. */
+/* PREPARE mode: the client owns bgfx and learned of a device loss itself (bgfx fatal callback): tell nue_gfx, which notifies the listeners and moves to
+ * NEEDS_RESET. MANAGED mode reports it automatically. [any] */
+NUE_API nue_result NUE_CALL nue_gfx_report_device_lost(nue_gfx gfx);
+NUE_API nue_result NUE_CALL nue_gfx_apply_pending(nue_gfx gfx);
+/* The shader cache directory resolved to a native path (created on demand), or NUE_ERR_NOT_FOUND when the descriptor had none. [any] */
+NUE_API nue_result NUE_CALL nue_gfx_get_shader_cache_dir(nue_gfx gfx, char* buffer, size_t capacity, size_t* out_size);
+
+/* Frame capture (flag NUE_GFX_CAPTURE): the callback receives the next presented frame, 4 bytes per pixel in BGRA order, top row first, `pitch` bytes
+ * per row. Called from inside a later nue_gfx_present on the render thread, or from bgfx's own render thread when it has one: copy what you need. One shot. */
+typedef void (NUE_CALL *nue_gfx_capture_fn)(void* userdata, int32_t width, int32_t height, int32_t pitch, const void* bgra_pixels);
+NUE_API nue_result NUE_CALL nue_gfx_request_capture(nue_gfx gfx, nue_gfx_capture_fn fn, void* userdata);   /* [render] */
+
+/* ---- GPU memory (0.1.3) -------------------------------------------------------------------------------------------------------------------------- */
+
+/* All GPU allocations of the clients (textures, render targets, buffers) are accounted in the engine's "texture" budget (memory.h; the policy is resolved
+ * from nue_memory_info and can be overridden with budget.texture.*). Ask before creating a big resource, report when it is destroyed. NUE_OK = fits and is
+ * accounted; NUE_ERR_OVERFLOW = does not fit even after the eviction hooks ran (nothing accounted). [any] */
+NUE_API nue_result NUE_CALL nue_gfx_memory_request(nue_gfx gfx, uint64_t bytes);
+NUE_API void NUE_CALL nue_gfx_memory_report(nue_gfx gfx, int64_t delta_bytes);                      /* never fails, never evicts */
+/* Eviction hook: free at least `bytes_needed` (0 = as much as is cheap) of GPU resources, report them with nue_gfx_memory_report(-freed), return the bytes
+ * freed. `level` is a nue_memory_pressure value (memory.h). Called on the thread that asked or that received the pressure event, without engine locks. */
+typedef uint64_t (NUE_CALL *nue_gfx_evict_fn)(void* userdata, nue_gfx gfx, uint64_t bytes_needed, uint32_t level);
+NUE_API nue_result NUE_CALL nue_gfx_add_evictor(nue_gfx gfx, nue_gfx_evict_fn fn, void* userdata);
+NUE_API nue_result NUE_CALL nue_gfx_remove_evictor(nue_gfx gfx, nue_gfx_evict_fn fn, void* userdata);
+
+struct nue_tex_caps;
+/* Fill the texture module's device description from the live renderer (exact per-format bgfx caps) or, before bgfx exists, from nue_gpu_probe. [any] */
+NUE_API nue_result NUE_CALL nue_gfx_get_tex_caps(nue_gfx gfx, struct nue_tex_caps* out);
+
 /* Listeners: notified synchronously on the thread that triggers the change (resize/suspend: the event thread). */
 typedef enum nue_gfx_notification {
     NUE_GFX_NOTIFY_RESIZED = 1,             /* a, b = new pixel width, height */
@@ -167,7 +232,8 @@ typedef enum nue_gfx_notification {
     NUE_GFX_NOTIFY_SUSPENDED,
     NUE_GFX_NOTIFY_RESUMED,
     NUE_GFX_NOTIFY_DEVICE_LOST,             /* renderer reported device removal; the owner must recreate everything */
-    NUE_GFX_NOTIFY_DESTROYING
+    NUE_GFX_NOTIFY_DESTROYING,
+    NUE_GFX_NOTIFY_DEVICE_RESET             /* (0.1.3) nue_gfx_reset_device ran: a = new generation; recreate every GPU object */
 } nue_gfx_notification;
 typedef void (NUE_CALL *nue_gfx_listener_fn)(void* userdata, nue_gfx gfx, nue_gfx_notification what, int32_t a, int32_t b);
 NUE_API nue_result NUE_CALL nue_gfx_add_listener(nue_gfx gfx, nue_gfx_listener_fn fn, void* userdata);

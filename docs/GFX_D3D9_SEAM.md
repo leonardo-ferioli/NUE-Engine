@@ -12,24 +12,22 @@ choice, the lifecycle events and shared policy (shader cache directory in the `c
 
 ## Two integration modes
 
-| | MANAGED (default) | PREPARE (`NUE_GFX_PREPARE_ONLY`) |
+| | MANAGED (default, needs `-DNUE_WITH_GFX=ON`) | PREPARE (`NUE_GFX_PREPARE_ONLY`, always available) |
 |---|---|---|
-| who calls `bgfx::init` | `nue_gfx_create` | the client (today's `create_bgfx_gpu`) |
-| client needs | `BgfxOptions.use_existing_context = true` (to add) | `BgfxOptions.window = nue_gfx_native.window.window`, `renderer = nue_gfx_native.renderer`, `vsync`, sizes (works today) |
+| who calls `bgfx::init` | `nue_gfx_create` (implemented, run on Direct3D 11) | the client (today's `create_bgfx_gpu`) |
+| client needs | `BgfxOptions::external_init = true` (to add: request D2 in `REQUESTS_gfx.md`) | `BgfxOptions.window = nue_gfx_native.platform_nwh`, `renderer = nue_gfx_native.renderer`, `vsync`, sizes (works today); `ndt` / Wayland need two more fields (D1) |
 | `bgfx::frame` | `nue_gfx_present` or the client | the client |
-| lifecycle | nue_gfx resets on resize/surface events | client reacts to listener notifications and calls `bgfx::reset` |
+| lifecycle | nue_gfx records resize / suspend / resume and applies `bgfx::reset` on the render thread; device loss and reset: `nue_gfx_get_state`, `nue_gfx_reset_device` | the client reacts to listener notifications and calls `bgfx::reset` itself |
 
-**Threads.** bgfx must be called from the thread that called `bgfx::init`. With the dll's `worker_thread=1` that is the layer's own worker thread, not the
-game thread (the game thread only records calls into a queue; the worker runs the translator and every bgfx call, init and shutdown included). A MANAGED
-mode must therefore either run `bgfx::init` on a thread the client names, or treat the client's worker as the thread it calls the render thread.
+**Threads.** bgfx must be called from the thread that called `bgfx::init`. With the dll's `worker_thread=1` that is the layer's own worker thread, not the game thread (the
+game thread only records calls into a queue; the worker runs the translator and every bgfx call, init and shutdown included). `nue_gfx` follows the same rule: the **render
+thread is the thread that calls `nue_gfx_create`** (MANAGED) or that tells `nue_gfx_notify_initialized(true)` (PREPARE); `[render]` calls from another thread fail with
+`NUE_ERR_WRONG_THREAD`; resize / suspend / resume / vsync / events from any thread are recorded and applied by the render thread (`GFX.md` section 2). So in worker mode the
+worker creates the context.
 
-**First supported path: PREPARE** (no change in nue_d3d9 needed). The change requests for the nue_d3d9 session:
-
-1. `BgfxOptions` gains `bool external_init` (skip `bgfx::init`/`shutdown`) and `const void* platform_data` (optional, instead of `window`).
-2. `BgfxGpu::set_window_size` is called from a `nue_gfx` listener on `NUE_GFX_NOTIFY_RESIZED`. (Today it is called by polling: the dll reads the
-   window's client size at every `Present` and calls it when the size changed.)
-3. A thin `nue_d3d9` entry that takes a `nue_gfx` handle: `create_bgfx_gpu_from_gfx(nue_gfx, options)`; it calls `nue_gfx_get_native`, `nue_gfx_notify_initialized` and registers a listener (suspend/resume/device lost -> D3D9 `TestCooperativeLevel` returns `D3DERR_DEVICELOST`/`DEVICENOTRESET` then `Reset`).
-4. The shader cache directory comes from `nue_gfx_desc.shader_cache_dir` (VFS path -> `nue_vfs_resolve`).
+**First supported path: PREPARE** (no change in nue_d3d9 needed). The exact change requests for the nue_d3d9 session, with code, are in `REQUESTS_gfx.md` (D1-D7):
+`ndt` / Wayland fields, `external_init`, resize from a listener, `TestCooperativeLevel` / `Reset` from `nue_gfx_get_state`, shader cache directory from
+`nue_gfx_get_shader_cache_dir`, GPU memory through the budget.
 
 ## Window ownership for the recompiled game
 
@@ -40,7 +38,7 @@ A Direct3D 9 `Reset` does **not** map to `nue_gfx_resize`: the game's back buffe
 new back buffer size; the swap chain follows the window's client size, which changes independently (window resized, monitor, DPI) and is what
 `nue_gfx_resize` / `NUE_GFX_NOTIFY_RESIZED` are about. The final pass scales the back buffer into the window.
 
-## Textures and memory (plan, not current behaviour)
+## Textures and memory (the gfx side exists; the layer does not use it yet)
 
 The translator asks `nue_gfx_get_gpu_caps` (or `nue_gpu_probe` before a device exists) which `nue_format_family` values the GPU samples. At `CreateTexture` /
 `UnlockRect` it hands DXT/uncompressed data to `nue_texture` (nue-texture session) with those caps; the texture module transcodes when the GPU cannot sample the
@@ -48,7 +46,8 @@ format (BC on Apple/most mobile GPUs) and caches the result. Every GPU allocatio
 the layer registers an eviction hook that drops MANAGED-pool copies and unused levels under pressure. No size is hard-coded: the limit is a policy resolved from
 `nue_memory_info` (see `ARCHITECTURE.md`, section Memory).
 
-None of this is implemented yet: what the layer does today is under "What the layer does today", points 3 and 4.
+Gfx side (implemented): `nue_gfx_memory_request/report`, `nue_gfx_add_evictor`, `nue_gfx_get_tex_caps`, `nue_gfx_get_gpu_caps` (`GFX.md` sections 6-7). Layer side (not done): what the layer does
+today is under "What the layer does today", points 3 and 4.
 
 ## Renderer selection
 
