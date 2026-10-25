@@ -250,13 +250,8 @@ if(NUE_HAVE_SDL3)
     endif()
 endif()
 if(TARGET nue_gfx_obj)
-    # bgfx, bx, bimg (static): folded into libnue; a static SDK installs them next to it (bgfx::bgfx...) and nueConfig.cmake finds them
-    if(NUE_BUILD_SHARED)
-        target_link_libraries(nue PRIVATE bgfx bx bimg)
-    else()
-        target_link_libraries(nue PRIVATE "$<BUILD_INTERFACE:bgfx>" "$<BUILD_INTERFACE:bx>" "$<BUILD_INTERFACE:bimg>"
-                                          "$<INSTALL_INTERFACE:bgfx::bgfx>" "$<INSTALL_INTERFACE:bgfx::bx>" "$<INSTALL_INTERFACE:bgfx::bimg>")
-    endif()
+    # bgfx, bx, bimg (static): folded into a shared libnue; a static SDK installs them next to it in the nue export set (nue::bgfx, nue::bx, nue::bimg)
+    target_link_libraries(nue PRIVATE bgfx bx bimg)
 endif()
 # Libraries/frameworks the platform and texture fragments asked for: libraries linked PUBLIC to an OBJECT library do not travel with
 # $<TARGET_OBJECTS>, so they are forwarded to the final library here (iOS frameworks, Android liblog, Linux libs...).
@@ -372,6 +367,14 @@ if(NUE_INSTALL)
             install(TARGETS ${_tool} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
         endif()
     endforeach()
+    if(TARGET nue_gfx_obj AND NOT NUE_BUILD_SHARED)
+        install(TARGETS bgfx bx bimg EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(DIRECTORY "${NUE_BGFX_CMAKE_DIR}/bgfx/include/bgfx" "${NUE_BGFX_CMAKE_DIR}/bx/include/bx" "${NUE_BGFX_CMAKE_DIR}/bimg/include/bimg"
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bgfx/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bgfx)
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bx/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bx)
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bimg/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bimg)
+    endif()
     install(EXPORT nueTargets NAMESPACE nue:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
 
     # facts a consumer must match (see cmake/nueConfig.cmake.in)

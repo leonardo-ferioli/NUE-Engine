@@ -1,7 +1,7 @@
 # NUE public C ABI reference for layout 'ptr32'. GENERATED: do not edit by hand.
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
 version assets 1
-version core 4098
+version core 4099
 version texture 1
 assets define NUE_ASSET_NO_NODE 4294967295
 assets define NUE_ASSET_OPEN_COPY 16
@@ -594,6 +594,7 @@ core enum NUE_GFX_HDR10 4
 core enum NUE_GFX_MAXANISOTROPY 64
 core enum NUE_GFX_NOTIFY_DESTROYING 6
 core enum NUE_GFX_NOTIFY_DEVICE_LOST 5
+core enum NUE_GFX_NOTIFY_DEVICE_RESET 7
 core enum NUE_GFX_NOTIFY_RESIZED 1
 core enum NUE_GFX_NOTIFY_RESUMED 4
 core enum NUE_GFX_NOTIFY_SUSPENDED 3
@@ -601,6 +602,11 @@ core enum NUE_GFX_NOTIFY_VSYNC_CHANGED 2
 core enum NUE_GFX_PREPARE_ONLY 16
 core enum NUE_GFX_SINGLE_THREADED 32
 core enum NUE_GFX_SRGB_BACKBUFFER 8
+core enum NUE_GFX_STATE_DEVICE_LOST 2
+core enum NUE_GFX_STATE_NEEDS_RESET 3
+core enum NUE_GFX_STATE_OK 0
+core enum NUE_GFX_STATE_ORPHANED 4
+core enum NUE_GFX_STATE_SUSPENDED 1
 core enum NUE_GFX_VSYNC 1
 core enum NUE_GLYPHS_GENERIC_GAMEPAD 4
 core enum NUE_GLYPHS_KEYBOARD_MOUSE 0
@@ -1259,24 +1265,32 @@ core field nue_gamepad_state.struct_size off=0 size=4
 core field nue_gamepad_state.timestamp_ns off=24 size=8
 core field nue_gfx_caps.adapter_name off=36 size=128
 core field nue_gfx_caps.compute off=176 size=1
+core field nue_gfx_caps.device_id off=220 size=4
 core field nue_gfx_caps.hdr10 off=179 size=1
 core field nue_gfx_caps.instancing off=177 size=1
 core field nue_gfx_caps.max_anisotropy off=172 size=4
+core field nue_gfx_caps.max_buffer_handles off=232 size=4
+core field nue_gfx_caps.max_draw_calls off=224 size=4
 core field nue_gfx_caps.max_framebuffer_attachments off=168 size=4
+core field nue_gfx_caps.max_texture_handles off=228 size=4
 core field nue_gfx_caps.max_texture_size off=164 size=4
 core field nue_gfx_caps.occlusion_query off=180 size=1
 core field nue_gfx_caps.renderer_name off=4 size=32
 core field nue_gfx_caps.reserved off=184 size=32
 core field nue_gfx_caps.struct_size off=0 size=4
 core field nue_gfx_caps.texture_compare off=178 size=1
+core field nue_gfx_caps.vendor_id off=216 size=4
 core field nue_gfx_desc.flags off=12 size=4
 core field nue_gfx_desc.height off=20 size=4
 core field nue_gfx_desc.max_buffer_handles off=32 size=4
+core field nue_gfx_desc.max_draw_calls off=88 size=4
 core field nue_gfx_desc.max_framebuffer_handles off=36 size=4
 core field nue_gfx_desc.max_texture_handles off=28 size=4
 core field nue_gfx_desc.msaa_samples off=24 size=4
+core field nue_gfx_desc.native_window off=84 size=4
 core field nue_gfx_desc.renderer off=8 size=4
 core field nue_gfx_desc.reserved off=52 size=32
+core field nue_gfx_desc.reserved2 off=92 size=28
 core field nue_gfx_desc.shader_cache_dir off=48 size=4
 core field nue_gfx_desc.struct_size off=0 size=4
 core field nue_gfx_desc.transient_index_mb off=44 size=4
@@ -1287,9 +1301,13 @@ core field nue_gfx_native.backbuffer off=48 size=8
 core field nue_gfx_native.backbuffer_ds off=56 size=8
 core field nue_gfx_native.bgfx_initialized off=72 size=1
 core field nue_gfx_native.context off=40 size=8
+core field nue_gfx_native.generation off=96 size=4
 core field nue_gfx_native.pixel_height off=68 size=4
 core field nue_gfx_native.pixel_width off=64 size=4
+core field nue_gfx_native.platform_ndt off=80 size=8
+core field nue_gfx_native.platform_nwh off=88 size=8
 core field nue_gfx_native.renderer off=4 size=4
+core field nue_gfx_native.reserved off=100 size=20
 core field nue_gfx_native.single_threaded off=73 size=1
 core field nue_gfx_native.struct_size off=0 size=4
 core field nue_gfx_native.window off=8 size=32
@@ -1730,18 +1748,29 @@ core function nue_get_extension
 core function nue_get_last_error_message
 core function nue_get_version
 core function nue_get_version_string
+core function nue_gfx_add_evictor
 core function nue_gfx_add_listener
+core function nue_gfx_apply_pending
 core function nue_gfx_create
 core function nue_gfx_destroy
 core function nue_gfx_get_caps
 core function nue_gfx_get_gpu_caps
 core function nue_gfx_get_native
 core function nue_gfx_get_renderer
+core function nue_gfx_get_shader_cache_dir
+core function nue_gfx_get_state
+core function nue_gfx_get_tex_caps
 core function nue_gfx_handle_event
 core function nue_gfx_list_renderers
+core function nue_gfx_memory_report
+core function nue_gfx_memory_request
 core function nue_gfx_notify_initialized
 core function nue_gfx_present
+core function nue_gfx_remove_evictor
 core function nue_gfx_remove_listener
+core function nue_gfx_report_device_lost
+core function nue_gfx_request_capture
+core function nue_gfx_reset_device
 core function nue_gfx_resize
 core function nue_gfx_resume
 core function nue_gfx_set_auto_events
@@ -2035,9 +2064,9 @@ core struct nue_finger size=32 align=8
 core struct nue_frame_stats size=80 align=8
 core struct nue_gamepad_info size=216 align=4
 core struct nue_gamepad_state size=32 align=8
-core struct nue_gfx_caps size=216 align=4
-core struct nue_gfx_desc size=84 align=4
-core struct nue_gfx_native size=80 align=8
+core struct nue_gfx_caps size=236 align=4
+core struct nue_gfx_desc size=120 align=4
+core struct nue_gfx_native size=120 align=8
 core struct nue_gpu_caps size=216 align=8
 core struct nue_gpu_info size=160 align=8
 core struct nue_guid size=16 align=1

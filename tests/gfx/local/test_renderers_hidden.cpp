@@ -1,4 +1,4 @@
-// OPTIONAL local test (-DNUE_GFX_LOCAL_TESTS=ON, Windows, needs a GPU; never run in CI): the real Direct3D 11 renderer on a HIDDEN window.
+// OPTIONAL local test (-DNUE_GFX_LOCAL_TESTS=ON, Windows, needs a GPU; never run in CI): the real renderers (Direct3D 11 required; Vulkan, Direct3D 12, OpenGL when the machine has them) on a HIDDEN window.
 // The window is created with NUE_WINDOW_HIDDEN, is never shown and never fullscreen; frames are read back with nue_gfx_request_capture and checked pixel by pixel.
 // Covers: renderer choice, GPU caps from the live renderer, clear + draw + present, capture, resize, suspend/resume, device reset and the texture budget.
 #include "nue_test.h"
@@ -56,8 +56,10 @@ bool wait_capture(nue_gfx g, hello_gfx::Pipeline& pipe, Capture& cap) {
 
 }  // namespace
 
-TEST_CASE(d3d11_on_a_hidden_window) {
-    const std::string root = nue_test::unique_temp_dir("gfx_d3d11");
+static std::string g_root;
+static bool start_engine() {
+    const std::string root = nue_test::unique_temp_dir("gfx_local");
+    g_root = root;
     nue_init_desc d;
     NUE_STRUCT_INIT(&d);
     d.api_version = NUE_API_VERSION;
@@ -68,8 +70,17 @@ TEST_CASE(d3d11_on_a_hidden_window) {
     const std::string user = root + "/user";
     d.user_data_path = user.c_str();
     d.log_level = NUE_LOG_INFO;
-    CHECK(NUE_SUCCEEDED(nue_init(&d)));
+    static std::string user_keep;
+    user_keep = user;
+    d.user_data_path = user_keep.c_str();
+    static std::string root_keep;
+    root_keep = root;
+    d.game_data_path = root_keep.c_str();
+    return NUE_SUCCEEDED(nue_init(&d));
+}
 
+// One renderer, one hidden window, the whole sequence. `required` = a failure to create it is a test failure (otherwise it is reported and skipped).
+static void run_on(nue_renderer rend, bool required) {
     nue_window_desc wd;
     NUE_STRUCT_INIT(&wd);
     wd.title = "nue gfx hidden test";
@@ -83,15 +94,14 @@ TEST_CASE(d3d11_on_a_hidden_window) {
     nue_gfx_desc gd;
     NUE_STRUCT_INIT(&gd);
     gd.window = w;
-    gd.renderer = NUE_RENDERER_D3D11;                                             // strict: no fallback
+    gd.renderer = rend;                                                       // strict: no fallback
     gd.flags = NUE_GFX_CAPTURE | NUE_GFX_DEBUG;
     gd.shader_cache_dir = "cache:shaders";
     nue_gfx g = nullptr;
     nue_result r = nue_gfx_create(&gd, &g);
     if (NUE_FAILED(r)) { std::printf("  nue_gfx_create failed: %s\n", nue_get_last_error_message()); }
-    CHECK(NUE_SUCCEEDED(r));
-    if (!g) { nue_window_destroy(w); nue_shutdown(); return; }
-    CHECK_EQ(nue_gfx_get_renderer(g), NUE_RENDERER_D3D11);
+    if (!g) { std::printf("  %s: not available here (skipped)\n", nue_renderer_name(rend)); nue_window_destroy(w); if (required) CHECK(NUE_SUCCEEDED(r)); return; }
+    CHECK_EQ(nue_gfx_get_renderer(g), rend);
     CHECK(!nue_window_is_visible(w));
 
     // live capabilities
@@ -99,13 +109,13 @@ TEST_CASE(d3d11_on_a_hidden_window) {
     NUE_STRUCT_INIT(&caps);
     CHECK(NUE_SUCCEEDED(nue_gfx_get_caps(g, &caps)));
     std::printf("  renderer '%s', adapter '%s', vendor 0x%04x, max texture %u\n", caps.renderer_name, caps.adapter_name, caps.vendor_id, caps.max_texture_size);
-    CHECK(std::string(caps.renderer_name).find("Direct3D 11") != std::string::npos);
+    CHECK(std::string(caps.renderer_name).find(nue_renderer_name(rend)) != std::string::npos);
     CHECK(caps.max_texture_size >= 4096);
     nue_gpu_caps gc;
     NUE_STRUCT_INIT(&gc);
     CHECK_EQ(nue_gfx_get_gpu_caps(g, &gc), NUE_OK);
     CHECK(gc.probed);
-    CHECK_EQ(gc.renderer, NUE_RENDERER_D3D11);
+    CHECK_EQ(gc.renderer, rend);
     CHECK(gc.format[NUE_FMT_RGBA8] & NUE_FMTSUP_RENDER_TARGET);
     CHECK(gc.format[NUE_FMT_BC1] & NUE_FMTSUP_SAMPLE);                             // every desktop GPU samples BCn
     CHECK(!(gc.format[NUE_FMT_BC1] & NUE_FMTSUP_EMULATED));
@@ -135,13 +145,25 @@ TEST_CASE(d3d11_on_a_hidden_window) {
         CHECK(near(at(cap, 316, 236), {0x40, 0x80, 0xc0}));
     }
 
-    // resize: the swap chain follows (render thread = this thread: applied at once)
-    CHECK_EQ(nue_gfx_resize(g, 200, 150), NUE_OK);
+    // resize: the user drags the border (here: set_size on the hidden window); the window event makes the swap chain follow, applied at once on the render thread.
+    // (Vulkan swap chains are bound to the surface size, so the back buffer can only follow the window; an explicit nue_gfx_resize to another size is for D3D/GL.)
+    nue_gfx_set_auto_events(g, NUE_TRUE);
+    CHECK(NUE_SUCCEEDED(nue_window_set_size(w, 256, 192)));
+    for (int i = 0; i < 50; ++i) {
+        nue_pump_events();
+        nue_gfx_native now;
+        NUE_STRUCT_INIT(&now);
+        nue_gfx_get_native(g, &now);
+        if (now.pixel_width == 256 && now.pixel_height == 192) break;
+        nue_sleep_ns(10000000, NUE_SLEEP_COARSE);
+    }
+    for (int i = 0; i < 6; ++i) frame(g, pipe, nullptr);                          // let the swap chain settle (D3D12 is several frames deep)
     frame(g, pipe, &cap);
     CHECK(wait_capture(g, pipe, cap));
-    CHECK_EQ(cap.w, 200);
-    CHECK_EQ(cap.h, 150);
-    if (cap.got && cap.w == 200 && cap.h == 150) CHECK(near(at(cap, 100, 75), {0xff, 0x00, 0x00}));
+    CHECK_EQ(cap.w, 256);
+    CHECK_EQ(cap.h, 192);
+    if (cap.got) { const Rgb c = at(cap, cap.w / 2, cap.h / 2); std::printf("  after resize: %dx%d centre %02x%02x%02x\n", cap.w, cap.h, c.r, c.g, c.b); }
+    if (cap.got && cap.w == 256 && cap.h == 192) CHECK(near(at(cap, 128, 96), {0xff, 0x00, 0x00}));
 
     // suspend / resume: nothing is presented while suspended
     CHECK_EQ(nue_gfx_suspend(g), NUE_OK);
@@ -163,8 +185,10 @@ TEST_CASE(d3d11_on_a_hidden_window) {
     CHECK_EQ(nat.generation, gen + 1);
     CHECK(nat.bgfx_initialized);
     CHECK(pipe.init());
+    for (int i = 0; i < 6; ++i) frame(g, pipe, nullptr);
     frame(g, pipe, &cap);
     CHECK(wait_capture(g, pipe, cap));
+    if (cap.got) { const Rgb c = at(cap, cap.w / 2, cap.h / 2); std::printf("  after reset: %dx%d centre %02x%02x%02x\n", cap.w, cap.h, c.r, c.g, c.b); }
     if (cap.got) CHECK(near(at(cap, cap.w / 2, cap.h / 2), {0xff, 0x00, 0x00}));
 
     // the shader / pipeline cache directory exists and nothing leaked into the budget when everything is released
@@ -184,11 +208,19 @@ TEST_CASE(d3d11_on_a_hidden_window) {
     CHECK(!nue_window_is_visible(w));                                              // it never appeared
     nue_gfx_destroy(g);
     nue_window_destroy(w);
+}
+
+TEST_CASE(all_renderers_on_hidden_windows) {
+    CHECK(start_engine());
+    run_on(NUE_RENDERER_D3D11, true);      // the reference renderer of the engine on Windows
+    run_on(NUE_RENDERER_VULKAN, false);
+    run_on(NUE_RENDERER_D3D12, false);
+    run_on(NUE_RENDERER_OPENGL, false);
     nue_shutdown();
     std::error_code ec;
-    std::filesystem::remove_all(root, ec);
+    std::filesystem::remove_all(g_root, ec);
 }
 
 TEST_MAIN_BEGIN
-    RUN(d3d11_on_a_hidden_window);
+    RUN(all_renderers_on_hidden_windows);
 TEST_MAIN_END

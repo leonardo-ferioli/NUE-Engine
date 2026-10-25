@@ -26,7 +26,7 @@ cmake --preset windows-x64 -DNUE_WITH_GFX=ON            # also linux-x64, androi
 `NUE_WITH_GFX` is **OFF by default** (bgfx adds ~2 minutes to a clean build and a submodule download of ~150 MB). Handle limits are bgfx compile-time constants
 (`NUE_GFX_MAX_TEXTURES` etc., default 16384 textures/buffers, 1024 frame buffers, because the D3D9 layer needs them; `nue_gfx_desc.max_*_handles` only warn when
 asking for more). With the module on, `nue_build_info.has_gfx` is true, bgfx/bx/bimg are folded into `libnue` and a **static SDK installs them next to it**
-(`bgfxConfig.cmake`, `find_dependency(bgfx)` in `nueConfig.cmake`, `nue_HAS_GFX`); a shared SDK needs nothing else.
+(targets `nue::bgfx`, `nue::bx`, `nue::bimg` in the `nue` export set, `nue_HAS_GFX` in `nueConfig.cmake`; bgfx.cmake's own install is off because it would also install bimg_decode/encode); a shared SDK needs nothing else.
 
 ## 2. Threads
 
@@ -120,15 +120,15 @@ Flag `NUE_GFX_CAPTURE`, then `nue_gfx_request_capture(fn, ud)` (one shot): `fn` 
 | `nue_sample_hello_gfx` | `samples/hello_gfx` | clear + coloured triangle + textured quad with bgfx's pre-compiled shaders (every renderer, no shader compiler); `--noop --frames N` runs headless |
 | `nue_gfx_smoke` (ctest) | the sample with `--noop --frames 30` on the null backend through bgfx's Noop renderer | CI (when `NUE_WITH_GFX=ON`) |
 | `nue_gfx_test_lifecycle` (ctest) | `tests/gfx/test_lifecycle.cpp`: names, config overrides, adopted windows and handle mapping, state machine, listeners, cache dir, budget with eviction, NOOP presents | CI, with and without the module |
-| `nue_gfx_local_d3d11_hidden` (ctest label `gpu`) | `tests/gfx/local`: real Direct3D 11 on a **hidden** window (never shown, never fullscreen): caps, clear + draw + pixel read-back, resize, suspend/resume, device reset, budget | only with `-DNUE_GFX_LOCAL_TESTS=ON`, by hand on a machine with a GPU |
+| `nue_gfx_local_renderers_hidden` (ctest label `gpu`) | `tests/gfx/local`: real renderers (D3D11 required; Vulkan, D3D12, OpenGL if present) on **hidden** windows (never shown, never fullscreen): caps, clear + draw + pixel read-back, resize, suspend/resume, device reset, budget | only with `-DNUE_GFX_LOCAL_TESTS=ON`, by hand on a machine with a GPU |
 
 ## 10. Status (honest)
 
 | Piece | State |
 |---|---|
-| MANAGED mode, D3D11, Windows x64 | implemented and **run** on the dev machine (AMD Radeon Graphics, hidden window, pixels read back) |
-| Windows x86 | built and the console tests run (see the report); no GPU test |
-| Vulkan, D3D12, OpenGL | compiled into bgfx; **not run** by this module (the D3D9 layer verified Vulkan with captured traces) |
+| MANAGED mode on Windows x64: **Direct3D 11, Vulkan, Direct3D 12 and OpenGL 4.3** | implemented and **run** on the dev machine (AMD Radeon Graphics, hidden windows): caps, clear + draw, pixel read-back, resize (through a window resize event), suspend/resume, device reset, budget (`nue_gfx_local_renderers_hidden`, 177 checks); `hello_gfx --hidden` runs 20+ frames on each |
+| Windows x86 (clang i686, static CRT) | built; all 34 ctest entries pass, including the hidden-window test on Direct3D 11, Vulkan, Direct3D 12 and OpenGL (177 checks); needs `-msse4.2` and two bgfx workarounds, in `cmake/NueGfx.cmake` and `src/gfx/x86` |
+| Notes from the multi-renderer run | Vulkan swap chains are bound to the window surface: the back buffer can only follow the window (an explicit `nue_gfx_resize` to another size is for D3D/GL). A capture requested in the first frames after a reset/resize of a **Direct3D 12** device returned black; after a few settle frames it is correct (bgfx D3D12 is several frames deep) |
 | Linux (X11/Wayland, Vulkan/GL/GLES), Android (Vulkan/GLES, surface lifecycle), iOS (Metal) | **written, not compiled or run here**; CI builds Android and iOS but **runs nothing there** |
 | Surface re-creation / device rebuild on resume | written, not run on any device |
 | Device lost on real hardware | the path is covered by `report_device_lost` + `reset_device` in tests; a real TDR was not provoked |

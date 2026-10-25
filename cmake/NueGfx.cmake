@@ -33,21 +33,29 @@ if(NOT TARGET bgfx)
     set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_RENDERER_WEBGPU OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_VIDEO OFF CACHE BOOL "" FORCE)
-    set(BGFX_INSTALL ${NUE_INSTALL} CACHE BOOL "" FORCE)      # a static libnue needs bgfx/bx/bimg in the SDK: installed next to it, found with find_dependency
-    if(BGFX_INSTALL)
-        add_subdirectory(${NUE_BGFX_CMAKE_DIR} ${CMAKE_BINARY_DIR}/bgfx_build)
-    else()
-        add_subdirectory(${NUE_BGFX_CMAKE_DIR} ${CMAKE_BINARY_DIR}/bgfx_build EXCLUDE_FROM_ALL)
-    endif()
+    set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)                 # bgfx.cmake's own install would also want bimg_decode/encode; the root CMakeLists installs bgfx, bx, bimg into the nue export set instead
+    add_subdirectory(${NUE_BGFX_CMAKE_DIR} ${CMAKE_BINARY_DIR}/bgfx_build EXCLUDE_FROM_ALL)
 endif()
 # bimg ships its own copy of ARM's astc-encoder (an older version), and the texture module (src/texture) links the current one into the same library: two copies of the
 # same global symbols in one process. bimg only uses it to decode ASTC textures that the GPU cannot sample (software emulation); NUE does that in nue_texture
 # (transcoding at import, docs/TEXTURE.md), so bimg is built without ASTC decoding and the driver's ASTC support is reported as it is, not as "emulated".
+# bimg_decode / bimg_encode (stb, tinyexr, libsquish, nvtt, dav1d...) are not used by nue_gfx and are not installed: keep them out of the default build
+foreach(_t bimg_decode bimg_encode)
+    if(TARGET ${_t})
+        set_target_properties(${_t} PROPERTIES EXCLUDE_FROM_ALL ON)
+    endif()
+endforeach()
 get_target_property(_bimg_sources bimg SOURCES)
 list(FILTER _bimg_sources EXCLUDE REGEX "/astc-encoder/")
 set_property(TARGET bimg PROPERTY SOURCES ${_bimg_sources})
 target_compile_definitions(bimg PRIVATE BIMG_CONFIG_DECODE_ASTC=0)
 set(NUE_GFX_BGFX_TARGETS bgfx bx bimg)
+if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+    # bx's SIMD layer uses SSE4.1 intrinsics (_mm_testz_si128, _mm_round_ps): the 32-bit x86 baseline of clang does not enable them
+    foreach(_t ${NUE_GFX_BGFX_TARGETS})
+        target_compile_options(${_t} PRIVATE -msse4.2)
+    endforeach()
+endif()
 if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT NUE_WITH_LEGACY_D3D9)
     # 32-bit Windows needs two workarounds in bgfx (see src/gfx/x86/*.h). When the Direct3D 9 layer is built in the same tree its CMake applies equivalent ones to the
     # same targets (src/legacy/d3d9/CMakeLists.txt), so they are not doubled here.

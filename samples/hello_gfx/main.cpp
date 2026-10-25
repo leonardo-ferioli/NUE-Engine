@@ -95,7 +95,7 @@ nue_result on_init(void*, int, char**) {
     nue_gfx_set_auto_events(g.gfx, NUE_TRUE);                            // resize / surface / pause events drive the back buffer
     nue_gfx_caps caps = nuepp::init<nue_gfx_caps>();
     if (NUE_SUCCEEDED(nue_gfx_get_caps(g.gfx, &caps)))
-        NUE_LOGI("sample", "renderer %s on '%s', max texture %u", caps.renderer_name, caps.adapter_name, caps.max_texture_size);
+        std::printf("hello_gfx: renderer %s on '%s', max texture %u\n", caps.renderer_name, caps.adapter_name, caps.max_texture_size);
     if (!create_gpu_objects()) return NUE_ERR_BACKEND;
     g.start_ns = nue_time_ns();
     return NUE_OK;
