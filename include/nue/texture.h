@@ -33,7 +33,7 @@ extern "C" {
 
 /* Version of this API and of the codec set. NUE_TEX_CODEC_VERSION is mixed into every cache key: bump it whenever a codec change can alter
  * the bytes it produces, so old cache entries are ignored (they are never wrong, only unused). */
-#define NUE_TEX_API_VERSION   1u
+#define NUE_TEX_API_VERSION   2u      /* 2: cold conversion (cook, runtime stats, profile, budget bridge); the module version is a plain counter, see docs/ABI.md 3.2 */
 #define NUE_TEX_CODEC_VERSION 2u      /* 2: fast 128-bit content hashes replace SHA-256 in cache keys and level index */
 
 /* ============================================================================================== formats */

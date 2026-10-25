@@ -2,7 +2,7 @@
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
 version assets 1
 version core 4098
-version texture 1
+version texture 2
 assets define NUE_ASSET_NO_NODE 4294967295
 assets define NUE_ASSET_OPEN_COPY 16
 assets define NUE_PACK_MAGIC 1346721102
@@ -2076,7 +2076,7 @@ core struct nue_window_desc size=128 align=8
 core struct nue_world_3d size=20 align=4
 texture define NUE_TEX_ASTC_BLOCK_SIZE_COUNT 14
 texture define NUE_TEX_BGFX_FORMAT_COUNT 105
-texture define NUE_TEX_CODEC_VERSION 1
+texture define NUE_TEX_CODEC_VERSION 2
 texture enum NUE_TEX_A1RGB5 48
 texture enum NUE_TEX_A2BGR10 53
 texture enum NUE_TEX_A2RGB10 52
@@ -2143,6 +2143,7 @@ texture enum NUE_TEX_BUDGET_PRESET_UNLIMITED 0
 texture enum NUE_TEX_BUDGET_UNLIMITED 0
 texture enum NUE_TEX_COLORSPACE_LINEAR 0
 texture enum NUE_TEX_COLORSPACE_SRGB 1
+texture enum NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE 1
 texture enum NUE_TEX_D16_UNORM 80
 texture enum NUE_TEX_D24_UNORM_S8_UINT 82
 texture enum NUE_TEX_D24_UNORM_X8 81
@@ -2356,8 +2357,9 @@ texture field nue_tex_context_desc.cache_dir off=24 size=8
 texture field nue_tex_context_desc.cache_max_bytes off=32 size=8
 texture field nue_tex_context_desc.caps off=8 size=8
 texture field nue_tex_context_desc.executor off=104 size=8
+texture field nue_tex_context_desc.flags off=112 size=4
 texture field nue_tex_context_desc.policy off=16 size=8
-texture field nue_tex_context_desc.reserved off=112 size=16
+texture field nue_tex_context_desc.reserved off=116 size=12
 texture field nue_tex_context_desc.struct_size off=0 size=4
 texture field nue_tex_context_desc.worker_threads off=40 size=4
 texture field nue_tex_convert_request.alpha_info off=32 size=4
@@ -2367,6 +2369,13 @@ texture field nue_tex_convert_request.reserved off=36 size=16
 texture field nue_tex_convert_request.source off=8 size=8
 texture field nue_tex_convert_request.struct_size off=0 size=4
 texture field nue_tex_convert_request.usage off=16 size=4
+texture field nue_tex_cook_result.already_cached off=12 size=4
+texture field nue_tex_cook_result.bytes_written off=24 size=8
+texture field nue_tex_cook_result.failed off=16 size=4
+texture field nue_tex_cook_result.reserved off=32 size=16
+texture field nue_tex_cook_result.stored off=8 size=4
+texture field nue_tex_cook_result.struct_size off=0 size=4
+texture field nue_tex_cook_result.variants off=4 size=4
 texture field nue_tex_d3d9_format_entry.d3d off=0 size=4
 texture field nue_tex_d3d9_format_entry.d3d_name off=16 size=8
 texture field nue_tex_d3d9_format_entry.exact off=9 size=1
@@ -2537,6 +2546,28 @@ texture field nue_tex_policy.priority off=4 size=4
 texture field nue_tex_policy.quality off=24 size=4
 texture field nue_tex_policy.reserved off=28 size=16
 texture field nue_tex_policy.struct_size off=0 size=4
+texture field nue_tex_profile.alpha_scan_ns off=8 size=8
+texture field nue_tex_profile.cache_lookup_ns off=32 size=8
+texture field nue_tex_profile.convert_ns off=48 size=8
+texture field nue_tex_profile.decode_ns off=56 size=8
+texture field nue_tex_profile.drop_mips_ns off=40 size=8
+texture field nue_tex_profile.encode_ns off=64 size=8
+texture field nue_tex_profile.hashed_bytes off=112 size=8
+texture field nue_tex_profile.level_hash_ns off=80 size=8
+texture field nue_tex_profile.load_ns off=104 size=8
+texture field nue_tex_profile.lookup_ns off=96 size=8
+texture field nue_tex_profile.mips_ns off=72 size=8
+texture field nue_tex_profile.plan_ns off=16 size=8
+texture field nue_tex_profile.reserved off=120 size=16
+texture field nue_tex_profile.source_hash_ns off=24 size=8
+texture field nue_tex_profile.store_ns off=88 size=8
+texture field nue_tex_profile.struct_size off=0 size=4
+texture field nue_tex_runtime_stats.indexed_levels off=32 size=8
+texture field nue_tex_runtime_stats.level_hits off=8 size=8
+texture field nue_tex_runtime_stats.level_misses off=16 size=8
+texture field nue_tex_runtime_stats.reserved off=40 size=16
+texture field nue_tex_runtime_stats.runtime_encodes off=24 size=8
+texture field nue_tex_runtime_stats.struct_size off=0 size=4
 texture field nue_tex_scan_result.alpha_info off=4 size=4
 texture field nue_tex_scan_result.constant_color off=11 size=1
 texture field nue_tex_scan_result.max_alpha off=9 size=1
@@ -2580,8 +2611,10 @@ texture function nue_tex_context_create
 texture function nue_tex_context_destroy
 texture function nue_tex_context_executor
 texture function nue_tex_context_get_caps
+texture function nue_tex_context_get_runtime_stats
 texture function nue_tex_context_set_caps
 texture function nue_tex_convert_level
+texture function nue_tex_cook_image
 texture function nue_tex_d3d9_convert_level
 texture function nue_tex_d3d9_format_table
 texture function nue_tex_d3d9_level_gpu_size
@@ -2638,6 +2671,7 @@ texture function nue_tex_importer_create
 texture function nue_tex_importer_destroy
 texture function nue_tex_importer_get_progress
 texture function nue_tex_importer_pause
+texture function nue_tex_importer_set_classes
 texture function nue_tex_importer_start
 texture function nue_tex_importer_wait
 texture function nue_tex_level_size
@@ -2648,6 +2682,9 @@ texture function nue_tex_mip_extent
 texture function nue_tex_mip_params_default
 texture function nue_tex_pack_pixels
 texture function nue_tex_policy_default
+texture function nue_tex_profile_encode
+texture function nue_tex_profile_get
+texture function nue_tex_profile_reset
 texture function nue_tex_request_async
 texture function nue_tex_request_cancel
 texture function nue_tex_row_pitch
@@ -2662,6 +2699,7 @@ texture struct nue_tex_cache_stats size=96 align=8
 texture struct nue_tex_caps size=1104 align=8
 texture struct nue_tex_context_desc size=128 align=8
 texture struct nue_tex_convert_request size=56 align=8
+texture struct nue_tex_cook_result size=48 align=8
 texture struct nue_tex_d3d9_format_entry size=24 align=8
 texture struct nue_tex_d3d9_texture_desc size=52 align=4
 texture struct nue_tex_d3d9_texture_info size=72 align=8
@@ -2679,4 +2717,6 @@ texture struct nue_tex_mip_params size=40 align=8
 texture struct nue_tex_plan size=616 align=8
 texture struct nue_tex_plan_request size=72 align=8
 texture struct nue_tex_policy size=44 align=4
+texture struct nue_tex_profile size=136 align=8
+texture struct nue_tex_runtime_stats size=56 align=8
 texture struct nue_tex_scan_result size=28 align=4

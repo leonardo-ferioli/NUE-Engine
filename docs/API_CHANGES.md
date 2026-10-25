@@ -17,6 +17,14 @@ Internal contracts for implementers: `src/core/internal/backend.h` (devices) and
 * The SDK installs completely (`nue::entry`, `nue::assets` exported under those names, tools, docs, SDL3 for static SDKs) and `samples/consume_sdk` proves it, see `docs/ABI.md` 3.1.
 * Portable mode (explicit `user_data_path`) keeps cache, settings and temp below it even when a platform layer is linked (the platform layer is not asked for those roots).
 
+## Texture module `NUE_TEX_API_VERSION` 1 -> 2 (additive; the module has its own counter, `texture.h`)
+
+* New functions: `nue_tex_cook_image` (+ `nue_tex_cook_result`), `nue_tex_importer_set_classes`, `nue_tex_context_get_runtime_stats` (+ `nue_tex_runtime_stats`), `nue_tex_profile_get` / `_reset` / `_encode` (+ `nue_tex_profile`).
+* `nue_tex_context_desc` gained `flags` (taken from `reserved`, the struct size is unchanged); `NUE_TEX_CONTEXT_ALLOW_RUNTIME_ENCODE` is the only flag. Without it a context never encodes at run time (cold conversion rule, `docs/TEXTURE.md` 2b).
+* `NUE_TEX_CODEC_VERSION` 1 -> 2: cache keys and the level index use a fast 128-bit content hash instead of SHA-256. Old cache entries are ignored (never wrong, only unused): re-cook once.
+* Behaviour: sRGB ASTC variants are cooked only when the request carries `NUE_TEX_REQ_SRGB`; the cache folder keeps a persisted `index.nuei` (rebuilt by a scan when absent or damaged).
+* No removed or changed entry.
+
 ## 0.1.2 (additive)
 
 * `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).
