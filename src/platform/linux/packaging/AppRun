@@ -1,0 +1,14 @@
+#!/bin/sh
+# AppImage entry point: selects which bundled program to start.
+#   ./NUE-Sample.AppImage                  hello_window (needs a display)
+#   ./NUE-Sample.AppImage --probe [...]    linux_probe: what this machine supports
+#   ./NUE-Sample.AppImage --audio [sec]    hello_audio
+#   ./NUE-Sample.AppImage --smoke          headless smoke test (dummy video and audio)
+here="$(dirname "$(readlink -f "$0")")"
+export PATH="$here/usr/bin:$PATH"
+case "${1:-}" in
+    --probe) shift; exec "$here/usr/bin/linux_probe" "$@" ;;
+    --audio) shift; exec "$here/usr/bin/nue_sample_hello_audio" "$@" ;;
+    --smoke) shift; exec "$here/usr/bin/smoke-test.sh" "$here/usr/bin" "$@" ;;
+    *) exec "$here/usr/bin/nue_sample_hello_window" "$@" ;;
+esac

@@ -259,6 +259,26 @@ None of this has been checked by Valve's process; it is the engineering list, no
 3. Steamworks is optional: link nothing, ship `libsteam_api.so` beside the executable and let `SteamworksLite` find it.
 4. Saves go to `~/.local/share/<org>/<app>`, settings to `~/.config`, caches to `~/.cache` (or Steam's shader-cache directory).
 
+## Packaging scripts, containers and extra verification
+
+Everything is in `src/platform/linux/packaging/` (scripts, AppImage files, Flatpak manifest, README) and `src/platform/linux/ci/linux-extra.yml` (the GitHub job that runs it).
+**Written, not run:** there is no WSL, Docker or Linux machine here, so no script, no AppImage, no Flatpak and no container job has executed. The user chose Zig plus GitHub Actions for testing.
+
+| Item | Written | Compiled / built | Run |
+|---|---|---|---|
+| SDK + runtime tarballs (`build-redist.sh`), SDK sample = the repo samples + `linux_probe` | yes | no | no |
+| AppImage (`build-appimage.sh`, `AppRun --probe/--audio/--smoke`) | yes | no | no |
+| Flatpak manifest (`flatpak/org.nue.Sample.yml`, permissions for Wayland/X11, PipeWire via the PulseAudio socket, GPU, input, GameMode, logind, power profiles, rtkit) | yes | no | no |
+| Headless smoke test (`smoke-test.sh`) and clean-container runner (`clean-container-test.sh`) | yes | n/a | no |
+| musl: whole Linux layer, tests and probe | yes | **built and linked with Zig for x86_64-linux-musl and aarch64-linux-musl, no warnings** | no |
+| glibc 2.31: same | yes | built and linked with Zig, x86-64 and arm64 | no |
+| UBSan (`-DNUE_LINUX_SANITIZE=undefined`) | yes | **built and linked with Zig (x86-64 glibc)** | no |
+| ASan, LSan, valgrind | CI job + CMake option `NUE_LINUX_SANITIZE` | no (Zig ships no ASan runtime for a Windows host) | no |
+| Arch container as the SteamOS stand-in (build, tests under `dbus-run-session`, probe with Steam's environment; asserts a plain Arch is NOT reported as SteamOS) | CI job | no | no |
+
+What the SteamOS stand-in can and cannot prove: an Arch container proves the code builds and the portable logic behaves on Arch's toolchain and libc, that real libdbus paths run against a session bus, and that
+environment-driven detection works. It cannot prove anything about gamescope, Steam Input, the Deck panels, logind suspend/resume, steamos-manager or the amdgpu sysfs; those stay fixture-verified and unrun.
+
 ## Known gaps and next steps
 
 1. Run the Linux-only code (needs WSL2 or a Linux machine): every "-" in the "R" column is an open risk. The CI Linux job of the new repository will run the host tests of this directory.

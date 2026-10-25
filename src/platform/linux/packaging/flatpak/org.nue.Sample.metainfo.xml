@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.nue.Sample</id>
+  <name>NUE Sample</name>
+  <summary>Sample programs of the NUE engine</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license> <!-- no license file in the repository yet: set the real SPDX id before publishing -->
+  <description>
+    <p>A window, an audio test and a platform probe built on the NUE engine. Used to check that the runtime works on your system.</p>
+  </description>
+  <launchable type="desktop-id">org.nue.Sample.desktop</launchable>
+  <provides>
+    <binary>nue_sample_hello_window</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.2" date="2026-10-25" />
+  </releases>
+</component>

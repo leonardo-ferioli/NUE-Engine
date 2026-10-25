@@ -196,10 +196,11 @@ void handler(int sig, siginfo_t* si, void* uc) {
 }
 
 thread_local bool t_stack_installed = false;
+thread_local void* t_stack_mem = nullptr;  // keeps the block reachable (the kernel only holds the address): no leak report from LSan
 
 bool install_alt_stack_this_thread() {
     if (t_stack_installed) return true;
-    void* mem = std::malloc(kAltStackSize);  // intentionally never freed: lives as long as the thread
+    void* mem = std::malloc(kAltStackSize);  // lives as long as the thread (never freed: the signal stack must outlive any handler)
     if (!mem) return false;
     stack_t ss;
     ss.ss_sp = mem;
@@ -209,6 +210,7 @@ bool install_alt_stack_this_thread() {
         std::free(mem);
         return false;
     }
+    t_stack_mem = mem;
     t_stack_installed = true;
     return true;
 }

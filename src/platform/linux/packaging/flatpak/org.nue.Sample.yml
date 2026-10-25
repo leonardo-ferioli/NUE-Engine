@@ -1,0 +1,55 @@
+# Flatpak manifest for the NUE sample runtime (hello_window + hello_audio + linux_probe).
+# Build:   packaging/build-flatpak.sh      (needs flatpak, flatpak-builder and the Flathub remote for the runtime)
+# Status:  written, never built or run (no Linux machine with Flatpak was available when this was written).
+app-id: org.nue.Sample
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: nue_sample_hello_window
+
+finish-args:
+  # display: Wayland first, X11 as fallback (SDL3 picks Wayland when WAYLAND_DISPLAY works)
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # audio: the PulseAudio socket also serves PipeWire clients; SDL3's PipeWire backend finds it through pipewire-pulse
+  - --socket=pulseaudio
+  # GPU (Vulkan, GL, GLES) and game controllers
+  - --device=dri
+  - --device=input
+  # session services the Linux layer uses: idle / sleep inhibition
+  - --talk-name=org.freedesktop.ScreenSaver
+  - --talk-name=org.freedesktop.PowerManagement
+  # Feral GameMode: libgamemode inside the sandbox talks to the host daemon through the GameMode portal (org.freedesktop.portal.Desktop, already reachable);
+  # the direct bus name is only needed for the engine's own D-Bus fallback
+  - --talk-name=com.feralinteractive.GameMode
+  # system services: suspend / resume (logind), power profiles, real-time priority, battery
+  - --system-talk-name=org.freedesktop.login1
+  - --system-talk-name=net.hadess.PowerProfiles
+  - --system-talk-name=org.freedesktop.UPower.PowerProfiles
+  - --system-talk-name=org.freedesktop.RealtimeKit1
+  # game data lives outside the sandbox: grant the folder you use, e.g.  flatpak override --user --filesystem=/path/to/game:ro org.nue.Sample
+
+modules:
+  - name: nue
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DNUE_BUILD_TESTS=OFF
+      - -DNUE_BUILD_SAMPLES=ON
+      - -DNUE_INSTALL=OFF
+      - -DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc
+    build-commands:
+      - install -Dm755 samples/nue_sample_hello_window /app/bin/nue_sample_hello_window
+      - install -Dm755 samples/nue_sample_hello_audio /app/bin/nue_sample_hello_audio
+      - install -Dm755 src/platform/linux/linux_probe /app/bin/linux_probe
+      - install -Dm755 ${FLATPAK_BUILDER_BUILDDIR}/src/platform/linux/packaging/smoke-test.sh /app/bin/smoke-test.sh
+      - install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/src/platform/linux/packaging/nue-sample.desktop /app/share/applications/org.nue.Sample.desktop
+      - install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/src/platform/linux/packaging/nue-sample.png /app/share/icons/hicolor/256x256/apps/org.nue.Sample.png
+      - install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/src/platform/linux/packaging/flatpak/org.nue.Sample.metainfo.xml /app/share/metainfo/org.nue.Sample.metainfo.xml
+    post-install:
+      - sed -i 's/^Icon=.*/Icon=org.nue.Sample/' /app/share/applications/org.nue.Sample.desktop
+    sources:
+      - type: dir
+        path: ../../../../..   # the repository root, relative to this manifest (the SDL3 submodule must be checked out)

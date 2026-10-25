@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NUE Sample
+Comment=NUE engine sample window
+Exec=nue_sample_hello_window
+Icon=nue-sample
+Terminal=false
+Categories=Development;
