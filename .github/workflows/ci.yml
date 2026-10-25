@@ -41,7 +41,18 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         if: steps.project.outputs.present == 'true'
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+        shell: bash
+        run: |
+          if ! ctest --preset ${{ matrix.preset }} --output-on-failure; then
+            f="$(find build -name LastTestsFailed.log | head -1)"
+            names="$(cut -d: -f2 "$f" 2>/dev/null | paste -sd' ')"
+            echo "::error title=ctest failed::$names"
+            for t in $(cut -d: -f2 "$f" 2>/dev/null); do
+              out="$(ctest --preset ${{ matrix.preset }} -R "^${t}$" --output-on-failure 2>&1 | grep -E 'FAIL|Failed|error|assert' | head -5 | paste -sd'|')"
+              echo "::error title=${t}::${out}"
+            done
+            exit 1
+          fi
 
   android:
     name: android-arm64
