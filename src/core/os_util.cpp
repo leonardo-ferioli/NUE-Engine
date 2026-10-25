@@ -14,6 +14,7 @@
 #  include <windows.h>
 #else
 #  include <fcntl.h>
+#  include <sys/mman.h>
 #  include <sys/stat.h>
 #  include <sys/types.h>
 #  include <unistd.h>
@@ -296,6 +297,42 @@ nue_result os_file_sync(OsHandle h) {
     if (::fsync(int(h)) != 0) return os_last_error();
 #endif
     return NUE_OK;
+}
+
+nue_result os_file_map(OsHandle h, uint64_t offset, size_t length, const void** out_data, OsMapping* out_mapping) {
+    if (length == 0) return NUE_ERR_INVALID_ARGUMENT;
+#if defined(_WIN32)
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    const uint64_t granularity = si.dwAllocationGranularity ? si.dwAllocationGranularity : 65536;
+    const uint64_t aligned = offset - offset % granularity;
+    const size_t delta = size_t(offset - aligned);
+    HANDLE mapping = CreateFileMappingW(reinterpret_cast<HANDLE>(h), nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (!mapping) return os_last_error();
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ, DWORD(aligned >> 32), DWORD(aligned & 0xFFFFFFFFu), delta + length);
+    nue_result err = base ? NUE_OK : os_last_error();
+    CloseHandle(mapping);   // the view keeps the mapping object alive
+    if (!base) return err;
+#else
+    static const uint64_t page = uint64_t(::sysconf(_SC_PAGESIZE) > 0 ? ::sysconf(_SC_PAGESIZE) : 4096);
+    const uint64_t aligned = offset - offset % page;
+    const size_t delta = size_t(offset - aligned);
+    void* base = ::mmap(nullptr, delta + length, PROT_READ, MAP_PRIVATE, int(h), off_t(aligned));
+    if (base == MAP_FAILED) return os_last_error();
+#endif
+    out_mapping->base = base;
+    out_mapping->length = delta + length;
+    *out_data = static_cast<const uint8_t*>(base) + delta;
+    return NUE_OK;
+}
+
+void os_file_unmap(const OsMapping& mapping) {
+    if (!mapping.base) return;
+#if defined(_WIN32)
+    UnmapViewOfFile(mapping.base);
+#else
+    ::munmap(mapping.base, mapping.length);
+#endif
 }
 
 std::string os_executable_dir() {

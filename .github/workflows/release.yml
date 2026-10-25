@@ -50,6 +50,12 @@ jobs:
         run: cmake --preset ${{ matrix.preset }} -DNUE_BUILD_TESTS=OFF -DNUE_BUILD_SAMPLES=OFF
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --config Release
+      - name: Build iOS libraries (not part of the default Xcode target)
+        if: matrix.preset == 'ios-arm64'
+        run: |
+          for t in nue nue_entry nue_assets; do
+            cmake --build --preset ios-arm64 --config Release --target $t -- CODE_SIGNING_ALLOWED=NO
+          done
       - name: Install
         shell: bash
         run: |
@@ -83,6 +89,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y doxygen graphviz
+          mkdir -p build/docs
           PROJECT_NUMBER="${{ steps.ver.outputs.version }}" doxygen docs/Doxyfile
           cmake -E tar cf "nue-docs-${{ steps.ver.outputs.version }}.zip" --format=zip build/docs/html
       - uses: actions/upload-artifact@v4

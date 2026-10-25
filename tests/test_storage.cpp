@@ -2,6 +2,7 @@
 #include "test_env.h"
 #include "nue_test.h"
 
+#include <atomic>
 #include <cstring>
 #include <set>
 #include <string>
@@ -179,6 +180,99 @@ TEST_CASE(file_ids_are_32bit_and_generation_checked) {
     CHECK_EQ(nue_file_read_at(b, 0, &c, 1, &n), NUE_OK);
     CHECK_EQ(nue_file_read_at(0, 0, &c, 1, &n), NUE_ERR_INVALID_HANDLE);
     nue_file_close(b);
+}
+
+TEST_CASE(file_map_is_a_real_mapping_that_outlives_the_handle) {
+    Engine e;
+    // 200000 bytes of a position-dependent pattern: crosses page and allocation-granularity boundaries
+    std::string content(200000, '\0');
+    for (size_t i = 0; i < content.size(); ++i) content[i] = char((i * 7 + (i >> 8)) & 0xFF);
+    write_file(e.data + "/map.bin", content);
+    nue_file f;
+    CHECK_EQ(nue_file_open("data:map.bin", NUE_OPEN_READ | NUE_OPEN_RANDOM, &f), NUE_OK);
+
+    nue_file_map_info whole;
+    NUE_STRUCT_INIT(&whole);
+    CHECK_EQ(nue_file_map(f, 0, 0, &whole), NUE_OK);
+    CHECK_EQ(whole.size, content.size());
+    CHECK(whole.emulated == NUE_FALSE);                       // a regular file maps for real on every desktop/mobile OS
+    CHECK(std::memcmp(whole.data, content.data(), content.size()) == 0);
+
+    // unaligned offsets, several at once, including one that straddles 64 KiB boundaries
+    const uint64_t offsets[] = {1, 4095, 4097, 65535, 65537, 131071, 199990};
+    nue_file_map_info parts[7];
+    for (int i = 0; i < 7; ++i) {
+        NUE_STRUCT_INIT(&parts[i]);
+        size_t want = i == 6 ? 10 : 3000;
+        CHECK_EQ(nue_file_map(f, offsets[i], want, &parts[i]), NUE_OK);
+        CHECK_EQ(parts[i].size, want);
+        CHECK(std::memcmp(parts[i].data, content.data() + offsets[i], want) == 0);
+    }
+    CHECK_EQ(nue_file_close(f), NUE_OK);                      // the mapping does not need the handle
+    CHECK(std::memcmp(whole.data, content.data(), 4096) == 0);
+    CHECK(std::memcmp(parts[3].data, content.data() + 65535, 3000) == 0);
+
+    for (int i = 0; i < 7; ++i) CHECK_EQ(nue_file_unmap(0, &parts[i]), NUE_OK);
+    CHECK_EQ(nue_file_unmap(0, &parts[0]), NUE_ERR_INVALID_ARGUMENT);   // double unmap is detected, not a crash
+    CHECK_EQ(nue_file_unmap(0, &whole), NUE_OK);
+}
+
+TEST_CASE(file_map_edge_cases) {
+    Engine e;
+    write_file(e.data + "/small.bin", "0123456789");
+    write_file(e.data + "/empty.bin", "");
+    nue_file f;
+    nue_file_map_info m;
+    NUE_STRUCT_INIT(&m);
+    CHECK_EQ(nue_file_open("data:small.bin", NUE_OPEN_READ, &f), NUE_OK);
+    CHECK_EQ(nue_file_map(f, 10, 0, &m), NUE_OK);              // offset == size: empty range
+    CHECK_EQ(m.size, 0u);
+    CHECK(m.data != nullptr);
+    CHECK_EQ(nue_file_unmap(f, &m), NUE_OK);
+    CHECK_EQ(nue_file_map(f, 11, 0, &m), NUE_ERR_INVALID_ARGUMENT);
+    CHECK_EQ(nue_file_map(f, 5, 6, &m), NUE_ERR_INVALID_ARGUMENT);   // 5 + 6 > 10
+    CHECK_EQ(nue_file_map(f, 0xFFFFFFFFFFFFFFF0ull, 32, &m), NUE_ERR_INVALID_ARGUMENT);   // offset + size must not wrap
+    CHECK_EQ(nue_file_map(f, 0, 0, nullptr), NUE_ERR_INVALID_ARGUMENT);
+    CHECK_EQ(nue_file_map(f, 2, 3, &m), NUE_OK);
+    CHECK(std::memcmp(m.data, "234", 3) == 0);
+    nue_file_map_info fake = m;
+    int local = 0;
+    fake.data = &local;
+    CHECK_EQ(nue_file_unmap(f, &fake), NUE_ERR_INVALID_ARGUMENT);    // only pointers handed out by nue_file_map are accepted
+    CHECK_EQ(nue_file_unmap(f, &m), NUE_OK);
+    nue_file_close(f);
+    CHECK_EQ(nue_file_open("data:empty.bin", NUE_OPEN_READ, &f), NUE_OK);
+    CHECK_EQ(nue_file_map(f, 0, 0, &m), NUE_OK);               // an empty file cannot be mapped by the OS: empty heap range
+    CHECK_EQ(m.size, 0u);
+    CHECK_EQ(nue_file_unmap(f, &m), NUE_OK);
+    nue_file_close(f);
+}
+
+TEST_CASE(file_map_shared_between_threads_and_released_at_shutdown) {
+    std::string expected(100000, 'x');
+    {
+        Engine e;
+        write_file(e.data + "/shared.bin", expected);
+        nue_file f;
+        CHECK_EQ(nue_file_open("data:shared.bin", NUE_OPEN_READ, &f), NUE_OK);
+        nue_file_map_info m;
+        NUE_STRUCT_INIT(&m);
+        CHECK_EQ(nue_file_map(f, 0, 0, &m), NUE_OK);
+        std::atomic<int> bad{0};
+        std::vector<std::thread> threads;
+        for (int t = 0; t < 4; ++t)
+            threads.emplace_back([&] { for (int i = 0; i < 50; ++i) if (std::memcmp(m.data, expected.data(), expected.size()) != 0) ++bad; });
+        for (auto& th : threads) th.join();
+        CHECK_EQ(bad.load(), 0);
+        nue_file_map_info leaked;
+        NUE_STRUCT_INIT(&leaked);
+        CHECK_EQ(nue_file_map(f, 100, 200, &leaked), NUE_OK);
+        CHECK_EQ(nue_file_unmap(f, &m), NUE_OK);
+        // `leaked` is deliberately left mapped: shutdown must release it (a warning is logged), the engine destructor runs nue_shutdown
+        (void)leaked;
+        nue_file_close(f);
+    }
+    CHECK(true);   // reaching this line means shutdown with a live mapping neither crashed nor hung
 }
 
 TEST_CASE(map_load_and_hash) {
@@ -398,6 +492,9 @@ TEST_MAIN_BEGIN
     RUN(mount_overlay_newest_wins_and_listing_merges);
     RUN(file_io_seek_append_truncate_and_atomic_save);
     RUN(file_ids_are_32bit_and_generation_checked);
+    RUN(file_map_is_a_real_mapping_that_outlives_the_handle);
+    RUN(file_map_edge_cases);
+    RUN(file_map_shared_between_threads_and_released_at_shutdown);
     RUN(map_load_and_hash);
     RUN(directories_stat_rename_remove_glob);
     RUN(async_reads_complete_in_priority_order_and_post_events);
