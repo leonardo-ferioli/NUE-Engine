@@ -73,6 +73,7 @@ struct SolidSpec {
     uint32_t vertex_filler;         // 0x11 bytes in front of the vertices
     uint32_t mesh_header_filler;    // 0x11 words in front of the mesh header
     float offset;                   // moves the grid along x
+    uint32_t header_filler = 0;     // 0x11 words in front of the solid header (shifts its fields)
 };
 
 struct SolidData {
@@ -107,11 +108,13 @@ inline void add_solid(Bun& bun, const SolidSpec& s, uint64_t mat0, uint64_t mat1
     const SolidData d = solid_data(s);
     const uint32_t vc = uint32_t(d.pos.size() / 3), ic = uint32_t(d.idx.size());
     size_t g = bun.begin(0x80134010u);
-    std::vector<uint8_t> hdr(192, 0);
-    auto setf = [&](size_t off, float f) { uint32_t u; std::memcpy(&u, &f, 4); for (int i = 0; i < 4; ++i) hdr[off + i] = uint8_t(u >> (8 * i)); };
+    const size_t fo = size_t(s.header_filler) * 4;
+    std::vector<uint8_t> hdr(192 + fo, 0);
+    std::fill(hdr.begin(), hdr.begin() + std::ptrdiff_t(fo), uint8_t(0x11));
+    auto setf = [&](size_t off, float f) { uint32_t u; std::memcpy(&u, &f, 4); for (int i = 0; i < 4; ++i) hdr[fo + off + i] = uint8_t(u >> (8 * i)); };
     for (int i = 0; i < 4; ++i) setf(0x40 + size_t(i) * 20, 1.0f);                  // identity
     setf(0x70, s.offset); setf(0x74, 2.0f); setf(0x78, 3.0f);                        // translation in the last row (row vectors)
-    for (size_t i = 0; s.name[i]; ++i) hdr[0xA4 + i] = uint8_t(s.name[i]);
+    for (size_t i = 0; s.name[i]; ++i) hdr[fo + 0xA4 + i] = uint8_t(s.name[i]);
     bun.chunk(0x00134011u, hdr);
     std::vector<uint8_t> mats, shd;
     put32(mats, uint32_t(mat0)); put32(mats, 0); put32(mats, uint32_t(mat1)); put32(mats, 0);
@@ -155,7 +158,7 @@ inline std::vector<SolidSpec> default_solids() {
         {"CAR_BASE_B", 3, true, 4, 2, 10.0f},       // two filler words before the mesh header
         {"WORLD_WALL", 6, false, 8, 0, 20.0f},
         {"WORLD_TINY", 2, false, 100, 0, 30.0f},    // 24 byte vertices behind so much filler that 36 byte ones would fit too: the header flag decides
-        {"CAR_DECAL", 4, true, 0, 0, 40.0f},
+        {"CAR_DECAL", 4, true, 0, 0, 40.0f, 3},      // three filler words in front of the solid header
     };
 }
 

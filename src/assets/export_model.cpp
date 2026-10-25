@@ -257,15 +257,18 @@ private:
         for (auto& part : parts_) {
             const nue_asset_mesh& m = part.mesh;
             obj += "o " + safe(part.name) + "\n";
+            const float* t = m.transform;                                   // OBJ has no node transforms: the solid's matrix (row vectors, translation in the last row) is applied here
             for (uint32_t v = 0; v < m.vertex_count; ++v) {
-                const float* p = m.positions + v * 3;
+                const float* q = m.positions + v * 3;
+                const float p[3] = {q[0] * t[0] + q[1] * t[4] + q[2] * t[8] + t[12], q[0] * t[1] + q[1] * t[5] + q[2] * t[9] + t[13], q[0] * t[2] + q[1] * t[6] + q[2] * t[10] + t[14]};
                 if (zup) std::snprintf(b, sizeof(b), "v %s %s %s\n", fnum(p[0]).c_str(), fnum(p[1]).c_str(), fnum(p[2]).c_str());
                 else std::snprintf(b, sizeof(b), "v %s %s %s\n", fnum(p[0]).c_str(), fnum(p[2]).c_str(), fnum(-p[1]).c_str());      // Z up -> Y up
                 obj += b;
             }
             if (m.uvs) for (uint32_t v = 0; v < m.vertex_count; ++v) { std::snprintf(b, sizeof(b), "vt %s %s\n", fnum(m.uvs[v * 2]).c_str(), fnum(1.0f - m.uvs[v * 2 + 1]).c_str()); obj += b; }
             if (m.normals) for (uint32_t v = 0; v < m.vertex_count; ++v) {
-                const float* n = m.normals + v * 3;
+                const float* q = m.normals + v * 3;
+                const float n[3] = {q[0] * t[0] + q[1] * t[4] + q[2] * t[8], q[0] * t[1] + q[1] * t[5] + q[2] * t[9], q[0] * t[2] + q[1] * t[6] + q[2] * t[10]};
                 if (zup) std::snprintf(b, sizeof(b), "vn %s %s %s\n", fnum(n[0]).c_str(), fnum(n[1]).c_str(), fnum(n[2]).c_str());
                 else std::snprintf(b, sizeof(b), "vn %s %s %s\n", fnum(n[0]).c_str(), fnum(n[2]).c_str(), fnum(-n[1]).c_str());
                 obj += b;

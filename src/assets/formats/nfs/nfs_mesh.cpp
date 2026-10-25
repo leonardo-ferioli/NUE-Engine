@@ -70,13 +70,15 @@ Counts mesh_counts(const std::vector<uint8_t>& hdr) {
     return c;
 }
 
-// The name sits at 0xA4 of the 0xC0 byte header; elsewhere the longest printable run is used.
+// The header of a solid may start with 0x11 filler words (0..3 of them in the files), which shift every field: o = their size.
+// The name sits at o + 0xA4 of the header; elsewhere the longest printable run is used.
 std::string solid_name(const std::vector<uint8_t>& h) {
     auto printable = [](uint8_t b) { return b > 32 && b < 127; };
-    if (h.size() > 0xA4 && printable(h[0xA4])) {
-        size_t e = 0xA4;
+    const size_t o = skip_filler_words(h), at = o + 0xA4;
+    if (h.size() > at && printable(h[at])) {
+        size_t e = at;
         while (e < h.size() && printable(h[e])) ++e;
-        return std::string(reinterpret_cast<const char*>(h.data()) + 0xA4, e - 0xA4);
+        return std::string(reinterpret_cast<const char*>(h.data()) + at, e - at);
     }
     size_t best_start = 0, best_len = 0;
     for (size_t i = 0; i < h.size();) {
@@ -225,8 +227,11 @@ nue_result NUE_CALL get_mesh(void*, nue_asset_container c, void*, uint32_t resou
     out->run_count = uint32_t(runs.size());
     out->runs = rr;
     for (int i = 0; i < 16; ++i) out->transform[i] = (i % 5 == 0) ? 1.0f : 0.0f;
-    if (refs.header != NUE_ASSET_NO_NODE && read_node(c, refs.header, &hdr, 4096) && hdr.size() >= 0x80)
-        for (int i = 0; i < 16; ++i) { uint32_t b = rd32(hdr.data() + 0x40 + i * 4); std::memcpy(&out->transform[i], &b, 4); }
+    if (refs.header != NUE_ASSET_NO_NODE && read_node(c, refs.header, &hdr, 4096)) {
+        const size_t o = skip_filler_words(hdr);
+        if (hdr.size() >= o + 0x80)
+            for (int i = 0; i < 16; ++i) { uint32_t b = rd32(hdr.data() + o + 0x40 + i * 4); std::memcpy(&out->transform[i], &b, 4); }
+    }
     for (int a = 0; a < 3; ++a) { out->bbox_min[a] = bmin[a]; out->bbox_max[a] = bmax[a]; }
     *out_memory = mem;
     return NUE_OK;

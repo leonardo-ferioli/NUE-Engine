@@ -71,12 +71,15 @@ Chunk ids seen (count over the whole install, depth 0 unless noted; meaning only
 | id | what |
 |---|---|
 | `0xB3300000` | **texture pack** (TPK), 689 in the install. Section 4 |
-| `0x80134000` ... `0x00134B03` | solid / geometry sections of the cars (2849 sections, 29,170 solids). **Not interpreted**, kept opaque |
+| `0x80134000` ... `0x00134B03` | solid lists and solids = **geometry** of the cars (`GEOMETRY.BIN`) and of the city (`STREAM*.BUN`). Section 5 |
 | `0x00030201`, `0x00030203`, `0x00030210`, `0x00034xxx`, `0x00035xxx`, `0x00036xxx`, `0x00037xxx`, `0x00039xxx`, `0x0003Bxxx`, `0x00E34xxx` | game tables and scripts (physics, collision, animation, sound ...). **Not interpreted** |
 | `0` | padding |
 
-The tool `nue_pack list FILE --nodes` prints the tree of any file. World/streaming chunks (`STREAM*.BUN`, `L4R*.BUN`) parse as chunk streams and
-round trip, but their meaning is not documented here.
+The tool `nue_pack list FILE --nodes` prints the tree of any file. Census of the city files: `STREAM*.BUN` hold solids (section 5), texture packs (section 4)
+and a few groups of tables (`0x80034100`, `0x80034130`, `0x80034150` ...) that are not interpreted; `L4R*.BUN` hold no geometry or textures, only tables
+(`0x00039200`-`0x00039202`, `0x00037080`, `0x00037090`, `0x00037110`, `0x00037150`, `0x0003B6xx`, `0x00E34010` ...: most likely the scenery and track
+definitions that place the solids of the streaming files). Those tables are kept as opaque chunks and round trip byte for byte; how an object of the city is
+placed from them is **not** established here (the solids come out with the matrix of their own header, section 5).
 
 ## 4. Texture pack (`0xB3300000`)
 
@@ -159,15 +162,111 @@ their bytes. Other chunk payloads are copied unchanged.
 Limits: the NFS pack stores 2D textures only; a replacement with layers, faces or depth > 1 is refused. If the game stores file offsets or sizes of
 chunks anywhere outside the texture pack (not found in the files examined, but the world files were not decoded) those references are not updated.
 
-## 5. How this was verified
+### 4.6 Car texture packs (`TEXTURES.BIN`, `VINYLS.BIN`)
+
+The same chunk skeleton, but the textures are separate compressed blobs instead of one pixel block:
+
+```
+0xB3300000
+  0xB3310000
+    0x33310001  pack header (as 4.1)
+    0x33310002  N x { u32 name hash, u32 0 }
+    0x33310003  N x descriptor (24 bytes)
+  0xB3320000
+    0x33320001  24 bytes
+    0x33320002  the blobs
+```
+
+Descriptor: `u32 name hash, u32 file offset of the blob (absolute), u32 blob size, u32 decoded size, u32 header distance (0x100), u32 0`. Each blob starts with
+the magic `JDLZ` (section 2) or `HUFF` (section 8) and decodes to `decoded size` bytes. The decoded buffer holds the pixels from byte 0 (all mip levels, as
+4.4), and the 0x7C byte **texture record of 4.2** at `decoded size - header distance + 0x64`. The record's hash must equal the descriptor's (a texture where it
+does not is left out of the list). Palettised textures keep the 1024 byte palette inside the same buffer, at `palette placement - image placement` (both from
+the record). Width, height, type, mip count and sizes are validated exactly as in 4.2.
+
+Seen: 2,186 textures in the `TEXTURES.BIN` files of 57 car folders decode (all 231 `.BIN` files of `CARS` open, rebuild and decode without a failure). The pack
+is **read only**: replacing a texture is refused (`NUE_ASSET_RESFLAG_READONLY`), because the writer does not rebuild this layout; its chunks are copied as they
+are. Empty `TEXTURES.BIN` files (the traffic cars share textures) are valid empty containers.
+
+## 5. Solids: geometry of cars and city
+
+```
+0x80134010  solid
+  0x00134011  header
+  0x00134012  material slots: N x { u32 hash, u32 0 }
+  0x00134013  shader slots, same layout
+  0x80134100  mesh
+    0x00134900  mesh header
+    0x00134B01  vertices
+    0x00134B02  material runs
+    0x00134B03  indices
+```
+
+Cars: one `0x80134000` list per `GEOMETRY.BIN` with a solid per part and level of detail (`240SX_BASE_A`, `_B`, `_C`, ... = most to least detailed). City:
+`STREAM*.BUN` hold 1,000 to 10,000 solids each. Solids without a mesh group (mount points) are not meshes.
+
+- **Solid header** (192 bytes, preceded by 0, 4, 8 or 12 bytes of `0x11` filler that shift every offset below; the filler length is the size of the leading run of
+  `0x11111111` words): `+0x20` bounding box minimum, `+0x30` maximum (three f32 each), `+0x40` a 4x4 f32 matrix, row-major with the translation in the last
+  row (row vectors, Direct3D style), `+0xA4` the NUL terminated name. The matrix is the identity for most car parts and the **world placement** of the object
+  for city solids (2,067 of the 2,642 solids of `STREAML4RB.BUN`).
+- **Mesh header** (68 bytes, also possibly behind filler words): u32 field 3 = vertex format flags (`0x80`: the vertex has a normal), field 9 = triangle count,
+  field 13 = vertex count; field 2 is 0x10, the rest zero or not understood.
+- **Vertices**: `0x11` filler, then the vertices occupy the LAST `count x stride` bytes. Stride 36 (flag `0x80`, cars): position f32 x3, normal f32 x3, colour
+  B,G,R,A, uv f32 x2. Stride 24 (no flag, city): position, colour, uv. The flag decides, not the size of the buffer: small meshes behind much filler would
+  fit either stride. The colour is vertex lighting in the city; in the cars it is a constant.
+- **Indices**: `0x11` filler, then `3 x triangles` u16 (triangle list), read forward from the end of the filler; a couple of padding bytes may follow.
+- **Material runs**: filler, then N entries of 60 bytes at the end of the chunk: u32 at `+12` = index count, `+28` = slot in `0x00134012`, `+32` = slot in
+  `0x00134013`, `+52` = first index. The runs tile the index buffer. A run's material hash is a texture (the name hash of a texture record, searched in the packs
+  of the car and in the global packs) or a material/shader definition that is not a texture (paint ...): of the 46 distinct hashes of the 240SX, 18 are textures
+  of its own `TEXTURES.BIN` plus `GlobalB.lzc`.
+
+Checked on the files: every vertex buffer holds `count x stride` bytes, every index is below the vertex count and no vertex is outside +-1e6, in all
+18,824 meshes of the car folders (4.1 M vertices, 3.2 M triangles) and the 7,098 meshes of the files `STREAML4RB/C/F/G/H/R.BUN` (`STREAML4RA/D.BUN` too with
+`NUE_TEST_GAME_BIG`). Winding: of 487 car meshes with more than 50 triangles, 466 enclose a positive volume when the coordinates are read as right handed
+(counter clockwise outwards), so triangles are exported as they are. Axes: X length, Y width, Z up.
+
+Not understood: the tables that say where each city solid sits in a track (census in section 3) and the meaning of the unused header fields.
+
+### 5.1 Model export
+
+`nue_pack extract FILE-OR-CAR-FOLDER [more files] --model -o DIR [--format glb|obj] [--best-lod] [--filter TEXT] [--no-textures] [--keep-z-up]`
+(`nue_asset_export_model` in the library). A folder gives `GEOMETRY.BIN` and `TEXTURES.BIN` (not `VINYLS.BIN`); extra files (`GLOBAL/GlobalB.lzc`) add
+textures that the parts share. glTF 2.0 binary: one node per solid with its matrix, one primitive per material run, POSITION / NORMAL / TEXCOORD_0 and COLOR_0
+(only when the colours vary), textures as embedded PNG on materials by hash (`BLEND` when the texture has alpha), a root node that turns Z up into Y up.
+OBJ: positions with the matrix applied, `vt` with V flipped, an MTL and a folder of PNG next to the file. `--best-lod` keeps the lowest letter of each
+`NAME_A`..`_D` family. Verified with a structural check of the glTF (accessors inside their views, indices below the vertex count, PNG signatures, min/max)
+on `240SX.glb`, `STREAML4RH.glb` and a 76 MB `STREAML4RB.glb`, and by the tests. It has not been loaded in a third party viewer in this session.
+
+## 6. How this was verified
 
 `tests/assets/test_real_files.cpp` (opt-in: `NUE_TEST_GAME_DIR` = the game's data folder; `NUE_TEST_GAME_BIG=1` adds the files above 64 MiB). For each of the
 70 `.BUN`/`.LZC` files: opening gives no repair; writing unchanged gives the original bytes; rebuilding from the node tree gives the decoded content;
 regenerating all texture tables and pixel layouts from the records gives the decoded content; every texture decodes; the file packed into a `.nuepack`
-(source variant) and exported again gives the decoded content; our JDLZ output decodes to the same content. 689 texture packs, 6,596 textures.
+(source variant) and exported again gives the decoded content; our JDLZ output decodes to the same content. 689 texture packs, 6,596 textures. A second test walks the 57 car folders and the city files: every mesh and texture of `GEOMETRY.BIN`,
+`TEXTURES.BIN` (and `VINYLS.BIN` with `NUE_TEST_GAME_BIG`) reads, and the files write back unchanged and rebuilt. `nue_pack verify` over all 231 `.BIN` files of
+`CARS` reports no failure.
 
-## 6. Plugin interface
+## 7. Plugin interface
 
 NFS is a plugin of a generic framework (`nue_asset_format` in `include/nue/assets.h`): `probe`, `open` (reports nodes), `index` (reports resources),
 `get_image` / `get_native`, `write`. The framework owns sources, codec wrapping, memory budget, edits and the `.nuepack`. A later game or console adds
 a format by registering a `nue_asset_format` (and codecs); `tests/assets/test_nfs.cpp` registers a toy format through the public interface only.
+
+## 8. HUFF
+
+Some car textures use EA's Huffman codec (magic `HUFF`, `src/assets/huff.cpp`, decoder only).
+
+```
+0    "HUFF"
+4    u8 version (1), u8 header size (0x10), u16 flags
+8    u32 size of the decoded data
+12   u32 size of the stream WITHOUT this header
+16   bit stream, most significant bit first
+```
+
+Bit stream: a 16 bit type word (all real files: `0x30FB`; bit 15 = 32 bit sizes follow instead of 24 bit; bit 8 = two extra words to skip), the decoded size
+(24 or 32 bits), an 8 bit *clue* symbol, the **code lengths** (for length 1, 2, 3 ... a number saying how many symbols have that length, until the canonical code
+is complete), the **symbols** (per code in order, the byte as a leap over the not yet used byte values) and the **codes**. A number is `p` zero bits, a one bit,
+then `p + 2` value bits `v`, read as `v + 2^(p+2) - 4`. The clue symbol escapes: a number `n > 0` repeats the previous byte `n` times; `0` then bit 1 ends the
+stream; `0` then bit 0 is followed by a raw byte. Types `0x32FB`/`0xB2FB` and `0x34FB`/`0xB4FB` ask for one or two running-sum passes over the output (never
+seen in the game files, transcribed from the reference). Validated on the real files: all 2,186 car textures pass the record hash self check after decoding.
+The decoder is strict about malformed streams (bit-flip fuzz in the tests); the tests also decode streams made by a small encoder in the test.
