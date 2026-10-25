@@ -15,6 +15,8 @@
 //   nue_pack verify <file>                            .BUN/.LZC: open, rebuild and compare, every texture decodes; .nuepack: every hash
 //   nue_pack jdlz c|d IN OUT [--level N]              the JDLZ codec on its own
 //
+//   --max-memory MB (any command)                   limit the module's engine memory budget; by default there is no limit
+//
 // Names: NAME is a texture name ("TEX" or "PACK/TEX", case-insensitive) or 0xHASH. Nothing here sends data anywhere; game files stay where they are.
 #include "nue/assets.h"
 #include "nue/core.h"
@@ -147,7 +149,16 @@ bool parse_targets(const char* list, uint32_t* mask) {
 struct Session {
     Engine engine;
     nue_assets_context ctx = nullptr;
-    Session() { if (engine.ok) nue_assets_context_create(nullptr, &ctx); }
+    // The tool is not memory constrained by default (a whole city pack is built in memory): the engine budget is off unless --max-memory MB asks for one.
+    static uint64_t& budget_mb() { static uint64_t v = 0; return v; }
+    Session() {
+        if (!engine.ok) return;
+        nue_assets_context_desc d;
+        NUE_STRUCT_INIT(&d);
+        if (budget_mb()) { d.budget_policy.struct_size = sizeof(nue_budget_policy); d.budget_policy.fixed_bytes = budget_mb() << 20; }
+        else d.flags = NUE_ASSETS_CTX_NO_BUDGET;
+        nue_assets_context_create(&d, &ctx);
+    }
     ~Session() { nue_assets_context_destroy(ctx); }
 };
 
@@ -698,6 +709,7 @@ int main(int argc, char** argv) {
     if (argc < 2 || !std::strcmp(argv[1], "--help") || !std::strcmp(argv[1], "-h")) { usage(); return argc < 2 ? 2 : 0; }
     const std::string cmd = argv[1];
     Args a = parse(argc, argv, 2);
+    if (a.get("--max-memory")) Session::budget_mb() = uint64_t(std::strtoull(a.get("--max-memory"), nullptr, 10));
     int rc;
     if (cmd == "info") rc = cmd_info(a);
     else if (cmd == "list") rc = cmd_list(a);

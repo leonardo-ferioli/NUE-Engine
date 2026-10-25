@@ -265,6 +265,14 @@ nue_result make_variant(nue_tex_image src, nue_pack_variant variant, const nue_p
         nue_tex_plan_request req;
         NUE_STRUCT_INIT(&req);
         req.source_format = d.format; req.width = d.width; req.height = d.height; req.depth = d.depth ? d.depth : 1; req.mip_levels = d.mip_levels;
+        // what the pixels really use: an opaque DXT1 / BC2 / BC3 texture plans to an RGB target (half the memory of an RGBA one)
+        nue_tex_level_view v0;
+        NUE_STRUCT_INIT(&v0);
+        if (nue_tex_image_get_level(src, 0, 0, 0, &v0) == NUE_OK) {
+            nue_tex_scan_result sr;
+            NUE_STRUCT_INIT(&sr);
+            if (nue_tex_scan_level(d.format, d.width, d.height, v0.data, size_t(v0.size), &sr) == NUE_OK) req.alpha_info = sr.alpha_info;
+        }
         req.layers = d.layers; req.faces = d.faces; req.policy = &pol;
         if (d.faces == 6) req.flags |= NUE_TEX_REQ_CUBE;
         nue_tex_plan plan;
