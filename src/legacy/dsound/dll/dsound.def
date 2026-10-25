@@ -1,4 +1,4 @@
-; The ordinals of the system dsound.dll: a game that imports by ordinal (SPEED2.EXE uses ordinal 1, DirectSoundCreate) binds to the same functions.
+; The ordinals of the system dsound.dll: a game that imports by ordinal (many import only ordinal 1, DirectSoundCreate) binds to the same functions.
 LIBRARY dsound
 EXPORTS
     DirectSoundCreate @1
