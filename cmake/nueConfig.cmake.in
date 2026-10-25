@@ -23,5 +23,14 @@ include(CMakeFindDependencyMacro)
 if(nue_HAS_SDL3)
     find_dependency(SDL3)   # SDL3 was installed alongside the SDK (SDL3Config.cmake): static libnue links it, nue::entry needs SDL_RunApp from it
 endif()
+# The platform layers link Threads::Threads (pthread) on Linux/Android/macOS; the exported targets name it, so the consumer must define it.
+# FindThreads needs C or CXX enabled in the consuming project (it almost always is).
+if(NOT WIN32)
+    get_property(_nue_langs GLOBAL PROPERTY ENABLED_LANGUAGES)
+    if("C" IN_LIST _nue_langs OR "CXX" IN_LIST _nue_langs)
+        find_dependency(Threads)
+    endif()
+    unset(_nue_langs)
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/nueTargets.cmake")
 check_required_components(nue)
