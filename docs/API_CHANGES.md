@@ -9,6 +9,14 @@ avoided and, when unavoidable, listed under "Breaking" with the migration. Platf
 Initial public headers: base, core, app, window, input, audio, mixer, storage, power, system, gfx, diag, entry, null_backend.
 Internal contracts for implementers: `src/core/internal/backend.h` (devices) and `src/core/internal/platform_ops.h` (per-OS layer).
 
+## Without a version bump (behaviour and tooling, no change of the C layout)
+
+* `nue_file_map` is a real memory mapping now (MapViewOfFile / mmap) instead of a heap copy; `emulated` stays `NUE_TRUE` only for empty ranges and files the OS cannot map. A mapping survives
+  `nue_file_close`; `nue_file_unmap` rejects pointers that are not live mappings. `NUE_CAP_MMAP_FILES` is reported. Documented in `include/nue/storage.h`.
+* ABI guard (`tests/test_abi.cpp`, `tests/abi/reference`, `tools/abi`): from now on any change of the public layout needs a version bump, see `docs/ABI.md` 3.2.
+* The SDK installs completely (`nue::entry`, `nue::assets` exported under those names, tools, docs, SDL3 for static SDKs) and `samples/consume_sdk` proves it, see `docs/ABI.md` 3.1.
+* Portable mode (explicit `user_data_path`) keeps cache, settings and temp below it even when a platform layer is linked (the platform layer is not asked for those roots).
+
 ## 0.1.2 (additive)
 
 * `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).

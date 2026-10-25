@@ -39,6 +39,12 @@ nue_result os_file_size(OsHandle h, uint64_t* out);
 nue_result os_file_set_size(OsHandle h, uint64_t size);
 nue_result os_file_sync(OsHandle h);
 
+// Read-only memory mapping of [offset, offset+length) (length > 0, the range must lie inside the file). The offset need not be aligned:
+// OsMapping remembers the real (aligned) region that os_file_unmap releases. The mapping stays valid after the file handle is closed.
+struct OsMapping { void* base = nullptr; size_t length = 0; };
+nue_result os_file_map(OsHandle h, uint64_t offset, size_t length, const void** out_data, OsMapping* out_mapping);
+void os_file_unmap(const OsMapping& mapping);
+
 std::string os_executable_dir();       // directory of the running executable, '/' separated, no trailing slash
 std::string os_temp_dir();
 std::string os_getenv(const char* name);

@@ -110,7 +110,10 @@ NUE_API nue_result NUE_CALL nue_file_get_native_path(nue_file file, char* buffer
 NUE_API nue_result NUE_CALL nue_file_load(const char* path, void** out_data, size_t* out_size);
 NUE_API nue_result NUE_CALL nue_file_save(const char* path, const void* data, size_t size);
 
-/* Memory mapping of a read-only file range (offset need not be aligned). Emulated with a heap copy when the file cannot be mapped. */
+/* Read-only memory mapping of a file range (offset need not be aligned; size 0 = to the end of the file). The mapping is real (mmap /
+ * MapViewOfFile) and stays valid after nue_file_close; release it with nue_file_unmap (the pointer in `map` identifies it). When the OS cannot map
+ * the range (or it is empty) the data is a heap copy with a NUL byte past the end and `emulated` is NUE_TRUE. A real mapping has no trailing NUL.
+ * Do not shrink or overwrite a file while it is mapped (Windows refuses to replace it, POSIX may fault on access past the new end). */
 typedef struct nue_file_map_info {
     uint32_t struct_size;
     const void* data;                       /* points at the requested offset */
