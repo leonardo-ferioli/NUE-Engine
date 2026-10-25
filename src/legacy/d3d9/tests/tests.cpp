@@ -1,4 +1,6 @@
 // Unit tests of nue_d3d9: formats, generated fixed-function programs, the layer on a null Gpu (no window, no GPU, no game data).
+#include "nue/d3d9_gfx_provider.hpp"
+#include <thread>
 #include "layer/fixed_function.hpp"
 #include "layer/formats.hpp"
 #include "nue/d3d9_layer.hpp"
@@ -219,6 +221,58 @@ static void test_window_fit() {
     CHECK(offset.width == 800 && offset.height == 450 && offset.x == 100 && offset.y == 50 + 175);
 }
 
+// The engine's graphics context as the dll sees it (nue/d3d9_gfx_provider.hpp): states, Reset, the resize mailbox, the shader cache folder.
+struct StubProvider final : d3d9::GfxProvider {
+    d3d9::GfxState current = d3d9::GfxState::ok;
+    bool reset_succeeds = true, owns = false;
+    int resets = 0;
+    std::string cache;
+    d3d9::GfxState state() const override { return current; }
+    bool reset_device() override { ++resets; if (reset_succeeds) current = d3d9::GfxState::ok; return reset_succeeds; }
+    bool owns_bgfx() const override { return owns; }
+    std::string shader_cache_dir() const override { return cache; }
+};
+
+static void test_gfx_provider() {
+    using d3d9::GfxState;
+    CHECK(d3d9::cooperative_level(nullptr) == Status::ok);   // no engine: as the dll always did
+    StubProvider p;
+    CHECK(d3d9::cooperative_level(&p) == Status::ok);
+    p.current = GfxState::needs_reset;
+    CHECK(d3d9::cooperative_level(&p) == Status::device_not_reset);
+    p.current = GfxState::lost;
+    CHECK(d3d9::cooperative_level(&p) == Status::device_lost);
+
+    bool was_reset = true;
+    CHECK(d3d9::prepare_reset(nullptr, was_reset) == Status::ok && !was_reset);
+    p.current = GfxState::lost;
+    CHECK(d3d9::prepare_reset(&p, was_reset) == Status::device_lost && !was_reset && p.resets == 0);   // suspended or lost: Reset fails, nothing is reset
+    p.current = GfxState::needs_reset;
+    CHECK(d3d9::prepare_reset(&p, was_reset) == Status::ok && was_reset && p.resets == 1 && p.current == GfxState::ok);
+    CHECK(d3d9::prepare_reset(&p, was_reset) == Status::ok && !was_reset && p.resets == 1);   // already fine: no second reset
+    p.current = GfxState::needs_reset; p.reset_succeeds = false;
+    CHECK(d3d9::prepare_reset(&p, was_reset) == Status::device_lost && !was_reset);
+
+    d3d9::WindowSizeMailbox box;
+    uint32_t w = 0, h = 0;
+    CHECK(!box.take(w, h));
+    box.post(800, 600); box.post(1920, 1080);   // only the newest size counts
+    CHECK(box.take(w, h) && w == 1920 && h == 1080);
+    CHECK(!box.take(w, h));
+    std::thread poster([&] { for (uint32_t i = 1; i <= 1000; ++i) box.post(i, i * 2); });
+    poster.join();
+    CHECK(box.take(w, h) && w == 1000 && h == 2000);
+    box.post(65535, 65535);
+    CHECK(box.take(w, h) && w == 65535 && h == 65535);
+
+    CHECK(d3d9::choose_shader_cache_dir("from_ini", &p, "next_to_dll") == "from_ini");
+    p.cache = "engine_cache";
+    CHECK(d3d9::choose_shader_cache_dir("", &p, "next_to_dll") == "engine_cache");
+    p.cache.clear();
+    CHECK(d3d9::choose_shader_cache_dir("", &p, "next_to_dll") == "next_to_dll");
+    CHECK(d3d9::choose_shader_cache_dir("", nullptr, "next_to_dll") == "next_to_dll");
+}
+
 int main() {
     test_formats();
     test_fixed_function_programs();
@@ -227,6 +281,7 @@ int main() {
     test_dynamic_buffer_policy();
     test_window_fit();
     test_texture_contents();
+    test_gfx_provider();
     if (failures) { std::printf("%d check(s) failed\n", failures); return 1; }
     std::printf("PASS nue_d3d9 tests\n");
     return 0;

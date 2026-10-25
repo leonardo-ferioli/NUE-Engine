@@ -458,6 +458,27 @@ COM object. Logging goes through `LayerOptions::log` (a C function pointer); the
 
 **Tools (`tools/`)**: hidden Win32 windows, `LoadLibraryA` of our dll and of the system one; test only.
 
+## Groundwork for nue_gfx MANAGED mode (requests D1-D5 of docs/REQUESTS_gfx.md, branch gfx)
+
+All of it is off by default: the game's path (PREPARE mode: the adapter initialises bgfx on the window the game made) does not change.
+
+* **D1** `BgfxOptions::display` (X11 `Display*` / `wl_display*` -> bgfx's swap chain `ndt`, also at every resize) and `BgfxOptions::wayland`
+  (-> `Init::platformData.type = NativeWindowHandleType::Wayland`).
+* **D2** `BgfxOptions::external_init`: bgfx belongs to the caller (nue_gfx). The adapter skips `renderFrame` / `bgfx::init` / `bgfx::shutdown`,
+  `set_window_size` only moves the letterbox (the owner resizes the swap chain), and the destructor frees only the adapter's own bgfx objects
+  (textures, buffers, programs, frame buffers, vertex layouts, uniforms, the blit program). The caller must have initialised bgfx on the thread that
+  creates the device (bgfx has no public "is initialised" query): with `worker_thread=1` that is the layer's worker, which must be the thread that calls
+  `nue_gfx_create`. `nue_bgfx_tests` (ctest, bgfx's Noop renderer, no window, no GPU) checks two adapters in a row on one bgfx: bgfx stays initialised
+  and the texture / program / buffer / frame buffer counts come back to where they were; and the adapter's own init and shutdown.
+* **D3-D5** `include/nue/d3d9_gfx_provider.hpp`: `GfxProvider` (state ok / needs_reset / lost, `reset_device`, `owns_bgfx`, `shader_cache_dir`), a
+  `WindowSizeMailbox` that a resize listener fills from any thread, and the rules `cooperative_level` (`TestCooperativeLevel`: OK, `D3DERR_DEVICENOTRESET`
+  (`Status::device_not_reset`), `D3DERR_DEVICELOST`), `prepare_reset` (`Reset` fails while lost; after needs_reset the device is reset first, on the
+  thread that owns bgfx) and `choose_shader_cache_dir` (ini, then the provider, then next to the dll). The dll installs a provider with
+  `set_gfx_provider` before `CreateDevice` (nothing calls it yet): then `TestCooperativeLevel` / `Reset` / `Present` follow the provider's state,
+  the swap chain size comes from the mailbox (the polled client rectangle only gives the visible area), and `external_init` is set when the provider
+  owns bgfx. Not done yet: re-creating the layer's GPU objects after the engine re-created the device (logged), and the provider on top of the real
+  nue_gfx (after gfx's MANAGED mode is merged into main). Unit tests: `nue_tests` (`test_gfx_provider`).
+
 ## What the NUE engine's graphics seam expects (nue_engine/docs/GFX_D3D9_SEAM.md, API.md, branch claude/nue-core-0454cf)
 
 * Direction: nue_d3d9 depends on the engine (core + gfx), never the other way round. `nue_gfx` provides the window, the renderer choice, lifecycle

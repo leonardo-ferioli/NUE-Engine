@@ -12,6 +12,7 @@ HRESULT to_hresult(Status status) {
     case Status::unsupported: return D3DERR_NOTAVAILABLE;
     case Status::out_of_memory: return D3DERR_OUTOFVIDEOMEMORY;
     case Status::device_lost: return D3DERR_DEVICELOST;
+    case Status::device_not_reset: return D3DERR_DEVICENOTRESET;
     default: return D3DERR_INVALIDCALL;
     }
 }

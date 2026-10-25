@@ -11,6 +11,12 @@ enum class Renderer { automatic, d3d11, d3d12, vulkan, opengl, metal, noop };
 
 struct BgfxOptions {
     void* window = nullptr;                  // native window handle (HWND on Windows); null with Renderer::noop
+    void* display = nullptr;                 // native display on Linux (X11 Display*, wl_display*): bgfx's swap chain `ndt`; null elsewhere
+    bool wayland = false;                    // the window is a Wayland surface (bgfx::NativeWindowHandleType::Wayland); X11 / default otherwise
+    // bgfx is already initialised by someone else (the engine's nue_gfx in MANAGED mode): the adapter neither calls bgfx::init nor bgfx::shutdown
+    // (window, renderer, transient sizes and bgfx's log callback are theirs), does not reset bgfx for window size changes (set_window_size only moves
+    // the letterbox), and on destruction frees only the bgfx objects it made. It must be created on the thread that initialised bgfx.
+    bool external_init = false;
     uint32_t window_width = 1280, window_height = 720;
     Renderer renderer = Renderer::automatic;
     bool vsync = false;
