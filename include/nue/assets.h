@@ -386,6 +386,10 @@ typedef enum nue_pack_variant {
 NUE_ASSETS_API const char* NUE_CALL nue_pack_variant_name(nue_pack_variant variant);                 /* "source", "bc", "astc", "etc2", "pvrtc", "rgba8" */
 NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_from_name(const char* name);               /* COUNT if unknown */
 NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_device_class(nue_tex_device_class device_class);
+/* The variant a device can use as it is: the first of bc, astc, etc2, pvrtc whose representative formats (BC1/BC3, ASTC 4x4, ETC2 RGBA8, PVRTC1 4bpp) the
+ * capabilities mark as sampled and filtered, else rgba8. caps = what the GPU probe reported (nue_tex_caps_from_gpu_caps / nue_tex_context_get_caps) or a class
+ * preset (nue_tex_caps_for_class). */
+NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_caps(const nue_tex_caps* caps);
 
 typedef struct nue_pack_builder_desc {
     uint32_t struct_size;
@@ -487,6 +491,8 @@ NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create_container(nue_assets_co
 /* Mount a pack file for reading by name. `preferred` picks the variant of textures. The pack stays on disk: reads use positioned/asynchronous file reads
  * (nue_file_read_at, nue_io_read_async) when the pack was opened from a path. */
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create(nue_assets_context ctx, const char* path, nue_pack_variant preferred, nue_pack_mount* out);
+/* The same, choosing the variant from the device capabilities (nue_pack_variant_for_caps). */
+NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create_for_caps(nue_assets_context ctx, const char* path, const nue_tex_caps* caps, nue_pack_mount* out);
 NUE_ASSETS_API void NUE_CALL nue_pack_mount_destroy(nue_pack_mount mount);
 NUE_ASSETS_API nue_bool NUE_CALL nue_pack_mount_exists(nue_pack_mount mount, const char* name);
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_size(nue_pack_mount mount, const char* name, uint64_t* out_size);

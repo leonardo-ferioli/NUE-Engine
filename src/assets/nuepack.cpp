@@ -149,6 +149,20 @@ NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_device_class(nue_t
     }
 }
 
+NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_caps(const nue_tex_caps* caps) {
+    if (!caps) return NUE_PACK_VARIANT_RGBA8;
+    struct Probe { nue_pack_variant variant; nue_tex_format a, b; };
+    static const Probe probes[] = {
+        {NUE_PACK_VARIANT_BC, NUE_TEX_BC1_UNORM, NUE_TEX_BC3_UNORM},
+        {NUE_PACK_VARIANT_ASTC, NUE_TEX_ASTC_4x4_UNORM, NUE_TEX_ASTC_4x4_UNORM},
+        {NUE_PACK_VARIANT_ETC2, NUE_TEX_ETC2_RGB8, NUE_TEX_ETC2_RGBA8},
+        {NUE_PACK_VARIANT_PVRTC, NUE_TEX_PVRTC1_4BPP, NUE_TEX_PVRTC1_4BPP},
+    };
+    for (const Probe& p : probes)
+        if (nue_tex_caps_can_use(caps, p.a) && nue_tex_caps_can_use(caps, p.b)) return p.variant;
+    return NUE_PACK_VARIANT_RGBA8;
+}
+
 // ======================================================================================================== builder
 struct nue_pack_builder_s {
     Ctx* ctx = nullptr;
@@ -246,6 +260,7 @@ nue_result make_variant(nue_tex_image src, nue_pack_variant variant, const nue_p
         nue_tex_policy pol;
         nue_tex_policy_default(&pol);
         pol.max_dimension = o.max_dimension;
+        pol.flags |= NUE_TEX_POLICY_COMPRESS_RAW;                  // a package is built to be small: uncompressed sources are compressed for the target
         pol.quality = uint32_t(o.quality) + 1;
         nue_tex_plan_request req;
         NUE_STRUCT_INIT(&req);
