@@ -18,6 +18,7 @@ See [AUDIO.md](AUDIO.md) for what it contains.
   (`src/audio/third_party/*`) into an object library with its own warning level, registers `tests/audio` (ctest names `nue_audio_test_*`) and the tool
   `tools/nue_audio`, and installs the library into the `nueTargets` export. Public headers: `include/nue/audio_codec.h`, `audio_dsp.h`, `audio_spatial.h`;
   none is included by `nue/nue.h` because they need the separate library.
+* **ABI guard:** `tools/abi/gen_abi_probe.py` `GROUPS` gets the three `audio_*.h` headers mapped to the group `audio` / `NUE_AUDIO_API_VERSION` (done on this branch, one line); the references `tests/abi/reference/{ptr64,ptr32}.txt` were refreshed.
 * Optional: add `docs/AUDIO.md` to the installed docs.
 
 ## To core (mixer)

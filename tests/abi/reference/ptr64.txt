@@ -1,6 +1,7 @@
 # NUE public C ABI reference for layout 'ptr64'. GENERATED: do not edit by hand.
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
 version assets 1
+version audio 1
 version core 4098
 version texture 1
 assets define NUE_ASSET_NO_NODE 4294967295
@@ -290,6 +291,402 @@ assets struct nue_pack_builder_desc size=32 align=8
 assets struct nue_pack_convert_options size=48 align=8
 assets struct nue_pack_entry_info size=128 align=8
 assets struct nue_pack_info size=104 align=8
+audio define NUE_DSP_FRAME_BYTES 8
+audio define NUE_DSP_FRAME_SAMPLES 14
+audio define NUE_EA_XAS_BYTES_PER_CHANNEL 76
+audio define NUE_EA_XAS_FRAMES_PER_BLOCK 128
+audio define NUE_EA_XA_FRAME_BYTES 15
+audio define NUE_EA_XA_FRAME_SAMPLES 28
+audio define NUE_EA_XA_STEREO_FRAME_BYTES 30
+audio define NUE_I3DL2_PRESET_COUNT 30
+audio define NUE_PSX_FRAME_BYTES 16
+audio define NUE_PSX_FRAME_SAMPLES 28
+audio define NUE_XBOX_ADPCM_BYTES_PER_CHANNEL 36
+audio define NUE_XBOX_ADPCM_FRAMES_PER_BLOCK 64
+audio enum NUE_ACODEC_DSP_ADPCM 12
+audio enum NUE_ACODEC_EA_XA 14
+audio enum NUE_ACODEC_EA_XAS 13
+audio enum NUE_ACODEC_FLAC 15
+audio enum NUE_ACODEC_IMA_WAV 8
+audio enum NUE_ACODEC_IMA_XBOX 9
+audio enum NUE_ACODEC_MS_ADPCM 10
+audio enum NUE_ACODEC_OPUS 17
+audio enum NUE_ACODEC_PCM_F32LE 7
+audio enum NUE_ACODEC_PCM_S16BE 4
+audio enum NUE_ACODEC_PCM_S16LE 3
+audio enum NUE_ACODEC_PCM_S24LE 5
+audio enum NUE_ACODEC_PCM_S32LE 6
+audio enum NUE_ACODEC_PCM_S8 2
+audio enum NUE_ACODEC_PCM_U8 1
+audio enum NUE_ACODEC_PSX_ADPCM 11
+audio enum NUE_ACODEC_UNKNOWN 0
+audio enum NUE_ACODEC_VORBIS 16
+audio enum NUE_CHANMIX_INCLUDE_LFE 2
+audio enum NUE_CHANMIX_NORMALIZE 1
+audio enum NUE_CHANMIX_SURROUND_FILL 4
+audio enum NUE_COMPRESSOR_AUTO_MAKEUP 1
+audio enum NUE_COMPRESSOR_RMS_DETECT 2
+audio enum NUE_DRC_HEADPHONES 2
+audio enum NUE_DRC_NIGHT 4
+audio enum NUE_DRC_OFF 0
+audio enum NUE_DRC_SPEAKERS 1
+audio enum NUE_DRC_TV 3
+audio enum NUE_EA_XA_V1 1
+audio enum NUE_EA_XA_V2 2
+audio enum NUE_LIMITER_TRUE_PEAK 1
+audio enum NUE_LOUDNESS_ALL 63
+audio enum NUE_LOUDNESS_INTEGRATED 4
+audio enum NUE_LOUDNESS_MOMENTARY 1
+audio enum NUE_LOUDNESS_RANGE 8
+audio enum NUE_LOUDNESS_SAMPLE_PEAK 16
+audio enum NUE_LOUDNESS_SHORT_TERM 2
+audio enum NUE_LOUDNESS_TRUE_PEAK 32
+audio enum NUE_PSX_FLAG_END 1
+audio enum NUE_PSX_FLAG_LOOP_REPEAT 2
+audio enum NUE_PSX_FLAG_LOOP_START 4
+audio enum NUE_RESAMPLE_BEST 3
+audio enum NUE_RESAMPLE_FAST 0
+audio enum NUE_RESAMPLE_HIGH 2
+audio enum NUE_RESAMPLE_MEDIUM 1
+audio enum NUE_SPATIAL_AIR_ABSORPTION 2
+audio enum NUE_SPATIAL_AMBISONIC 2
+audio enum NUE_SPATIAL_BINAURAL 1
+audio enum NUE_SPATIAL_HEAD_RELATIVE 1
+audio enum NUE_SPATIAL_PAN 0
+audio enum NUE_SPK_BC 256
+audio enum NUE_SPK_BL 16
+audio enum NUE_SPK_BR 32
+audio enum NUE_SPK_FC 4
+audio enum NUE_SPK_FL 1
+audio enum NUE_SPK_FLC 64
+audio enum NUE_SPK_FR 2
+audio enum NUE_SPK_FRC 128
+audio enum NUE_SPK_LFE 8
+audio enum NUE_SPK_SL 512
+audio enum NUE_SPK_SR 1024
+audio enum NUE_SPK_TBC 65536
+audio enum NUE_SPK_TBL 32768
+audio enum NUE_SPK_TBR 131072
+audio enum NUE_SPK_TFC 8192
+audio enum NUE_SPK_TFL 4096
+audio enum NUE_SPK_TFR 16384
+audio field nue_adec_dsp_channel.coef off=0 size=32
+audio field nue_adec_dsp_channel.hist1 off=32 size=2
+audio field nue_adec_dsp_channel.hist2 off=34 size=2
+audio field nue_adec_info.bitrate off=60 size=4
+audio field nue_adec_info.bits_per_sample off=56 size=4
+audio field nue_adec_info.codec off=4 size=4
+audio field nue_adec_info.frame_count off=24 size=8
+audio field nue_adec_info.has_loop off=32 size=1
+audio field nue_adec_info.loop_end off=48 size=8
+audio field nue_adec_info.loop_start off=40 size=8
+audio field nue_adec_info.pre_skip_frames off=64 size=4
+audio field nue_adec_info.spec off=8 size=12
+audio field nue_adec_info.struct_size off=0 size=4
+audio field nue_adec_info.title off=68 size=64
+audio field nue_adec_raw_desc.block_size off=32 size=4
+audio field nue_adec_raw_desc.channels off=8 size=4
+audio field nue_adec_raw_desc.codec off=4 size=4
+audio field nue_adec_raw_desc.data_size off=24 size=8
+audio field nue_adec_raw_desc.dsp off=80 size=8
+audio field nue_adec_raw_desc.frame_count off=40 size=8
+audio field nue_adec_raw_desc.interleave off=36 size=4
+audio field nue_adec_raw_desc.loop_end off=56 size=8
+audio field nue_adec_raw_desc.loop_start off=48 size=8
+audio field nue_adec_raw_desc.ms_coef_count off=72 size=4
+audio field nue_adec_raw_desc.ms_coefs off=64 size=8
+audio field nue_adec_raw_desc.sample_rate off=12 size=4
+audio field nue_adec_raw_desc.start_offset off=16 size=8
+audio field nue_adec_raw_desc.struct_size off=0 size=4
+audio field nue_adec_source.close off=16 size=8
+audio field nue_adec_source.read off=8 size=8
+audio field nue_adec_source.size off=32 size=8
+audio field nue_adec_source.struct_size off=0 size=4
+audio field nue_adec_source.userdata off=24 size=8
+audio field nue_compressor_desc.attack_ms off=24 size=4
+audio field nue_compressor_desc.channels off=4 size=4
+audio field nue_compressor_desc.flags off=40 size=4
+audio field nue_compressor_desc.knee_db off=20 size=4
+audio field nue_compressor_desc.link off=36 size=4
+audio field nue_compressor_desc.makeup_db off=32 size=4
+audio field nue_compressor_desc.ratio off=16 size=4
+audio field nue_compressor_desc.release_ms off=28 size=4
+audio field nue_compressor_desc.sample_rate off=8 size=4
+audio field nue_compressor_desc.struct_size off=0 size=4
+audio field nue_compressor_desc.threshold_db off=12 size=4
+audio field nue_dsp_state.hist1 off=0 size=4
+audio field nue_dsp_state.hist2 off=4 size=4
+audio field nue_ea_xa_state.hist1 off=0 size=4
+audio field nue_ea_xa_state.hist2 off=4 size=4
+audio field nue_eax_reverb.air_absorption_hf off=80 size=4
+audio field nue_eax_reverb.decay_hf_ratio off=16 size=4
+audio field nue_eax_reverb.decay_lf_ratio off=20 size=4
+audio field nue_eax_reverb.decay_time off=12 size=4
+audio field nue_eax_reverb.density off=100 size=4
+audio field nue_eax_reverb.diffusion off=96 size=4
+audio field nue_eax_reverb.echo_depth off=68 size=4
+audio field nue_eax_reverb.echo_time off=64 size=4
+audio field nue_eax_reverb.flags off=104 size=4
+audio field nue_eax_reverb.hf_reference off=84 size=4
+audio field nue_eax_reverb.lf_reference off=88 size=4
+audio field nue_eax_reverb.modulation_depth off=76 size=4
+audio field nue_eax_reverb.modulation_time off=72 size=4
+audio field nue_eax_reverb.reflections off=24 size=4
+audio field nue_eax_reverb.reflections_delay off=28 size=4
+audio field nue_eax_reverb.reflections_pan off=32 size=12
+audio field nue_eax_reverb.reverb off=44 size=4
+audio field nue_eax_reverb.reverb_delay off=48 size=4
+audio field nue_eax_reverb.reverb_pan off=52 size=12
+audio field nue_eax_reverb.room off=0 size=4
+audio field nue_eax_reverb.room_hf off=4 size=4
+audio field nue_eax_reverb.room_lf off=8 size=4
+audio field nue_eax_reverb.room_rolloff_factor off=92 size=4
+audio field nue_i3dl2_reverb.decay_hf_ratio off=16 size=4
+audio field nue_i3dl2_reverb.decay_time off=12 size=4
+audio field nue_i3dl2_reverb.density off=40 size=4
+audio field nue_i3dl2_reverb.diffusion off=36 size=4
+audio field nue_i3dl2_reverb.hf_reference off=44 size=4
+audio field nue_i3dl2_reverb.reflections off=20 size=4
+audio field nue_i3dl2_reverb.reflections_delay off=24 size=4
+audio field nue_i3dl2_reverb.reverb off=28 size=4
+audio field nue_i3dl2_reverb.reverb_delay off=32 size=4
+audio field nue_i3dl2_reverb.room off=0 size=4
+audio field nue_i3dl2_reverb.room_hf off=4 size=4
+audio field nue_i3dl2_reverb.room_rolloff_factor off=8 size=4
+audio field nue_ima_state.predictor off=0 size=4
+audio field nue_ima_state.step_index off=4 size=4
+audio field nue_limiter_desc.ceiling_db off=12 size=4
+audio field nue_limiter_desc.channels off=4 size=4
+audio field nue_limiter_desc.flags off=24 size=4
+audio field nue_limiter_desc.lookahead_ms off=16 size=4
+audio field nue_limiter_desc.release_ms off=20 size=4
+audio field nue_limiter_desc.sample_rate off=8 size=4
+audio field nue_limiter_desc.struct_size off=0 size=4
+audio field nue_loudness_result.integrated_lufs off=8 size=8
+audio field nue_loudness_result.range_lu off=16 size=8
+audio field nue_loudness_result.sample_peak off=24 size=8
+audio field nue_loudness_result.struct_size off=0 size=4
+audio field nue_loudness_result.true_peak off=32 size=8
+audio field nue_ms_adpcm_coef.c1 off=0 size=2
+audio field nue_ms_adpcm_coef.c2 off=2 size=2
+audio field nue_psx_state.hist1 off=0 size=4
+audio field nue_psx_state.hist2 off=4 size=4
+audio field nue_psx_state.ignore_flags off=8 size=4
+audio field nue_reverb_params.air_absorption_gain_hf off=88 size=4
+audio field nue_reverb_params.decay_hf_limit off=104 size=1
+audio field nue_reverb_params.decay_hf_ratio off=24 size=4
+audio field nue_reverb_params.decay_lf_ratio off=28 size=4
+audio field nue_reverb_params.decay_time off=20 size=4
+audio field nue_reverb_params.density off=0 size=4
+audio field nue_reverb_params.diffusion off=4 size=4
+audio field nue_reverb_params.echo_depth off=76 size=4
+audio field nue_reverb_params.echo_time off=72 size=4
+audio field nue_reverb_params.gain off=8 size=4
+audio field nue_reverb_params.gain_hf off=12 size=4
+audio field nue_reverb_params.gain_lf off=16 size=4
+audio field nue_reverb_params.hf_reference off=92 size=4
+audio field nue_reverb_params.late_delay off=56 size=4
+audio field nue_reverb_params.late_gain off=52 size=4
+audio field nue_reverb_params.late_pan off=60 size=12
+audio field nue_reverb_params.lf_reference off=96 size=4
+audio field nue_reverb_params.modulation_depth off=84 size=4
+audio field nue_reverb_params.modulation_time off=80 size=4
+audio field nue_reverb_params.reflections_delay off=36 size=4
+audio field nue_reverb_params.reflections_gain off=32 size=4
+audio field nue_reverb_params.reflections_pan off=40 size=12
+audio field nue_reverb_params.room_rolloff_factor off=100 size=4
+audio field nue_spatial_backend_ops.destroy off=24 size=8
+audio field nue_spatial_backend_ops.name off=8 size=8
+audio field nue_spatial_backend_ops.render off=16 size=8
+audio field nue_spatial_backend_ops.struct_size off=0 size=4
+audio field nue_spatial_backend_ops.userdata off=32 size=8
+audio field nue_spatial_backend_source.eval off=8 size=48
+audio field nue_spatial_backend_source.mono off=0 size=8
+audio field nue_spatial_backend_source.params off=56 size=84
+audio field nue_spatial_desc.ambisonic_order off=16 size=4
+audio field nue_spatial_desc.backend off=24 size=8
+audio field nue_spatial_desc.mask off=8 size=4
+audio field nue_spatial_desc.max_block_frames off=20 size=4
+audio field nue_spatial_desc.mode off=4 size=4
+audio field nue_spatial_desc.sample_rate off=12 size=4
+audio field nue_spatial_desc.struct_size off=0 size=4
+audio field nue_spatial_eval.azimuth_deg off=8 size=4
+audio field nue_spatial_eval.cone_gain off=20 size=4
+audio field nue_spatial_eval.direction off=36 size=12
+audio field nue_spatial_eval.distance off=4 size=4
+audio field nue_spatial_eval.distance_gain off=16 size=4
+audio field nue_spatial_eval.doppler_ratio off=32 size=4
+audio field nue_spatial_eval.elevation_deg off=12 size=4
+audio field nue_spatial_eval.occlusion_gain off=24 size=4
+audio field nue_spatial_eval.struct_size off=0 size=4
+audio field nue_spatial_eval.total_gain off=28 size=4
+audio field nue_spatial_source_params.cone_direction off=28 size=12
+audio field nue_spatial_source_params.cone_inner_deg off=40 size=4
+audio field nue_spatial_source_params.cone_outer_deg off=44 size=4
+audio field nue_spatial_source_params.cone_outer_gain off=48 size=4
+audio field nue_spatial_source_params.flags off=80 size=4
+audio field nue_spatial_source_params.max_distance off=56 size=4
+audio field nue_spatial_source_params.min_distance off=52 size=4
+audio field nue_spatial_source_params.model off=64 size=4
+audio field nue_spatial_source_params.occlusion off=72 size=4
+audio field nue_spatial_source_params.position off=4 size=12
+audio field nue_spatial_source_params.rolloff off=60 size=4
+audio field nue_spatial_source_params.spread_deg off=76 size=4
+audio field nue_spatial_source_params.struct_size off=0 size=4
+audio field nue_spatial_source_params.velocity off=16 size=12
+audio field nue_spatial_source_params.volume off=68 size=4
+audio field nue_spatial_world.distance_factor off=68 size=4
+audio field nue_spatial_world.doppler_factor off=60 size=4
+audio field nue_spatial_world.listener off=4 size=52
+audio field nue_spatial_world.rolloff_factor off=64 size=4
+audio field nue_spatial_world.speed_of_sound off=56 size=4
+audio field nue_spatial_world.struct_size off=0 size=4
+audio function nue_acodec_name
+audio function nue_adec_decode_all_f32
+audio function nue_adec_decode_all_s16
+audio function nue_adec_destroy
+audio function nue_adec_get_info
+audio function nue_adec_open_file
+audio function nue_adec_open_memory
+audio function nue_adec_open_raw_memory
+audio function nue_adec_open_raw_source
+audio function nue_adec_open_source
+audio function nue_adec_pull_f32
+audio function nue_adec_pull_s16
+audio function nue_adec_read_f32
+audio function nue_adec_read_s16
+audio function nue_adec_seek
+audio function nue_adec_set_loop
+audio function nue_adec_set_loop_points
+audio function nue_adec_stream_create
+audio function nue_adec_stream_destroy
+audio function nue_adec_stream_get_info
+audio function nue_adec_stream_pull_f32
+audio function nue_adec_stream_pull_s16
+audio function nue_adec_stream_seek
+audio function nue_adec_stream_set_loop
+audio function nue_adec_stream_underruns
+audio function nue_adec_tell
+audio function nue_adpcm_dsp_decode_frame
+audio function nue_adpcm_ea_xa_decode_frame
+audio function nue_adpcm_ea_xa_decode_stereo_frame
+audio function nue_adpcm_ea_xas_decode_block
+audio function nue_adpcm_ima_wav_decode_block
+audio function nue_adpcm_ima_wav_samples_per_block
+audio function nue_adpcm_ms_decode_block
+audio function nue_adpcm_ms_samples_per_block
+audio function nue_adpcm_psx_decode_frame
+audio function nue_adpcm_xbox_decode_block
+audio function nue_audio_convert_hq
+audio function nue_chanmix_create
+audio function nue_chanmix_destroy
+audio function nue_chanmix_dst_channels
+audio function nue_chanmix_get_matrix
+audio function nue_chanmix_process
+audio function nue_chanmix_src_channels
+audio function nue_channel_mask_count
+audio function nue_channel_mask_default
+audio function nue_compressor_create
+audio function nue_compressor_desc_default
+audio function nue_compressor_destroy
+audio function nue_compressor_dsp
+audio function nue_compressor_gain_reduction_db
+audio function nue_compressor_process
+audio function nue_compressor_reset
+audio function nue_compressor_set_params
+audio function nue_convolver_create
+audio function nue_convolver_destroy
+audio function nue_convolver_dsp
+audio function nue_convolver_latency_frames
+audio function nue_convolver_process
+audio function nue_convolver_reset
+audio function nue_drc_create
+audio function nue_drc_destroy
+audio function nue_drc_dsp
+audio function nue_drc_latency_frames
+audio function nue_drc_process
+audio function nue_drc_set_mode
+audio function nue_dsp_nibbles_to_samples
+audio function nue_dsp_samples_to_nibbles
+audio function nue_i3dl2_preset
+audio function nue_i3dl2_preset_by_name
+audio function nue_i3dl2_preset_name
+audio function nue_ima_decode_nibble
+audio function nue_ir_generate_room
+audio function nue_limiter_create
+audio function nue_limiter_desc_default
+audio function nue_limiter_destroy
+audio function nue_limiter_dsp
+audio function nue_limiter_gain_reduction_db
+audio function nue_limiter_latency_frames
+audio function nue_limiter_process
+audio function nue_limiter_reset
+audio function nue_limiter_set_params
+audio function nue_loudness_add
+audio function nue_loudness_analyze
+audio function nue_loudness_create
+audio function nue_loudness_destroy
+audio function nue_loudness_integrated
+audio function nue_loudness_momentary
+audio function nue_loudness_normalization_gain
+audio function nue_loudness_range
+audio function nue_loudness_reset
+audio function nue_loudness_sample_peak
+audio function nue_loudness_short_term
+audio function nue_loudness_true_peak
+audio function nue_millibel_to_gain
+audio function nue_resample_buffer
+audio function nue_resampler_create
+audio function nue_resampler_destroy
+audio function nue_resampler_flush
+audio function nue_resampler_latency_frames
+audio function nue_resampler_output_frames_for
+audio function nue_resampler_process
+audio function nue_resampler_reset
+audio function nue_resampler_set_rates
+audio function nue_reverb_create
+audio function nue_reverb_destroy
+audio function nue_reverb_dsp
+audio function nue_reverb_params_default
+audio function nue_reverb_params_from_eax
+audio function nue_reverb_params_from_i3dl2
+audio function nue_reverb_process
+audio function nue_reverb_reset
+audio function nue_reverb_set_params
+audio function nue_spatial_active_renderer
+audio function nue_spatial_begin_block
+audio function nue_spatial_create
+audio function nue_spatial_destroy
+audio function nue_spatial_end_block
+audio function nue_spatial_evaluate
+audio function nue_spatial_output_channels
+audio function nue_spatial_render_source
+audio function nue_spatial_set_hrtf
+audio function nue_spatial_source_create
+audio function nue_spatial_source_destroy
+audio function nue_spatial_source_params_default
+audio function nue_spatial_world_default
+audio struct nue_adec_dsp_channel size=36 align=2
+audio struct nue_adec_info size=136 align=8
+audio struct nue_adec_raw_desc size=88 align=8
+audio struct nue_adec_source size=40 align=8
+audio struct nue_compressor_desc size=44 align=4
+audio struct nue_dsp_state size=8 align=4
+audio struct nue_ea_xa_state size=8 align=4
+audio struct nue_eax_reverb size=108 align=4
+audio struct nue_i3dl2_reverb size=48 align=4
+audio struct nue_ima_state size=8 align=4
+audio struct nue_limiter_desc size=28 align=4
+audio struct nue_loudness_result size=40 align=8
+audio struct nue_ms_adpcm_coef size=4 align=2
+audio struct nue_psx_state size=12 align=4
+audio struct nue_reverb_params size=108 align=4
+audio struct nue_spatial_backend_ops size=40 align=8
+audio struct nue_spatial_backend_source size=144 align=8
+audio struct nue_spatial_desc size=32 align=8
+audio struct nue_spatial_eval size=48 align=4
+audio struct nue_spatial_source_params size=84 align=4
+audio struct nue_spatial_world size=72 align=4
 core define NUE_AUDIO_MAX_CHANNELS 8
 core define NUE_BUS_MAX_EFFECTS 4
 core define NUE_KEYCODE_SCANCODE_MASK 1073741824
