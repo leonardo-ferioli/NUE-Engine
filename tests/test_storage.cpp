@@ -68,6 +68,19 @@ TEST_CASE(case_insensitive_resolution_and_backslashes) {
     CHECK(std::filesystem::exists(e.user + "/Saves/Other.txt"));   // parent folder case reused
 }
 
+TEST_CASE(portable_mode_keeps_every_writable_root_below_the_user_folder) {
+    Engine e;
+    for (const char* root : {"cache", "settings", "temp"}) {
+        char p[512];
+        size_t need;
+        CHECK_EQ(nue_vfs_get_root_path(root, p, sizeof(p), &need), NUE_OK);
+        std::string path(p);
+        std::string expected = e.user + "/" + root;
+        GENERIC(CHECK(path == expected));   // a real platform layer may answer another folder only when no explicit user path was given
+        CHECK(path.find(e.user) == 0);       // but an explicit user_data_path always wins
+    }
+}
+
 TEST_CASE(roots_are_protected) {
     Engine e;
     nue_file f;
@@ -380,6 +393,7 @@ TEST_CASE(import_copies_verifies_and_resumes) {
 TEST_MAIN_BEGIN
     RUN(path_normalization_is_pure);
     RUN(case_insensitive_resolution_and_backslashes);
+    RUN(portable_mode_keeps_every_writable_root_below_the_user_folder);
     RUN(roots_are_protected);
     RUN(mount_overlay_newest_wins_and_listing_merges);
     RUN(file_io_seek_append_truncate_and_atomic_save);

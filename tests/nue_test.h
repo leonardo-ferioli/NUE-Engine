@@ -9,7 +9,12 @@ namespace nue_test {
 inline int& failures() { static int n = 0; return n; }
 inline int& checks() { static int n = 0; return n; }
 inline void on_terminate() {
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    // exceptions are enabled in this translation unit: report what was thrown
     try { throw; } catch (const std::exception& e) { std::printf("  UNCAUGHT EXCEPTION: %s\n", e.what()); } catch (...) { std::printf("  UNCAUGHT NON-STD EXCEPTION\n"); }
+#else
+    std::printf("  terminate called (this test is built without exceptions)\n");
+#endif
     std::abort();
 }
 }  // namespace nue_test

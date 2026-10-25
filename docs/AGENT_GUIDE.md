@@ -5,8 +5,8 @@ compatibility layer). Nothing of the engine lives anywhere else.
 
 ## Where things are
 
-- Remote: `https://github.com/leonardo-ferioli/nue-engine` (private). Default branch: `main`.
-- Local clone of the main session: `C:\Users\Leonardo\Projects\nue-engine`.
+- Remote: `https://github.com/leonardo-ferioli/nue-engine`. Default branch: `main`.
+- Local clone of the main session: `<workspace>\nue-engine`.
 - Layout (repository root):
 
 ```
@@ -20,6 +20,7 @@ src/platform/linux/     Linux and SteamOS backend               owner: linux
 src/platform/android/   Android backend (+ android/ Gradle)     owner: android
 src/platform/ios/       iOS backend (+ ios/ Xcode project)      owner: ios
 src/texture/            texture formats, codecs, cache          owner: texture
+src/assets/             resource formats, JDLZ, .nuepack, nue_pack  owner: assets
 src/legacy/             legacy ABI layers (win32, d3d9, dsound, dinput)   owner: legacy
 tests/  samples/  tools/  cmake/  docs/  third_party/
 ```
@@ -41,7 +42,7 @@ owner session (resolve names with ListAgents).
 Do not work in the main clone. The main session creates one worktree per session:
 
 ```
-git -C C:\Users\Leonardo\Projects\nue-engine worktree add ..\nue-engine-<area> <area>
+git -C <workspace>\nue-engine worktree add ..\nue-engine-<area> <area>
 ```
 
 You will be told the exact path. Commit with explicit `git add <paths>`, never `git add -A`. Do not switch branches in the main
@@ -52,10 +53,6 @@ clone. To bring in other areas' work: `git merge origin/main` (or the owner's br
 - CMake presets (`CMakePresets.json`): `windows-x86`, `windows-x64`, `linux-x64`, `android-arm64`, `ios-arm64`.
 - `cmake --preset <name>`, `cmake --build --preset <name>`, `ctest --preset <name>`.
 - Tests must run with the null or dummy backends: no window, no sound, no GPU needed. Never open the game.
-
-## CI is paused
-
-GitHub Actions is paused for now (spending limit). Do not rely on it: build and test locally with the presets and the null/dummy backends, and say in your report exactly what you compiled and ran. The workflow files stay in the repository for when CI is switched back on. The main session still pushes your branch.
 
 ## CI and releases (GitHub Actions, `.github/workflows/ci.yml`)
 

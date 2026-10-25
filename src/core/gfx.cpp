@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 struct nue_gfx_s {

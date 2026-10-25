@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="@string/app_name"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:appCategory="game"
+        android:isGame="true"
+        android:extractNativeLibs="false"
+        android:hardwareAccelerated="true"
+        android:theme="@style/NueTheme">
+
+        <!-- Game Mode: lets the system offer the Performance / Battery modes and tells it what we support.  The game
+             keeps its own resolution and frame rate (no downscaling / fps override by the system). -->
+        <meta-data
+            android:name="android.app.game_mode_config"
+            android:resource="@xml/game_mode_config" />
+
+        <activity
+            android:name="org.nue.engine.NueActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true"
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|colorMode|layoutDirection|fontScale|locale|mcc|mnc|touchscreen"
+            android:alwaysRetainTaskState="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- native library whose SDL_main() is the game (default "main") -->
+            <meta-data android:name="org.nue.engine.main_library" android:value="main" />
+            <!-- frame rate the game targets; used for ADPF and the refresh rate choice -->
+            <meta-data android:name="org.nue.engine.target_fps" android:value="60" />
+        </activity>
+    </application>
+</manifest>

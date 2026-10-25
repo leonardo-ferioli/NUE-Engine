@@ -1,0 +1,33 @@
+# Doxygen configuration for the public API (headers only).
+# Build:  doxygen docs/Doxyfile      Output: build/docs/html
+
+PROJECT_NAME           = "NUE Engine"
+PROJECT_BRIEF          = "The runtime for static recompilations"
+PROJECT_NUMBER         = $(PROJECT_NUMBER)
+OUTPUT_DIRECTORY       = build/docs
+CREATE_SUBDIRS         = NO
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+USE_MDFILE_AS_MAINPAGE = README.md
+
+INPUT                  = README.md include docs/API.md docs/ARCHITECTURE.md docs/ABI.md docs/PORTING.md docs/ROADMAP.md docs/LEGACY_LAYERS.md docs/REVERSE_ENGINEERING.md
+FILE_PATTERNS          = *.h *.hpp *.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */third_party/* */build/*
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+OPTIMIZE_OUTPUT_FOR_C  = NO
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+PREDEFINED             = NUE_API= NUE_DEFINE_HANDLE(x)="typedef struct x##_t* x"
+
+GENERATE_TREEVIEW      = YES
+HAVE_DOT               = YES
+CALL_GRAPH             = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = NO

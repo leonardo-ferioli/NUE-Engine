@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="270" viewBox="0 0 960 270" role="img" aria-label="What NUE uses natively on each platform">
+<style>
+.bg{fill:#ffffff}.box{fill:#f6f8fa;stroke:#d0d7de}.cell{fill:#ffffff;stroke:#d0d7de}
+.yours{fill:none;stroke:#8c959f;stroke-dasharray:5 4}.t{fill:#1f2328}.m{fill:#656d76}
+.ar{stroke:#8c959f;fill:none}.hi{fill:#eaeef2;stroke:#8c959f}
+@media (prefers-color-scheme: dark){
+.bg{fill:#0d1117}.box{fill:#161b22;stroke:#30363d}.cell{fill:#0d1117;stroke:#30363d}
+.yours{stroke:#6e7681}.t{fill:#e6edf3}.m{fill:#8b949e}.ar{stroke:#6e7681}.hi{fill:#21262d;stroke:#6e7681}}
+</style>
+<rect class="bg" width="960" height="270" rx="14"/>
+<rect class="box" x="12.0" y="24" width="216" height="222" rx="12"/>
+<text x="32.0" y="60" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" text-anchor="start">Windows</text>
+<text x="32.0" y="82" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">x86 and x64</text>
+<path class="ar" d="M32.0 100 H208.0" stroke-width="1"/>
+<text x="32.0" y="134" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Game Mode, power throttling</text>
+<text x="32.0" y="162" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">WASAPI audio</text>
+<text x="32.0" y="190" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Minidumps and ETW</text>
+<text x="32.0" y="218" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">DPI, multi-monitor</text>
+<rect class="box" x="252.0" y="24" width="216" height="222" rx="12"/>
+<text x="272.0" y="60" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" text-anchor="start">Linux and SteamOS</text>
+<text x="272.0" y="82" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">x86-64 and arm64</text>
+<path class="ar" d="M272.0 100 H448.0" stroke-width="1"/>
+<text x="272.0" y="134" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">X11 and Wayland</text>
+<text x="272.0" y="162" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">PipeWire audio</text>
+<text x="272.0" y="190" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">GameMode</text>
+<text x="272.0" y="218" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">XDG paths, SteamOS hooks</text>
+<rect class="box" x="492.0" y="24" width="216" height="222" rx="12"/>
+<text x="512.0" y="60" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" text-anchor="start">Android</text>
+<text x="512.0" y="82" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">arm64</text>
+<path class="ar" d="M512.0 100 H688.0" stroke-width="1"/>
+<text x="512.0" y="134" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">GameManager and ADPF</text>
+<text x="512.0" y="162" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Storage access framework</text>
+<text x="512.0" y="190" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Thermal and memory events</text>
+<text x="512.0" y="218" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">AAR for Gradle projects</text>
+<rect class="box" x="732.0" y="24" width="216" height="222" rx="12"/>
+<text x="752.0" y="60" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" text-anchor="start">iOS</text>
+<text x="752.0" y="82" class="m" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" text-anchor="start">arm64</text>
+<path class="ar" d="M752.0 100 H928.0" stroke-width="1"/>
+<text x="752.0" y="134" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Game Mode</text>
+<text x="752.0" y="162" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Metal view</text>
+<text x="752.0" y="190" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Documents and controllers</text>
+<text x="752.0" y="218" class="t" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" text-anchor="start">Memory pressure, os_log</text>
+</svg>

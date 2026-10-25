@@ -1,0 +1,27 @@
+; Optional. Copy next to d3d9.dll as nue_d3d9.ini. Environment variables NUE_RENDERER, NUE_VSYNC and NUE_RENDER_THREAD override these values.
+[graphics]
+; d3d11 (default) or vulkan
+renderer=d3d11
+; honour the game's present interval (0 = never wait for the display)
+vsync=1
+; run bgfx's backend on its own thread (faster; 0 = everything on the game thread)
+render_thread=1
+; worker_thread=1: the game thread only records its Direct3D 9 calls; one more thread runs the translator and the bgfx calls (like DXVK's command-stream thread).
+; The game may run one frame ahead of it. Environment override: NUE_WORKER_THREAD=0|1. worker_copy_mb = memory for the copies of buffers that locks read (MB).
+worker_thread=0
+;worker_copy_mb=256
+; multisampling: auto = what the game asks for (its multisample type and quality), off, or 2 / 4 / 8 samples forced (8x costs about twice the GPU time of off on an integrated GPU at 720p)
+msaa=auto
+; nue_d3d9.log next to the dll (what the game asked for that the translator cannot do is summarised when the device is released)
+log=1
+log_unsupported=1
+; compiled shaders are kept here between runs (default: nue_shader_cache next to the dll)
+;shader_cache=
+; texture contents kept in system memory after the upload so that a later Lock shows them (MB; the real runtime does this for managed textures)
+texture_copy_mb=160
+; draw textures that have no data as a magenta checker (F10 toggles it while the game runs; F11 writes nue_textures_N.txt, F12 a screenshot)
+mark_missing_textures=0
+; threads (nothing changes unless you set them). The log lists the threads bgfx starts; render_thread_priority = idle | lowest | below | normal | above | highest sets the priority of all
+; of them, render_thread_cpu = N asks for logical processor N as their ideal processor
+;render_thread_priority=default
+;render_thread_cpu=-1

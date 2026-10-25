@@ -12,6 +12,7 @@
 #include <functional>
 #include <map>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace nuei;
@@ -57,29 +58,29 @@ void io_worker() {
             for (auto it = p.queue.begin(); it != p.queue.end(); ++it) if ((*it)->desc.priority > (*best)->desc.priority) best = it;
             r = *best;
             p.queue.erase(best);
-            if (r->cancelled) { r->state = 2; r->result = NUE_ERR_CANCELLED; }
-            else r->state = 1;
+            r->state = 1;
         }
-        if (r->state == 1) {
-            size_t got = 0;
-            nue_result res = os_file_read_at(r->file->handle, r->desc.offset, r->desc.buffer, r->desc.size, &got);
+        size_t got = 0;
+        nue_result res = NUE_ERR_CANCELLED;
+        if (!r->cancelled) {
+            res = os_file_read_at(r->file->handle, r->desc.offset, r->desc.buffer, r->desc.size, &got);
             if (NUE_SUCCEEDED(res)) res = (got == 0 && r->desc.size > 0) ? NUE_ERR_END_OF_DATA : got < r->desc.size ? NUE_OK_PARTIAL : NUE_OK;
-            std::lock_guard<std::mutex> lock(p.mutex);
-            r->bytes = got; r->result = res; r->state = 2;
         }
-        // completion notifications outside the lock
-        if (r->desc.callback) r->desc.callback(r->desc.userdata, r->id, r->result, r->bytes);
+        // Completion notifications run outside the lock and BEFORE the request is published as done: a caller that waits on (or polls) the
+        // request and sees it finished can rely on the callback having returned and the completion event being queued.
+        if (r->desc.callback) r->desc.callback(r->desc.userdata, r->id, res, got);
         if (r->desc.post_event) {
             nue_event e;
             std::memset(&e, 0, sizeof(e));
             e.type = NUE_EVENT_IO_COMPLETE;
-            e.payload.user.code = r->result;
+            e.payload.user.code = res;
             e.payload.user.data1 = r->id;
-            e.payload.user.data2 = r->bytes;
+            e.payload.user.data2 = got;
             nue_internal_push_event(&e);
         }
         {
             std::lock_guard<std::mutex> lock(p.mutex);
+            r->bytes = got; r->result = res; r->state = 2;
             if (r->released) p.requests.erase(r->id);
         }
         p.done_cv.notify_all();

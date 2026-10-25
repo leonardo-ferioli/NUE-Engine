@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NUE Game
+Comment=Native Linux build
+Exec=/home/deck/Games/game/nue-launch.sh
+Path=/home/deck/Games/game
+Icon=applications-games
+Terminal=false
+Categories=Game;

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <system_error>
+#include <utility>
 
 #if defined(_WIN32)
 #  include <windows.h>
@@ -322,6 +323,14 @@ std::string os_temp_dir() {
     std::replace(t.begin(), t.end(), '\\', '/');
     while (t.size() > 1 && t.back() == '/') t.pop_back();
     return t;
+}
+
+uint32_t os_process_id() {
+#if defined(_WIN32)
+    return uint32_t(GetCurrentProcessId());
+#else
+    return uint32_t(::getpid());
+#endif
 }
 
 std::string os_getenv(const char* name) {

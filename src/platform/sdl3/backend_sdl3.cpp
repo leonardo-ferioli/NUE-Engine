@@ -114,10 +114,6 @@ int nue_button_from_sdl(int b) {
     }
 }
 
-int sdl_button_from_nue(int b) {
-    for (int s = 0; s < SDL_GAMEPAD_BUTTON_COUNT; ++s) if (nue_button_from_sdl(s) == b) return s;
-    return -1;
-}
 
 int nue_axis_from_sdl(int a) {
     switch (a) {
