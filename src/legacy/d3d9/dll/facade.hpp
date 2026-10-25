@@ -15,6 +15,7 @@
 #include "nue/bgfx_gpu.hpp"
 #include "nue/d3d9_layer.hpp"
 #include "threaded.hpp"
+#include "nue/d3d9_gfx_provider.hpp"
 
 namespace nue::facade {
 
@@ -85,7 +86,11 @@ private:
 };
 #define NUE_CALL() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall<true> nue_scope_(nue_slot_, __func__)
 #define NUE_CALL_FAST() static const unsigned nue_slot_ = ::nue::facade::register_method(__func__); ::nue::facade::ScopedCall<false> nue_scope_(nue_slot_, __func__)
-void device_destroyed();                           // lets the factory create another device (bgfx is a singleton)
+void device_destroyed();
+// The engine's graphics context for the next CreateDevice (docs/GFX_D3D9_SEAM.md); null (the default) = the dll initialises bgfx itself, polls the
+// window size, never reports a lost device and keeps its shader cache next to the dll, exactly as without the engine. Not used by the game yet.
+void set_gfx_provider(d3d9::GfxProvider* provider);
+d3d9::GfxProvider* gfx_provider();                           // lets the factory create another device (bgfx is a singleton)
 
 void set_window_status(const std::string& text);
 std::string window_status_copy();   // the last window / swap chain description (NueD3D9_DescribeWindow)
@@ -104,6 +109,7 @@ struct Config {
     uint32_t worker_copy_mb = 256;                 // worker mode: buffer contents kept on the game's side for locks that read them (MB)
     bool mark_missing = false;                     // textures without data are drawn as a magenta checker (F10 toggles it while the game runs)
     uint32_t msaa = 0;                             // 0 = as the game asks (its multisample type and quality); 1 = off; 2, 4, 8 = force that many samples                   // one line per unsupported feature the game asks for (also summarised at exit)
+    std::string shader_cache_ini;                  // shader_cache as the ini names it (empty: not named)
     std::string shader_cache;                      // folder for compiled shaders (default: <dll folder>\nue_shader_cache)
     std::string dll_directory;
 };
@@ -114,6 +120,9 @@ struct Core {
     std::unique_ptr<gpu::BgfxGpu> gpu;
     std::unique_ptr<d3d9::Layer> layer;
     std::unique_ptr<ThreadedLayer> threaded;   // worker mode: the game's calls go here, and layer and gpu belong to the worker thread
+    // The engine's graphics context (nue_gfx MANAGED mode), when one is installed with set_gfx_provider before CreateDevice; null = the dll's own behaviour
+    d3d9::GfxProvider* gfx_provider = nullptr;
+    d3d9::WindowSizeMailbox window_size;        // the provider's resize listener posts here (any thread); Present applies it
     bool alive = true;
     ~Core() { release_backend(); }
     void release_backend() {   // the layer, then the adapter, on the thread that made them; then the worker ends

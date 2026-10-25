@@ -139,7 +139,14 @@ void Device9::apply_window_size() {
     if (!GetClientRect(window_, &client)) return;
     const UINT w = UINT(std::max<LONG>(client.right - client.left, 0)), h = UINT(std::max<LONG>(client.bottom - client.top, 0));
     if (!w || !h) return;
-    if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; core_->backend_async([gpu = core_->gpu.get(), w, h] { gpu->set_window_size(w, h); }); visible_known_ = false; }
+    if (core_->gfx_provider) {   // the swap chain size comes from the engine's resize listener; the polled client rectangle only gives the visible area
+        uint32_t posted_w = 0, posted_h = 0;
+        if (core_->window_size.take(posted_w, posted_h) && posted_w && posted_h) {
+            core_->backend_async([gpu = core_->gpu.get(), posted_w, posted_h] { gpu->set_window_size(posted_w, posted_h); });
+            visible_known_ = false;
+        }
+        if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; visible_known_ = false; }
+    } else if (w != window_w_ || h != window_h_) { window_w_ = w; window_h_ = h; core_->backend_async([gpu = core_->gpu.get(), w, h] { gpu->set_window_size(w, h); }); visible_known_ = false; }
     // The part of the client area that is on a monitor: a window larger than the screen (or partly outside it) must not hide the sides of the picture.
     POINT origin{0, 0};
     ClientToScreen(window_, &origin);
@@ -160,7 +167,12 @@ void Device9::apply_window_size() {
 
 // ---- device -----------------------------------------------------------------------------------------------------------------------------
 
-HRESULT Device9::TestCooperativeLevel() try { NUE_CALL_FAST(); auto* dev = core_->dev(); return dev ? to_hresult(dev->test_cooperative_level()) : D3DERR_DEVICELOST; } catch (...) { return guard_failed(__func__); }
+HRESULT Device9::TestCooperativeLevel() try { NUE_CALL_FAST();
+    auto* dev = core_->dev();
+    if (!dev) return D3DERR_DEVICELOST;
+    if (core_->gfx_provider) return to_hresult(d3d9::cooperative_level(core_->gfx_provider));   // the engine's device state (suspend, device lost)
+    return to_hresult(dev->test_cooperative_level());
+} catch (...) { return guard_failed(__func__); }
 HRESULT Device9::GetDirect3D(IDirect3D9** out) try { NUE_CALL_FAST(); if (!out) return trace_result(__func__, D3DERR_INVALIDCALL); *out = d3d_; d3d_->AddRef(); return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT Device9::GetDeviceCaps(D3DCAPS9* caps) try { NUE_CALL_FAST(); if (!caps) return trace_result(__func__, D3DERR_INVALIDCALL); *caps = caps_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
 HRESULT Device9::GetCreationParameters(D3DDEVICE_CREATION_PARAMETERS* params) try { NUE_CALL_FAST(); if (!params) return trace_result(__func__, D3DERR_INVALIDCALL); *params = creation_; return D3D_OK; } catch (...) { return guard_failed(__func__); }
@@ -182,6 +194,13 @@ HRESULT Device9::GetRasterStatus(UINT, D3DRASTER_STATUS* status) try { NUE_CALL_
 HRESULT Device9::Reset(D3DPRESENT_PARAMETERS* pp) try { NUE_CALL(); 
     auto* dev = core_->dev();
     if (!dev || !pp) return trace_result(__func__, D3DERR_INVALIDCALL);
+    if (core_->gfx_provider) {   // the engine's device: a lost one cannot be reset yet; one that needs a reset is reset first (on the thread that owns bgfx)
+        Status ready = Status::ok;
+        bool device_was_reset = false;
+        core_->backend([&] { ready = d3d9::prepare_reset(core_->gfx_provider, device_was_reset); });
+        if (ready != Status::ok) return D3DERR_DEVICELOST;
+        if (device_was_reset) log("Reset: the engine re-created the GPU device; the layer does not re-create its GPU objects yet (MANAGED mode is not wired)");
+    }
     if (in_scene_) { dev->end_scene(); in_scene_ = false; }
     UINT w = 0, h = 0;
     const d3d9::DeviceParams params = params_from(*pp, w, h);
@@ -215,6 +234,7 @@ HRESULT Device9::Reset(D3DPRESENT_PARAMETERS* pp) try { NUE_CALL();
 HRESULT Device9::Present(const RECT*, const RECT*, HWND, const RGNDATA*) try { NUE_CALL(); ++g_counter_present; 
     auto* dev = core_->dev();
     if (!dev) return trace_result(__func__, D3DERR_DEVICELOST);
+    if (core_->gfx_provider && d3d9::cooperative_level(core_->gfx_provider) != Status::ok) return D3DERR_DEVICELOST;   // suspended / lost: bgfx is not touched
     if (in_scene_) { dev->end_scene(); in_scene_ = false; }
     apply_window_size();
     LARGE_INTEGER frequency, begin, end;

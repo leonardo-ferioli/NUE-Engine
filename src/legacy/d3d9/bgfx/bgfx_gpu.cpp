@@ -186,6 +186,9 @@ public:
     void set_visible_area(int32_t x, int32_t y, uint32_t width, uint32_t height) override { visible_[0] = x; visible_[1] = y; visible_[2] = int32_t(width); visible_[3] = int32_t(height); visible_set_ = width && height; }
     void update_texture(Texture, uint32_t level, uint32_t face, const uint32_t* rect4, Bytes data, uint32_t row_pitch) override;
     Result<Program> create_program(const ProgramDesc&) override;
+    bool finish_init();                 // after bgfx::init (or with external_init): caps, uniforms, the blit program
+    void release_own_objects();         // external_init: the adapter's bgfx objects, freed without shutting bgfx down
+    bool external_ = false;
     // the reset flags of bgfx, the same at init and at every later reset: a reset without BGFX_RESET_MAXANISOTROPY turns every anisotropic sampler
     // into 1x (distant textures blurred, the game asks for 16x on most draws)
     uint32_t reset_flags() const { return (options_.vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) | BGFX_RESET_MAXANISOTROPY; }
@@ -285,8 +288,28 @@ std::string BgfxGpuImpl::profile_report() const {
 
 BgfxGpuImpl::~BgfxGpuImpl() {
     if (!initialised_) return;
+    if (external_) {   // bgfx stays alive for its owner: give back what the adapter made
+        release_own_objects();
+        bgfx::frame();
+        return;
+    }
     bgfx::frame();
     bgfx::shutdown();
+}
+
+void BgfxGpuImpl::release_own_objects() {
+    for (auto& t : textures_.items) if (t.alive && bgfx::isValid(t.handle)) bgfx::destroy(t.handle);
+    for (auto& b : buffers_.items) if (b.alive && !b.transient) { if (bgfx::isValid(b.vb)) bgfx::destroy(b.vb); if (bgfx::isValid(b.ib)) bgfx::destroy(b.ib); }
+    for (auto& p : programs_.items) if (p.alive && bgfx::isValid(p.handle)) bgfx::destroy(p.handle);
+    for (auto& f : framebuffers_) if (bgfx::isValid(f.second)) bgfx::destroy(f.second);
+    for (auto& l : layouts_) if (bgfx::isValid(l.second)) bgfx::destroy(l.second);
+    if (bgfx::isValid(dummy_vertex_layout_)) bgfx::destroy(dummy_vertex_layout_);
+    if (bgfx::isValid(backbuffer_.handle)) bgfx::destroy(backbuffer_.handle);
+    if (bgfx::isValid(readback_)) bgfx::destroy(readback_);
+    if (bgfx::isValid(u_vs_)) bgfx::destroy(u_vs_);
+    if (bgfx::isValid(u_ps_)) bgfx::destroy(u_ps_);
+    for (auto& u : u_tex_) if (bgfx::isValid(u)) bgfx::destroy(u);
+    textures_ = {}; buffers_ = {}; programs_ = {}; framebuffers_.clear(); layouts_.clear(); backbuffer_ = TextureEntry{};
 }
 
 namespace {
@@ -322,6 +345,10 @@ LogCallback g_log_callback;
 
 bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     options_ = options;
+    if (options.external_init) {   // bgfx belongs to the caller (nue_gfx MANAGED mode): use it as it is
+        external_ = true;
+        return finish_init();
+    }
     if (options.single_threaded) bgfx::renderFrame();
     bgfx::Init init;
     switch (options.renderer) {
@@ -334,6 +361,8 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     default: init.type = bgfx::RendererType::Count; break;
     }
     init.swapChain.nwh = options.window;
+    init.swapChain.ndt = options.display;
+    init.platformData.type = options.wayland ? bgfx::NativeWindowHandleType::Wayland : bgfx::NativeWindowHandleType::Default;
     init.swapChain.width = options.window_width;
     init.swapChain.height = options.window_height;
     init.reset = reset_flags();
@@ -342,10 +371,14 @@ bool BgfxGpuImpl::init(const BgfxOptions& options, std::string& error) {
     init.limits.numDrawCalls = 1 << 15;
     if (options.log) { g_log_callback.log = options.log; init.callback = &g_log_callback; }
     if (!bgfx::init(init)) { error = "bgfx::init failed"; return false; }
+    return finish_init();
+}
+
+bool BgfxGpuImpl::finish_init() {
     initialised_ = true;
     renderer_ = bgfx::getRendererType();
     stats_.renderer_name = bgfx::getRendererName(renderer_);
-    window_width_ = options.window_width; window_height_ = options.window_height;
+    window_width_ = options_.window_width; window_height_ = options_.window_height;
 
     const bgfx::Caps* caps = bgfx::getCaps();
     caps_.name = stats_.renderer_name;
@@ -492,6 +525,12 @@ void BgfxGpuImpl::destroy(Texture id) {
 
 Result<Program> BgfxGpuImpl::create_program(const ProgramDesc& desc) {
     if (!desc.vertex || !desc.pixel) return {Status::invalid_argument, {}};
+    if (renderer_ == bgfx::RendererType::Noop) {   // nothing is drawn: no shaders are built (tests and headless runs on any platform)
+        ProgramEntry e;
+        e.alive = true;
+        ++stats_.programs;
+        return {Status::ok, Program{programs_.add(e)}};
+    }
     ContainerResult vs, ps;
     const ShaderTarget target = shader_target();
     if (const char* dump = std::getenv("NUE_DUMP_GLSL")) {   // debugging aid: the translated shaders as readable GLSL
@@ -617,7 +656,7 @@ void BgfxGpuImpl::draw(const DrawDesc& d) {
     const bool timed = options_.profile_draws;
     const uint64_t t0 = timed ? now_ns() : 0;
     ProgramEntry* program = programs_.get(d.program.value);
-    if (!program) return;
+    if (!program || !bgfx::isValid(program->handle)) return;   // Noop renderer: programs without shaders
     uint32_t blend_factor = 0;
     const uint64_t state = pack_state(d, blend_factor);
     bgfx::setState(state, blend_factor);
@@ -685,13 +724,15 @@ Status BgfxGpuImpl::resize(uint32_t width, uint32_t height) {
 
 void BgfxGpuImpl::set_window_size(uint32_t width, uint32_t height) {
     window_width_ = width; window_height_ = height;
+    if (external_) return;   // the owner of bgfx resizes the swap chain (nue_gfx_resize); here only the letterbox follows the new size
     bgfx::reset(reset_flags());
     // bgfx 's swap chain follows the reset size given at init: a resized window needs a new swap chain description
-    bgfx::SwapChain sc; sc.nwh = options_.window; sc.width = width; sc.height = height;
+    bgfx::SwapChain sc; sc.nwh = options_.window; sc.ndt = options_.display; sc.width = width; sc.height = height;
     bgfx::reset(reset_flags(), &sc);
 }
 
 void BgfxGpuImpl::draw_quad(uint32_t view, bgfx::TextureHandle source, uint32_t sampler, const float uv[4]) {
+    if (!bgfx::isValid(blit_program_)) return;   // Noop renderer: no blit shaders
     bgfx::TransientVertexBuffer tvb;
     bgfx::VertexLayout layout;
     layout.begin().add(bgfx::Attrib::Position, 4, bgfx::AttribType::Float).add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float).end();
