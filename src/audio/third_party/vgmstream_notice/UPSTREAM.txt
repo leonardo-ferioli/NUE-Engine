@@ -1,0 +1,4 @@
+vgmstream (ISC licence, COPYING in this folder), https://github.com/vgmstream/vgmstream, commit d9875b1fff307e4759dfb85e49e3d5e6fb196f7c
+No source file was copied. The ADPCM decoders in src/audio/codecs/adpcm.cpp were written against the behaviour of
+src/coding/{psx,ngc_dsp,ea_xa,ea_xas,ima}_decoder.c of that commit (filter and shift clamps, XAS group layout, EA-XA tables,
+Xbox 64-sample blocks). The licence is shipped because the algorithms were transcribed in structure; the notice is kept for that reason.
