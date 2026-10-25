@@ -32,7 +32,7 @@ worker creates the context.
 ## Window ownership for the recompiled game
 
 The game creates its own HWND (the native widescreen fix hooks `CreateWindowExA`). The launcher attaches it: `nue_window_create` with `desc.attach`,
-then `nue_gfx_create(window)`. NUE only observes the window (events, DPI, display, refresh rate), never destroys it, and the game's window procedure keeps priority.
+then `nue_gfx_create(window)`. NUE only observes the window (events, DPI, display, refresh rate), never destroys it, and the game's window procedure keeps priority. A client that only has the HWND (the d3d9 layer) can skip `nue_window` and pass `nue_gfx_desc.native_window` + width/height; then it calls `nue_gfx_resize` itself (no window to follow).
 
 A Direct3D 9 `Reset` does **not** map to `nue_gfx_resize`: the game's back buffer is the layer's own offscreen colour target, which `Reset` re-creates at the
 new back buffer size; the swap chain follows the window's client size, which changes independently (window resized, monitor, DPI) and is what
