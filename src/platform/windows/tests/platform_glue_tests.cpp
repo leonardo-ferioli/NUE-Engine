@@ -412,10 +412,14 @@ static void test_crash_through_ops() {
     const auto end = read_all(dir + L"\\end.txt");
     CHECK(std::string(end.begin(), end.end()) == path_to_utf8(dir));   // report_dir is passed to end()
 
-    // non-fatal dump of this live process
-    const std::string d8 = path_to_utf8(dir);
-    CHECK(ops()->crash_write_dump(d8.c_str(), 0) == NUE_OK);
-    CHECK(read_minidump_summary(dir + L"\\crash.dmp", s) && s.valid && !s.has_exception);
+    // non-fatal dump of this live process, into a directory of its own (the child's crash.dmp may still be held by a virus scanner on a CI runner)
+    const std::wstring live = dir + L"\\live";
+    create_directories(live);
+    const std::string d8 = path_to_utf8(live);
+    const nue_result wr = ops()->crash_write_dump(d8.c_str(), 0);
+    CHECK_MSG(wr == NUE_OK, "crash_write_dump returned %d", int(wr));
+    const bool read_ok = read_minidump_summary(live + L"\\crash.dmp", s);
+    CHECK_MSG(read_ok && s.valid && !s.has_exception, "read %d valid %d has_exception %d", int(read_ok), int(s.valid), int(s.has_exception));
     remove_tree(dir);
 }
 

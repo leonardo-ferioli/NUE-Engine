@@ -28,6 +28,11 @@ static int recurse(int n) {
     return recurse(n + 1) + pad[0];
 }
 
+static DWORD WINAPI deep_thread(LPVOID) {
+    reserve_crash_stack();   // every game thread that can run deep code does this once
+    return DWORD(recurse(0));
+}
+
 static int child_main(const std::wstring& dir, const std::string& kind) {
     SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
     CrashOptions o;
@@ -39,6 +44,11 @@ static int child_main(const std::wstring& dir, const std::string& kind) {
     install_exception_log(64);
     if (kind == "av") { *reinterpret_cast<volatile int*>(0x10) = 1; }
     else if (kind == "stack") { return recurse(0); }
+    else if (kind == "stack_thread") {   // overflow on a small worker stack: the thread reserves room for the handler, as every game thread should
+        HANDLE t = CreateThread(nullptr, 256 * 1024, deep_thread, nullptr, 0, nullptr);
+        WaitForSingleObject(t, 60000);
+        return 93;
+    }
     else if (kind == "raise") { RaiseException(0xE0000042, EXCEPTION_NONCONTINUABLE, 0, nullptr); }
     else if (kind == "divzero") { return 100 / g_zero; }
     else if (kind == "veh_only") {
@@ -90,6 +100,7 @@ static void test_crash_dumps() {
         {"divzero", 0xC0000094, "INT_DIVIDE_BY_ZERO"},
         {"raise", 0xE0000042, "unknown"},
         {"stack", 0xC00000FD, "STACK_OVERFLOW"},
+        {"stack_thread", 0xC00000FD, "STACK_OVERFLOW"},
     };
     for (const Case& c : cases) {
         const ChildResult r = run_child(dir, c.kind);

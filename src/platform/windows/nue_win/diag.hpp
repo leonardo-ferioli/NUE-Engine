@@ -50,6 +50,11 @@ Status install_crash_hook(const CrashHook& hook);
 Status install_crash_handler(const CrashOptions& options);
 void uninstall_crash_handler();
 bool crash_handler_installed();
+// Makes sure the CALLING thread keeps `bytes` of stack available while a stack overflow is being handled (SetThreadStackGuarantee). Without it the crash filter may find
+// only a few KiB left, fault again (as an access violation, not a stack overflow) and the process dies without a report; seen on a GitHub Windows runner. The
+// install functions do it for the installing thread; call it from every other thread that runs deep or untrusted code (game threads, workers). Returns the
+// guarantee in force (0 on failure).
+uint32_t reserve_crash_stack(uint32_t bytes = 128 * 1024);
 // Writes a dump for `ex` (may be null: dump without exception info, e.g. for a watchdog "hang" report). Callable from any fatal path.
 Status write_minidump(EXCEPTION_POINTERS* ex, const std::wstring& path, bool full_memory = false);
 std::wstring last_crash_dump_path();

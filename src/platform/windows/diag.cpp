@@ -74,10 +74,30 @@ std::string format_time_local() {
 }
 }  // namespace
 
+namespace {
+// Opens the dump for writing. A freshly written dump is often held open for a moment by an anti-virus scanner (Windows Defender on CI runners), which makes an
+// exclusive open fail with a sharing violation; retry for up to ~1 s instead of failing the report.
+HANDLE open_dump_file(const wchar_t* path) {
+    for (int attempt = 0;; ++attempt) {
+        HANDLE h = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) return h;
+        const DWORD e = GetLastError();
+        if (attempt >= 20 || (e != ERROR_SHARING_VIOLATION && e != ERROR_ACCESS_DENIED && e != ERROR_LOCK_VIOLATION)) return h;
+        Sleep(50);
+    }
+}
+}  // namespace
+
+uint32_t reserve_crash_stack(uint32_t bytes) {
+    ULONG size = bytes;
+    if (!SetThreadStackGuarantee(&size)) return 0;
+    return uint32_t(size);
+}
+
 Status write_minidump(EXCEPTION_POINTERS* ex, const std::wstring& path, bool full) {
     auto write = dump_writer();
     if (!write) return Status::fail("dbghelp.dll / MiniDumpWriteDump unavailable", ERROR_PROC_NOT_FOUND);
-    HANDLE file = CreateFileW(to_extended_path(path).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = open_dump_file(to_extended_path(path).c_str());
     if (file == INVALID_HANDLE_VALUE) return Status::last_error("CreateFile(dump)");
     MINIDUMP_EXCEPTION_INFORMATION info{};
     info.ThreadId = GetCurrentThreadId();
@@ -322,7 +342,7 @@ DWORD WINAPI hook_thread(LPVOID) {
         if (write && n > 0) {
             wchar_t path[MAX_PATH * 2 + 16];
             std::swprintf(path, sizeof path / sizeof path[0], L"%ls\\crash.dmp", dir);
-            HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            HANDLE file = open_dump_file(path);
             if (file != INVALID_HANDLE_VALUE) {
                 MINIDUMP_EXCEPTION_INFORMATION info{};
                 info.ThreadId = j.crashing_thread;
@@ -350,7 +370,7 @@ DWORD WINAPI dump_thread(LPVOID) {
 
     auto write = dump_writer();
     if (!write) { j.status = Status::fail("dbghelp.dll unavailable", ERROR_PROC_NOT_FOUND); return 1; }
-    HANDLE file = CreateFileW(to_extended_path(dump_path).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = open_dump_file(to_extended_path(dump_path).c_str());
     if (file == INVALID_HANDLE_VALUE) { j.status = Status::last_error("CreateFile(dump)"); return 1; }
     MINIDUMP_EXCEPTION_INFORMATION info{};
     info.ThreadId = j.crashing_thread;
@@ -394,6 +414,7 @@ Status install_crash_handler(const CrashOptions& o) {
     if (g_crash_installed) uninstall_crash_handler();
     g_crash = o;
     g_crashing = false;
+    reserve_crash_stack();
     g_previous_filter = SetUnhandledExceptionFilter(crash_filter);
     g_crash_installed = true;
     return Status::success();
@@ -404,6 +425,7 @@ Status install_crash_hook(const CrashHook& h) {
     g_hook = h;
     g_hook_active = true;
     g_crashing = false;
+    reserve_crash_stack();
     g_previous_filter = SetUnhandledExceptionFilter(crash_filter);
     g_crash_installed = true;
     return Status::success();
