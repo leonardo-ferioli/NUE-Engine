@@ -21,7 +21,7 @@ target_compile_features(nue_legacy_dsound PUBLIC cxx_std_20)
 target_link_libraries(nue_legacy_dsound PUBLIC nue::audio PRIVATE "$<BUILD_INTERFACE:nue_internal>")
 set_target_properties(nue_legacy_dsound PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_LIST_DIR}/dll/CMakeLists.txt")
+if(WIN32)
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/dll")
 endif()
 
