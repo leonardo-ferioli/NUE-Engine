@@ -731,6 +731,9 @@ void test_engine() {
     CHECK(a != 0 && a == b);   // repeatable
     CHECK(scripted_session(120) == a);
     std::printf("scripted session hash: 0x%016llx\n", static_cast<unsigned long long>(a));
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+    CHECK(a == 0xd6f87479857334e9ull);   // pinned: identical in the 32-bit and the 64-bit build (SSE, no x87, no fused multiply-add on the baseline)
+#endif
 
     // The primary format follows into the sink: a 6-channel primary reopens the sink with 6 channels and the pan renderer.
     EngineConfig config;

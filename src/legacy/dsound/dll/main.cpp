@@ -13,6 +13,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -86,8 +87,9 @@ private:
     bool nue_initialized_ = false, failed_ = false;
 };
 
-Runtime g_runtime;
-com::Facade g_facade(g_runtime);
+// Never destroyed by the C++ runtime at process exit: the audio thread of the native stream is gone by then and joining it would hang or abort.
+Runtime& g_runtime = *new Runtime;
+com::Facade& g_facade = *new com::Facade(g_runtime);
 
 void write_log() {
     const std::string path = env("NUE_DSOUND_LOG");
@@ -126,6 +128,19 @@ HRESULT WINAPI DirectSoundFullDuplexCreate(LPCGUID, LPCGUID, LPCDSCBUFFERDESC, L
     if (render) *render = nullptr;
     return DSERR_NODRIVER;
 }
+
+// Diagnostics for a launcher or a test (not part of DirectSound): the call counts and the first failing call as text, and an explicit stop of the audio
+// engine. The dll cannot count on being unloaded (the native audio backend may pin it), so nothing here waits for DllMain.
+size_t WINAPI NueDsoundReport(char* buffer, size_t capacity) {
+    const std::string report = g_facade.report();
+    if (buffer && capacity) {
+        const size_t n = report.size() < capacity - 1 ? report.size() : capacity - 1;
+        std::memcpy(buffer, report.data(), n);
+        buffer[n] = 0;
+    }
+    return report.size();
+}
+void WINAPI NueDsoundShutdown() { g_runtime.shutdown(); }
 
 // The one playback device: "Primary Sound Driver" (a null GUID), as the system DirectSound lists it first.
 HRESULT WINAPI DirectSoundEnumerateA(LPDSENUMCALLBACKA callback, LPVOID context) {

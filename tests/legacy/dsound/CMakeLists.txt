@@ -8,6 +8,7 @@ function(nue_dsound_test name source)
 endfunction()
 
 nue_dsound_test(device ds_device_tests.cpp)
+nue_dsound_test(nue ds_nue_tests.cpp)   # on the native stream and the null backend
 
 if(WIN32)
     # COM facade of dsound.dll through the real dsound.h interfaces, over a deterministic engine.
@@ -26,4 +27,15 @@ if(WIN32)
         add_test(NAME nue_dsound_differential COMMAND nue_dsound_differential)
         set_tests_properties(nue_dsound_differential PROPERTIES TIMEOUT 120)
     endif()
+endif()
+
+if(WIN32)
+    # The built dsound.dll loaded by path (exports by ordinal and by name, DllMain, the engine on the null backend). Real time, about 0.2 s.
+    add_executable(nue_dsound_dll_test ds_dll_tests.cpp)
+    target_link_libraries(nue_dsound_dll_test PRIVATE nue_internal)
+    target_include_directories(nue_dsound_dll_test PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+    target_link_libraries(nue_dsound_dll_test PRIVATE nue_legacy_dsound dxguid uuid)
+    add_dependencies(nue_dsound_dll_test nue_dsound_dll)
+    add_test(NAME nue_dsound_dll_test COMMAND nue_dsound_dll_test $<TARGET_FILE:nue_dsound_dll>)
+    set_tests_properties(nue_dsound_dll_test PROPERTIES TIMEOUT 60)
 endif()
