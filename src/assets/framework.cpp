@@ -209,6 +209,24 @@ static nue_result NUE_CALL jdlz_compress_cb(void*, const void* src, size_t n, co
 }
 static size_t NUE_CALL jdlz_bound_cb(void*, size_t n) { return nue_jdlz_compress_bound(n); }
 
+static nue_result NUE_CALL huff_identify_cb(void*, const void* data, size_t size, uint64_t* out_unc, uint64_t* out_stream) {
+    uint32_t u = 0, s = 0;
+    nue_result r = nue_huff_identify(data, size, &u, &s);
+    if (r == NUE_OK) { if (out_unc) *out_unc = u; if (out_stream) *out_stream = s; }
+    return r;
+}
+static nue_result NUE_CALL huff_decompress_cb(void*, const void* src, size_t n, void* dst, size_t cap, size_t* out) { return nue_huff_decompress(src, n, dst, cap, out); }
+
+static nue_result register_huff(nue_assets_context ctx) {
+    nue_asset_codec c;
+    NUE_STRUCT_INIT(&c);
+    c.name = "huff";
+    c.identify = huff_identify_cb;
+    c.decompress = huff_decompress_cb;
+    nue_result r = nue_assets_register_codec(ctx, &c);
+    return r == NUE_ERR_ALREADY_EXISTS ? NUE_OK : r;
+}
+
 static nue_result register_jdlz(nue_assets_context ctx) {
     nue_asset_codec c;
     NUE_STRUCT_INIT(&c);
@@ -245,6 +263,7 @@ NUE_ASSETS_API nue_result NUE_CALL nue_assets_context_create(const nue_assets_co
     nue_assets_context h = reinterpret_cast<nue_assets_context>(static_cast<nue_assets_context_s*>(c.get()));
     if (!(flags & NUE_ASSETS_CTX_NO_BUILTINS)) {
         nue_result r = register_jdlz(h);
+        if (r == NUE_OK) r = register_huff(h);
         if (r == NUE_OK) r = nue_assets_register_nfs(h);
         if (r < 0) return r;
     }

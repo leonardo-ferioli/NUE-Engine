@@ -57,7 +57,9 @@ uint32_t find_child(nue_asset_container c, uint32_t parent, uint32_t id) {
     return NUE_ASSET_NO_NODE;
 }
 
-bool parse_rec(const uint8_t* p, TexRec* t) {
+}  // namespace
+
+bool parse_texrec(const uint8_t* p, TexRec* t) {
     std::memcpy(t->raw, p, kRecSize);
     std::memcpy(t->name, p + 0x0C, 24);
     t->name[24] = 0;
@@ -74,6 +76,8 @@ bool parse_rec(const uint8_t* p, TexRec* t) {
     t->mips = p[0x4E];
     return true;
 }
+
+namespace {
 
 bool valid_rec(const TexRec& t, uint64_t data_size) {
     if (!ct_known(t.ct) || t.width == 0 || t.height == 0 || t.mips == 0 || t.mips > 16) return false;
@@ -128,7 +132,7 @@ bool load_tpk(nue_asset_container c, uint32_t node, Tpk* out) {
     if (nue_asset_node_read(c, t.rec_node, 0, recs.data(), recs.size(), &got) < 0 || got != recs.size()) return false;
     t.tex.resize(size_t(n));
     for (size_t i = 0; i < n; ++i) {
-        parse_rec(recs.data() + i * kRecSize, &t.tex[i]);
+        parse_texrec(recs.data() + i * kRecSize, &t.tex[i]);
         if (!valid_rec(t.tex[i], t.data_size)) return false;
     }
     if (t.header_node != NUE_ASSET_NO_NODE) {
@@ -175,7 +179,7 @@ nue_result NUE_CALL index(void*, nue_asset_container c, void*, const nue_asset_r
         uint32_t pack_index = 0;
         nue_result res = ops->add_resource(builder, &r, &pack_index);
         if (res < 0) return res;
-        if (!ok) continue;
+        if (!ok) { res = index_car_pack(c, i, pack_index, ops, builder); if (res < 0) return res; continue; }
         for (size_t k = 0; k < t.tex.size(); ++k) {
             const TexRec& x = t.tex[k];
             nue_asset_resource_info tr;
@@ -199,31 +203,10 @@ nue_result NUE_CALL index(void*, nue_asset_container c, void*, const nue_asset_r
             if (res < 0) return res;
         }
     }
-    return NUE_OK;
+    return index_meshes(c, ops, builder);
 }
 
-nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t resource, nue_tex_image* out) {
-    nue_asset_resource_info ri;
-    NUE_STRUCT_INIT(&ri);
-    nue_result r = nue_asset_resource_get(c, resource, &ri);
-    if (r < 0) return r;
-    Tpk t;
-    if (!load_tpk(c, ri.node, &t) || ri.sub_index >= t.tex.size()) return NUE_ERR_CORRUPT;
-    const TexRec& x = t.tex[ri.sub_index];
-
-    std::vector<uint8_t> raw(size_t(x.image_size));
-    size_t got = 0;
-    r = nue_asset_node_read(c, t.data_node, t.base_rel + x.placement, raw.data(), raw.size(), &got);
-    if (r < 0) return r;
-    if (got != raw.size()) { nue_set_last_error("nfs: texture '%s' lies outside its data chunk", x.name); return NUE_ERR_CORRUPT; }
-    std::vector<uint8_t> pal;
-    if (ct_paletted(x.ct)) {
-        pal.resize(x.pal_size);
-        r = nue_asset_node_read(c, t.data_node, t.base_rel + x.pal_off, pal.data(), pal.size(), &got);
-        if (r < 0) return r;
-        if (got != pal.size()) return NUE_ERR_CORRUPT;
-    }
-
+nue_result texrec_to_image(const TexRec& x, const std::vector<uint8_t>& raw, const std::vector<uint8_t>& pal, nue_tex_image* out) {
     nue_tex_image_desc d;
     NUE_STRUCT_INIT(&d);
     d.format = ct_paletted(x.ct) ? NUE_TEX_BGRA8_UNORM : format_of_ct(x.ct);
@@ -231,7 +214,7 @@ nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t reso
     d.height = x.height;
     d.mip_levels = x.mips;
     nue_tex_image im = nullptr;
-    r = nue_tex_image_create(&d, &im);
+    nue_result r = nue_tex_image_create(&d, &im);
     if (r < 0) return r;
     uint64_t src = 0;
     for (uint32_t l = 0; l < x.mips; ++l) {
@@ -240,7 +223,7 @@ nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t reso
         r = nue_tex_image_get_level(im, l, 0, 0, &v);
         if (r < 0) { nue_tex_image_destroy(im); return r; }
         const uint64_t idx_bytes = ct_paletted(x.ct) ? uint64_t(v.width) * v.height : v.size;
-        if (src + idx_bytes > raw.size()) { nue_tex_image_destroy(im); return NUE_ERR_CORRUPT; }
+        if (src + idx_bytes > raw.size() || (ct_paletted(x.ct) && pal.size() < 1024)) { nue_tex_image_destroy(im); return NUE_ERR_CORRUPT; }
         if (ct_paletted(x.ct)) {
             uint8_t* dst = static_cast<uint8_t*>(v.data);
             for (uint64_t k = 0; k < idx_bytes; ++k) std::memcpy(dst + k * 4, pal.data() + size_t(raw[size_t(src + k)]) * 4, 4);
@@ -253,31 +236,71 @@ nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t reso
     return NUE_OK;
 }
 
+nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t resource, nue_tex_image* out) {
+    nue_asset_resource_info ri;
+    NUE_STRUCT_INIT(&ri);
+    nue_result r = nue_asset_resource_get(c, resource, &ri);
+    if (r < 0) return r;
+    TexRec x;
+    std::vector<uint8_t> raw, pal;
+    Tpk t;
+    if (load_tpk(c, ri.node, &t)) {
+        if (ri.sub_index >= t.tex.size()) return NUE_ERR_CORRUPT;
+        x = t.tex[ri.sub_index];
+        raw.resize(size_t(x.image_size));
+        size_t got = 0;
+        r = nue_asset_node_read(c, t.data_node, t.base_rel + x.placement, raw.data(), raw.size(), &got);
+        if (r < 0) return r;
+        if (got != raw.size()) { nue_set_last_error("nfs: texture '%s' lies outside its data chunk", x.name); return NUE_ERR_CORRUPT; }
+        if (ct_paletted(x.ct)) {
+            pal.resize(x.pal_size);
+            r = nue_asset_node_read(c, t.data_node, t.base_rel + x.pal_off, pal.data(), pal.size(), &got);
+            if (r < 0) return r;
+            if (got != pal.size()) return NUE_ERR_CORRUPT;
+        }
+    } else {
+        r = car_load_texture(c, ri.node, ri.sub_index, &x, &raw, &pal);
+        if (r < 0) return r;
+    }
+    return texrec_to_image(x, raw, pal, out);
+}
+
 nue_result NUE_CALL get_native(void*, nue_asset_container c, void*, uint32_t resource, nue_asset_native_texture* out, void** out_memory) {
     nue_asset_resource_info ri;
     NUE_STRUCT_INIT(&ri);
     nue_result r = nue_asset_resource_get(c, resource, &ri);
     if (r < 0) return r;
+    TexRec x;
+    std::vector<uint8_t> raw, pal;
     Tpk t;
-    if (!load_tpk(c, ri.node, &t) || ri.sub_index >= t.tex.size()) return NUE_ERR_CORRUPT;
-    const TexRec& x = t.tex[ri.sub_index];
-    const size_t total = size_t(x.image_size) + x.pal_size;
-    uint8_t* mem = static_cast<uint8_t*>(nue_alloc(total, 16));
-    if (!mem) return NUE_ERR_OUT_OF_MEMORY;
-    size_t got = 0;
-    r = nue_asset_node_read(c, t.data_node, t.base_rel + x.placement, mem, size_t(x.image_size), &got);
-    if (r >= 0 && got != x.image_size) r = NUE_ERR_CORRUPT;
-    if (r >= 0 && x.pal_size) {
-        r = nue_asset_node_read(c, t.data_node, t.base_rel + x.pal_off, mem + x.image_size, x.pal_size, &got);
-        if (r >= 0 && got != x.pal_size) r = NUE_ERR_CORRUPT;
+    if (load_tpk(c, ri.node, &t)) {
+        if (ri.sub_index >= t.tex.size()) return NUE_ERR_CORRUPT;
+        x = t.tex[ri.sub_index];
+        raw.resize(size_t(x.image_size));
+        size_t got = 0;
+        r = nue_asset_node_read(c, t.data_node, t.base_rel + x.placement, raw.data(), raw.size(), &got);
+        if (r >= 0 && got != raw.size()) r = NUE_ERR_CORRUPT;
+        if (r >= 0 && x.pal_size) {
+            pal.resize(x.pal_size);
+            r = nue_asset_node_read(c, t.data_node, t.base_rel + x.pal_off, pal.data(), pal.size(), &got);
+            if (r >= 0 && got != pal.size()) r = NUE_ERR_CORRUPT;
+        }
+        if (r < 0) return r;
+    } else {
+        r = car_load_texture(c, ri.node, ri.sub_index, &x, &raw, &pal);
+        if (r < 0) return r;
     }
-    if (r < 0) { nue_free(mem); return r; }
+    const size_t total = raw.size() + pal.size();
+    uint8_t* mem = static_cast<uint8_t*>(nue_alloc(total ? total : 1, 16));
+    if (!mem) return NUE_ERR_OUT_OF_MEMORY;
+    std::memcpy(mem, raw.data(), raw.size());
+    if (!pal.empty()) std::memcpy(mem + raw.size(), pal.data(), pal.size());
     NUE_STRUCT_INIT(out);
     out->native_format = x.ct;
     out->tex_format = format_of_ct(x.ct);
     out->width = x.width; out->height = x.height; out->depth = 1; out->mip_levels = x.mips;
-    out->flags = x.pal_size ? NUE_ASSET_RESFLAG_PALETTED : 0;
-    out->palette_size = x.pal_size;
+    out->flags = pal.empty() ? 0 : NUE_ASSET_RESFLAG_PALETTED;
+    out->palette_size = uint32_t(pal.size());
     out->data = mem;
     out->size = total;
     *out_memory = mem;

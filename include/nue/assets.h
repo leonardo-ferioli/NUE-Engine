@@ -95,6 +95,11 @@ NUE_ASSETS_API nue_result NUE_CALL nue_jdlz_decompress(const void* src, size_t s
 NUE_ASSETS_API size_t NUE_CALL nue_jdlz_compress_bound(size_t src_size);
 NUE_ASSETS_API nue_result NUE_CALL nue_jdlz_compress(const void* src, size_t src_size, int32_t level, void* dst, size_t dst_capacity, size_t* out_written);
 
+/* HUFF (EA's order-0 Huffman with a run/literal escape; used by some textures of the NFSU2 car packs). Decompression only. The stream size reported by
+ * identify includes the 16 byte header. */
+NUE_ASSETS_API nue_result NUE_CALL nue_huff_identify(const void* data, size_t size, uint32_t* out_uncompressed, uint32_t* out_stream);
+NUE_ASSETS_API nue_result NUE_CALL nue_huff_decompress(const void* src, size_t src_size, void* dst, size_t dst_size, size_t* out_written);
+
 /* ============================================================================================== node tree (what plugins report) */
 
 typedef enum nue_asset_node_kind {
@@ -134,7 +139,8 @@ typedef enum nue_asset_resource_kind {
     NUE_ASSET_RES_BLOB = 0,
     NUE_ASSET_RES_TEXTURE,                  /* has an image: nue_asset_resource_get_image */
     NUE_ASSET_RES_TEXTURE_PACK,             /* group of textures (NFS: a TPK) */
-    NUE_ASSET_RES_OTHER                     /* anything the plugin wants to list (mesh, sound...) */
+    NUE_ASSET_RES_OTHER,                    /* anything the plugin wants to list (sound...) */
+    NUE_ASSET_RES_MESH                      /* has a mesh: nue_asset_resource_get_mesh. In the resource info: width = vertices, height = triangles */
 } nue_asset_resource_kind;
 
 typedef struct nue_asset_resource_info {
@@ -157,8 +163,34 @@ typedef struct nue_asset_resource_info {
 
 enum {                                      /* nue_asset_resource_info.flags */
     NUE_ASSET_RESFLAG_PALETTED = 1u << 0,   /* stored as indices + palette; get_image expands to BGRA8 */
-    NUE_ASSET_RESFLAG_EDITED   = 1u << 1
+    NUE_ASSET_RESFLAG_EDITED   = 1u << 1,
+    NUE_ASSET_RESFLAG_READONLY = 1u << 2    /* can be read and extracted but not replaced (the writer does not rebuild this layout): set_image / set_native refuse */
 };
+
+/* A triangle mesh in plain arrays (what a model exporter or a renderer wants). Positions are in the game's own units and axes (NFS: Z up). */
+typedef struct nue_asset_mesh_run {
+    uint32_t index_offset, index_count;     /* range of `indices` drawn with this material (a multiple of 3) */
+    uint64_t material_hash;                 /* the game's material / texture hash for the run (0 = none) */
+    uint64_t shader_hash;
+} nue_asset_mesh_run;
+
+enum { NUE_ASSET_MESH_NORMALS = 1u << 0, NUE_ASSET_MESH_UVS = 1u << 1, NUE_ASSET_MESH_COLORS = 1u << 2 };
+
+typedef struct nue_asset_mesh {
+    uint32_t struct_size;
+    const char* name;
+    uint32_t flags;                         /* NUE_ASSET_MESH_*: which optional arrays exist */
+    uint32_t vertex_count, index_count;     /* triangle list, three indices per triangle */
+    const float* positions;                 /* 3 floats per vertex */
+    const float* normals;                   /* 3 per vertex or NULL */
+    const float* uvs;                       /* 2 per vertex or NULL (origin top left, as Direct3D) */
+    const uint8_t* colors;                  /* 4 bytes RGBA per vertex or NULL */
+    const uint32_t* indices;
+    uint32_t run_count;
+    const nue_asset_mesh_run* runs;         /* material runs tiling `indices` */
+    float transform[16];                    /* local matrix as stored (row major); identity when the file has none */
+    float bbox_min[3], bbox_max[3];
+} nue_asset_mesh;
 
 /* Texture pixels the way the game file stores them (for lossless transfer, e.g. into a .nuepack and back). */
 typedef struct nue_asset_native_texture {
@@ -229,6 +261,8 @@ typedef struct nue_asset_format {
     nue_result (NUE_CALL *get_image)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_tex_image* out_image);
     /* The stored pixels of a texture resource in the game's own encoding. NULL when the format cannot (get_image still works). */
     nue_result (NUE_CALL *get_native)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_native_texture* out, void** out_memory);
+    /* A mesh resource as arrays. *out_memory owns every pointer inside *out (nue_alloc; free with nue_free). NULL when the format has no meshes. */
+    nue_result (NUE_CALL *get_mesh)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_mesh* out, void** out_memory);
     /* Serialise the whole container (current nodes + edits) into the sink, rebuilding every offset, size and padding that depends on them. */
     nue_result (NUE_CALL *write)(void* userdata, nue_asset_container container, void* state, uint32_t flags, nue_asset_sink* sink);
     /* Codec the format normally travels in (by file extension, e.g. ".lzc" -> "jdlz"); NULL if none. Used when writing a container that was not read from a
@@ -325,6 +359,9 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_image(nue_asset_contai
 /* The pending edit of a resource (NULL when none): for format writers. Owned by the container. */
 NUE_ASSETS_API nue_tex_image NUE_CALL nue_asset_resource_edit(nue_asset_container container, uint32_t index);
 
+/* The geometry of a mesh resource. Free *out_memory with nue_free when done. */
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_mesh(nue_asset_container container, uint32_t index, nue_asset_mesh* out, void** out_memory);
+
 /* ---- native texture data (type declared above) ---- */
 /* *out_memory receives the buffer that out->data points into (nue_alloc; free with nue_free). */
 NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_native(nue_asset_container container, uint32_t index, nue_asset_native_texture* out, void** out_memory);
@@ -362,6 +399,36 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_container_content_hash(nue_asset_co
 
 /* Dump the texture of a resource as DDS / PNG / KTX2 (kind = NUE_TEX_FILE_*). The image is converted to RGBA8 for PNG. */
 NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_save_texture(nue_asset_container container, uint32_t index, const char* path, nue_tex_file_kind kind);
+
+/* ============================================================================================== model export */
+
+typedef enum nue_asset_model_format { NUE_ASSET_MODEL_GLB = 1, NUE_ASSET_MODEL_OBJ } nue_asset_model_format;
+
+enum {                                      /* nue_asset_model_desc.flags */
+    NUE_ASSET_MODEL_NO_TEXTURES = 1u << 0,  /* geometry only */
+    NUE_ASSET_MODEL_KEEP_Z_UP   = 1u << 1,  /* do not turn the game's Z up axes into Y up (GLB: a rotation on the root node; OBJ: swapped axes) */
+    NUE_ASSET_MODEL_BEST_LOD    = 1u << 2   /* parts named ..._A, ..._B ...: keep only the most detailed of each */
+};
+
+typedef struct nue_asset_model_desc {
+    uint32_t struct_size;
+    const nue_asset_container* containers;  /* the meshes of all of them are exported; textures are looked up (by hash) in all of them */
+    uint32_t container_count;
+    uint32_t format;                        /* nue_asset_model_format */
+    uint32_t flags;
+    const char* name_filter;                /* only meshes whose name contains this text (case-insensitive); NULL = all */
+    uint32_t max_meshes;                    /* 0 = no limit */
+    const char* path;                       /* output: .glb (one file) or .obj (+ .mtl and a folder of PNG textures next to it) */
+    uint32_t reserved[4];
+} nue_asset_model_desc;
+
+typedef struct nue_asset_model_stats {
+    uint32_t struct_size;
+    uint32_t meshes, textures, meshes_skipped;      /* skipped: could not be read (reported through the last error message) */
+    uint64_t vertices, triangles, bytes_written;
+} nue_asset_model_stats;
+
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_export_model(const nue_asset_model_desc* desc, nue_asset_model_stats* out_stats);
 
 /* ============================================================================================== .nuepack (docs/NUEPACK.md) */
 
