@@ -18,6 +18,7 @@ struct SinkDesc {
     OutputLayout spec;                // what the layer wants to produce; the sink may report a different `actual` layout
     uint32_t latency_ms = 40;         // target total latency (nue_audio_stream_desc.latency_ms), 0 = sink default
     bool low_latency = false;         // NUE_AUDIO_LOW_LATENCY
+    bool match_device_channels = true;   // never ask for more channels than the output device natively has (the layer down-mixes itself, see nue_chanmix)
     std::string_view name = "legacy_dsound";   // shown in OS mixers
 };
 
@@ -63,6 +64,7 @@ struct EngineConfig {
     uint32_t latency_ms = 40;
     SpatialOptions spatial;
     bool follow_primary_channels = true; // when the application sets a 4/6 channel primary format, ask the sink for that many channels (falls back to its own layout)
+    bool match_device_channels = true;   // ... but not more than the output device natively has: the layer's ITU down-mix beats the platform converter
 };
 
 class Engine {

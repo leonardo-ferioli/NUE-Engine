@@ -39,3 +39,8 @@ if(WIN32)
     add_test(NAME nue_dsound_dll_test COMMAND nue_dsound_dll_test $<TARGET_FILE:nue_dsound_dll>)
     set_tests_properties(nue_dsound_dll_test PROPERTIES TIMEOUT 60)
 endif()
+
+# Smoke test on the real default output endpoint (silence only, needs hardware and about 1 s of real time): a tool, not in ctest.
+add_executable(nue_dsound_endpoint_smoke ds_endpoint_smoke.cpp)
+target_link_libraries(nue_dsound_endpoint_smoke PRIVATE nue::legacy_dsound nue_internal)
+target_include_directories(nue_dsound_endpoint_smoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}")

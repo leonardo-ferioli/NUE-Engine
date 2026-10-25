@@ -14,6 +14,7 @@ std::unique_ptr<Engine> Engine::create(const EngineConfig& config, std::unique_p
     SinkDesc desc;
     desc.spec = {config.sample_rate, 2, speaker::stereo};
     desc.latency_ms = config.latency_ms;
+    desc.match_device_channels = config.match_device_channels;
     if (!e->sink_->open(desc, &Engine::pull, e.get())) return nullptr;
     e->device_->set_format_callback(&Engine::primary_changed, e.get());
     e->apply_output(e->sink_->actual());
@@ -55,6 +56,7 @@ void Engine::primary_changed(void* self, const WaveFormat& format) {
     SinkDesc desc;
     desc.spec = {now.sample_rate, want, speaker::default_mask(want)};
     desc.latency_ms = e.cfg_.latency_ms;
+    desc.match_device_channels = e.cfg_.match_device_channels;
     if (!e.sink_->open(desc, &Engine::pull, &e)) {
         // Could not open the wider layout: go back to what worked.
         desc.spec = now;

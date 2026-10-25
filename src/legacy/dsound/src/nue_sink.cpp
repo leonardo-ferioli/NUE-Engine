@@ -23,31 +23,26 @@ public:
             rate = nue_audio_get_device_info(0, &info) == NUE_OK && info.preferred.sample_rate ? info.preferred.sample_rate : 48000;
         }
         uint32_t channels = desc.spec.channels ? desc.spec.channels : 2;
-        for (int attempt = 0; attempt < 2; ++attempt) {
-            nue_audio_stream_desc d{};
-            d.struct_size = sizeof(d);
-            d.device = 0;
-            d.spec = {NUE_AUDIO_F32, channels, rate};
-            d.flags = NUE_AUDIO_START_PAUSED | (desc.low_latency ? NUE_AUDIO_LOW_LATENCY : 0u);
-            d.callback = &NueSink::trampoline;
-            d.userdata = this;
-            d.latency_ms = desc.latency_ms;
-            const std::string name(desc.name);
-            d.name = name.c_str();
-            if (nue_audio_stream_create(&d, &stream_) != NUE_OK) {
-                stream_ = nullptr;
-                return false;
-            }
-            nue_audio_spec app{}, dev{};
-            if (nue_audio_stream_get_spec(stream_, &app, &dev) == NUE_OK && attempt == 0 && channels > 2 && dev.channels >= 2 && dev.channels < channels) {
-                // The device has fewer channels than the application format: the layer's own down-mix (nue_chanmix, ITU gains) is better than the
-                // engine's converter, so ask for the device's layout instead.
-                nue_audio_stream_destroy(stream_);
-                stream_ = nullptr;
-                channels = dev.channels;
-                continue;
-            }
-            break;
+        if (desc.match_device_channels) {
+            // The device's native channel count (not what its stream was opened with: a stereo endpoint happily "opens" 6 channels and the platform
+            // converts). The layer's own down-mix (nue_chanmix, ITU gains) and spatial stage run before that, so ask for what the speakers have.
+            nue_audio_device_info info{};
+            info.struct_size = sizeof(info);
+            if (nue_audio_get_device_info(0, &info) == NUE_OK && info.preferred.channels >= 2 && channels > info.preferred.channels) channels = info.preferred.channels;
+        }
+        nue_audio_stream_desc d{};
+        d.struct_size = sizeof(d);
+        d.device = 0;
+        d.spec = {NUE_AUDIO_F32, channels, rate};
+        d.flags = NUE_AUDIO_START_PAUSED | (desc.low_latency ? NUE_AUDIO_LOW_LATENCY : 0u);
+        d.callback = &NueSink::trampoline;
+        d.userdata = this;
+        d.latency_ms = desc.latency_ms;
+        const std::string name(desc.name);
+        d.name = name.c_str();
+        if (nue_audio_stream_create(&d, &stream_) != NUE_OK) {
+            stream_ = nullptr;
+            return false;
         }
         actual_ = {rate, channels, speaker::default_mask(channels)};
         return true;

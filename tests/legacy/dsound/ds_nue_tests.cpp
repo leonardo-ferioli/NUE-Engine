@@ -143,22 +143,45 @@ void test_surround_primary_reopens_the_stream() {
     Nue n;
     CHECK(n.ok);
     if (!n.ok) return;
-    EngineConfig config;
-    auto engine = Engine::create(config, make_nue_sink());
-    CHECK(engine != nullptr);
-    if (!engine) return;
-    auto& d = engine->device();
-    d.set_cooperative_level(2);
-    dsx::BufferDesc pd;
-    pd.flags = dsx::buffer_flag::primary;
-    auto prim = d.create_buffer(pd);
     WaveFormat six = pcm16(44100, 6);
     six.channel_mask = speaker::surround_5_1;
-    const uint32_t before = engine->sink().actual().channels;
-    CHECK(d.set_format(prim.id, six) == dsx::hr::ok);
-    // The null device accepts any layout: the stream follows the primary format; a device with fewer channels would keep its own (NueSink).
-    CHECK(engine->sink().actual().channels == 6 && engine->reopen_count() == 1 && before == 2);
-    CHECK(std::string(d.spatial_name()) == "pan");
+    dsx::BufferDesc pd;
+    pd.flags = dsx::buffer_flag::primary;
+    {
+        // The null device natively has 2 channels. With match_device_channels off the stream follows the primary format whatever the device has ...
+        EngineConfig config;
+        config.match_device_channels = false;
+        auto engine = Engine::create(config, make_nue_sink());
+        CHECK(engine != nullptr);
+        if (!engine) return;
+        auto& d = engine->device();
+        d.set_cooperative_level(2);
+        auto prim = d.create_buffer(pd);
+        const uint32_t before = engine->sink().actual().channels;
+        CHECK(d.set_format(prim.id, six) == dsx::hr::ok);
+        CHECK(engine->sink().actual().channels == 6 && engine->reopen_count() == 1 && before == 2);
+        CHECK(std::string(d.spatial_name()) == "pan");
+    }
+    {
+        // ... and with it on (the default) a 5.1 primary on a stereo device keeps the device's 2 channels: the layer down-mixes (nue_chanmix) itself.
+        EngineConfig config;
+        auto engine = Engine::create(config, make_nue_sink());
+        CHECK(engine != nullptr);
+        if (!engine) return;
+        auto& d = engine->device();
+        d.set_cooperative_level(2);
+        auto prim = d.create_buffer(pd);
+        CHECK(d.set_format(prim.id, six) == dsx::hr::ok);
+        CHECK(engine->sink().actual().channels == 2);
+        CHECK(std::string(d.spatial_name()) == "balance");
+        // A 5.1 ring still plays: the client's format is accepted whatever the speakers are.
+        dsx::BufferDesc sd;
+        sd.flags = 0x18000;
+        sd.bytes = 4096 * 12;
+        sd.has_format = true;
+        sd.format = six;
+        CHECK(d.create_buffer(sd).hr == dsx::hr::ok);
+    }
 }
 
 }  // namespace
