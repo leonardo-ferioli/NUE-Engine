@@ -1,0 +1,12 @@
+# Audio module tests (console only, null backend, manual mixer). tests/audio/test_<name>.cpp -> ctest name nue_audio_test_<name>.
+file(GLOB NUE_AUDIO_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/test_*.cpp")
+foreach(src IN LISTS NUE_AUDIO_TEST_SOURCES)
+    get_filename_component(name "${src}" NAME_WE)
+    string(REGEX REPLACE "^test_" "" short "${name}")
+    set(target nue_audio_test_${short})
+    add_executable(${target} "${src}")
+    target_link_libraries(${target} PRIVATE nue::audio nue_internal)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${CMAKE_CURRENT_LIST_DIR}/..")
+    add_test(NAME ${target} COMMAND ${target})
+    set_tests_properties(${target} PROPERTIES TIMEOUT 300 ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+endforeach()

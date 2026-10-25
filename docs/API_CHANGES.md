@@ -67,3 +67,8 @@ Internal contracts (platform sessions)
   `nue_window_get_*` is never older than the events that announce a change.
 * `include/nue/app.h`: the engine loop also runs inside the OS entry point on mobile (SDL_main); no special mobile call path. `nue_app_run` keeps the loop alive in the background.
 * Public C ABI: no change.
+
+## audio 1 (new API group `audio`, additive)
+
+* New headers `include/nue/audio_codec.h`, `audio_dsp.h`, `audio_spatial.h` (library `nue::audio`, not included by `nue.h`), group version `NUE_AUDIO_API_VERSION 1`. Nothing in the core headers changed.
+* `tools/abi/gen_abi_probe.py`: the three headers map to the `audio` group (one-line change to `GROUPS`, requested in `docs/REQUESTS_audio.md`). References refreshed for `ptr64` and `ptr32`.

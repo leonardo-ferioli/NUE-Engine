@@ -1,0 +1,5 @@
+stb_vorbis.c v1.22
+Source:   https://github.com/nothings/stb  (path stb_vorbis.c)
+Commit:   003501f6d7a8668ce8b6d875e34dd97ad0d5d5b5 (2026-10-22), file unchanged
+Licence:  MIT or public domain (Unlicense), file LICENSE (copied from the repository root; the same text is at the end of stb_vorbis.c)
+Built with STB_VORBIS_NO_STDIO and STB_VORBIS_NO_PUSHDATA_API (see nue_fragment.cmake). Used by src/audio/codecs/dec_vorbis.cpp.

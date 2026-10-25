@@ -1,0 +1,6 @@
+dr_flac v0.13.4 (as in the repository at this commit)
+Source:   https://github.com/mackron/dr_libs  (path dr_flac.h)
+Commit:   ea33eedde32b3a1baa92bb78fc98c4711f890623 (2026-10-25), dr_flac.h unchanged
+Licence:  public domain (Unlicense) or MIT No Attribution (MIT-0), file LICENSE (copied from the repository root; also at the end of dr_flac.h)
+dr_flac_impl.c is ours (three lines: the implementation define). Built without stdio and without the Ogg FLAC container.
+Used by src/audio/codecs/dec_flac.cpp.

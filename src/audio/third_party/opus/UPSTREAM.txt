@@ -1,0 +1,9 @@
+Opus codec, reference implementation (libopus)
+Source:   https://github.com/xiph/opus, tag v1.6.1
+Commit:   22244de5a79bd1d6d623c32e72bf1954b56235be
+Copied:   include/*.h, celt/ (sources of CELT_SOURCES + headers), silk/ (SILK_SOURCES + float/ + headers), src/ (OPUS_SOURCES + float analysis),
+          COPYING, AUTHORS. Not copied: dnn/ (neural PLC/OSCE/DRED), SIMD directories (x86, arm), tests, training, documentation, build scripts.
+Licence:  BSD-3-Clause (COPYING; Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
+          Erik de Castro Lopo, Mozilla, Amazon). Opus carries a royalty-free patent grant (see LICENSE_PLEASE_READ upstream / RFC 6716).
+Changes:  files unchanged; config.h and nue_fragment.cmake are ours. Built as floating point plain C (no SIMD) with the include paths in nue_fragment.cmake.
+Used by:  src/audio/codecs/dec_opus.cpp (decoder). The encoder is compiled in for the voice-chat helpers planned in docs/AUDIO.md (tier 3).

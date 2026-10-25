@@ -1,0 +1,5 @@
+libebur128 (EBU R128 loudness measurement)
+Source:   https://github.com/jiixyj/libebur128  (paths ebur128/ebur128.c, ebur128/ebur128.h, ebur128/queue/sys/queue.h, COPYING)
+Commit:   67b33abe1558160ed76ada1322329b0e9e058b02 (2021-02-14, master HEAD at the time of the copy), files unchanged
+Licence:  MIT (COPYING, Copyright (c) 2011 Jan Kokemüller). queue/sys/queue.h is BSD-3-Clause (University of California), header kept in the file.
+Used by src/audio/dsp/loudness.cpp.

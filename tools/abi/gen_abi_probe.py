@@ -289,7 +289,9 @@ class Parser:
 
 
 # Module headers carry their own API version; everything else belongs to the core API (NUE_API_VERSION).
-GROUPS = {'texture.h': ('texture', 'NUE_TEX_API_VERSION'), 'assets.h': ('assets', 'NUE_ASSETS_API_VERSION')}
+GROUPS = {'texture.h': ('texture', 'NUE_TEX_API_VERSION'), 'assets.h': ('assets', 'NUE_ASSETS_API_VERSION'),
+          'audio_codec.h': ('audio', 'NUE_AUDIO_API_VERSION'), 'audio_dsp.h': ('audio', 'NUE_AUDIO_API_VERSION'),
+          'audio_spatial.h': ('audio', 'NUE_AUDIO_API_VERSION')}
 CORE_GROUP = ('core', 'NUE_API_VERSION')
 
 

@@ -299,6 +299,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/assets/CMakeLists.txt")
     add_subdirectory(src/assets)
 endif()
 
+# ---------------------------------------------------------------------------------------------------- audio module (owned by the audio session)
+# Contract: src/audio/CMakeLists.txt defines the static library nue_audio (alias nue::audio) on top of nue::nue, plus tools/nue_audio and tests/audio.
+# Public headers include/nue/audio_*.h (not included by nue.h: they need the separate library).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/audio/CMakeLists.txt")
+    add_subdirectory(src/audio)
+endif()
+
 # ---------------------------------------------------------------------------------------------------- legacy ABI layer (libnue_legacy)
 # Contract: src/legacy/CMakeLists.txt defines the target `nue_legacy` (linking nue::nue) and an alias nue::legacy. Native games never link it.
 if(NUE_BUILD_LEGACY AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/legacy/CMakeLists.txt")
