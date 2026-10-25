@@ -156,6 +156,51 @@ lib/cmake/nue/               find_package(nue [COMPONENTS legacy]) configuration
 Source layout in the repository: `include/nue`, `include/nuepp`, `include/nue_legacy`, `src/core`, `src/platform/*`, `src/texture`, `src/legacy/{core,win32,d3d9,dsound,dinput}`.
 `NUE_BUILD_LEGACY=OFF` builds the engine without the legacy layer; native consumers use `find_package(nue)` and link `nue::nue` only.
 
+### 3.1 The installed SDK
+
+`cmake --install <build dir> --prefix <dir>` of any preset writes the SDK; `find_package(nue 0.1 CONFIG REQUIRED)` with `CMAKE_PREFIX_PATH=<dir>` consumes it:
+
+| Piece | Where | Notes |
+|---|---|---|
+| headers | `include/nue`, `include/nuepp`, `include/nue/ext` (platform extension headers, when the platform has any) | C headers are the ABI; `nuepp` is header-only C++17 |
+| engine | `lib/nue.lib` / `libnue.a` (static) or `bin/nue.dll` + import lib / `libnue.so` (`-DNUE_BUILD_SHARED=ON`) | target `nue::nue` |
+| entry point, assets | `nue::entry` (`nue_main` -> `main`/`WinMain`/`SDL_main`), `nue::assets` (separate library) | optional targets |
+| SDL3 | `lib/SDL3-static.lib` + `include/SDL3` + `SDL3Config.cmake` | installed **with** a static SDK because `libnue` links it; `nueConfig.cmake` calls `find_dependency(SDL3)`. A shared SDK folds SDL3 into the library and needs nothing else |
+| tools | `bin/nue_pack`, `bin/nue_texconv` | desktop presets only |
+| docs | `share/doc/nue/*.md`, `share/doc/nue/samples/consume_sdk` | the minimal external project |
+| facts for the consumer | `nue_SHARED`, `nue_STATIC_CRT`, `nue_HAS_SDL3`, `nue_OS` | set by `nueConfig.cmake`; a static-CRT SDK (the 32-bit Windows launcher) selects `CMAKE_MSVC_RUNTIME_LIBRARY` for the consumer unless it already chose one |
+
+The package version file refuses a pointer-size mismatch (a 64-bit consumer does not accept the 32-bit SDK) and any other major version.
+`tests/sdk_install.cmake` (ctest `nue_sdk_install`) installs the finished build into a temporary prefix, checks that every public header, the libraries, the package files and
+the docs are there, then configures, builds and runs `samples/consume_sdk` (an external project that knows nothing about the source tree) against it. The release workflow
+runs the same `cmake --install`.
+
+### 3.2 ABI guard: the public C layout cannot drift
+
+`tests/test_abi.cpp` (ctest `nue_test_abi`) compares what the compiler makes of `include/nue/*.h` with the committed reference `tests/abi/reference/<layout>.txt`
+(`ptr64`, `ptr32`; a layout with other alignments such as i386 System V is `ptr32-a4`). The table is generated at build time by `tools/abi/gen_abi_probe.py` (Python 3, standard
+library only) and holds:
+
+* every struct/union typedef: `sizeof`, `alignof`, and `offsetof` + `sizeof` of every member (nested members as `payload.key`);
+* every enumerator value and every numeric `NUE_*` constant;
+* the name of every exported function (a removed or renamed function is a breaking change);
+* the API version of each group: `core` (`NUE_API_VERSION`, all headers but the two below), `texture` (`NUE_TEX_API_VERSION`), `assets` (`NUE_ASSETS_API_VERSION`).
+
+Rules the test enforces (a group is judged by its own version):
+
+1. **Nothing may change without a version bump.** Any difference with the reference while the group's version is not higher than the reference's fails the test.
+2. **Additive changes** (new struct, new member at the end of a struct that starts with `struct_size`, new enumerator, new constant, new function) need a higher **minor or patch** number.
+3. **Breaking changes** (a removed or renamed entry, a changed enumerator value, a moved or resized member, a struct that grew without a leading `struct_size`, an alignment change) need a new
+   **major** number; while the API is `0.x` a new **minor** number is enough. Breaking changes also break the legacy layer and every compiled game: write them in `docs/API_CHANGES.md`
+   and tell the legacy sessions first.
+4. After a correct bump the reference is stale on purpose: `NUE_ABI_UPDATE=1 ctest --preset <preset> -R nue_test_abi` rewrites the reference of the layout being built.
+   The update refuses to run when the bump rule above is not met. Run it on the 64-bit and the 32-bit preset (CI prints the proposed table of the layout that failed).
+5. The header version macros must equal the CMake project version (`project(nue VERSION ...)`); the same test checks it, so a bump touches `include/nue/base.h` and `CMakeLists.txt` together.
+
+To check another target without running anything (Linux from Windows, Android, iOS), turn a reference into static asserts and compile them with that target's compiler:
+`python tools/abi/gen_static_asserts.py tests/abi/reference/ptr64.txt asserts.cpp` then `zig c++ -target x86_64-linux-gnu -std=c++17 -Iinclude -fsyntax-only asserts.cpp`
+(a layout that differs from the reference fails with a `static_assert` naming the struct or member).
+
 ## 4. What changes for the platform sessions
 
 * Nothing in their platform-ops contract: the legacy layer sits **above** the native API. Platform layers must keep the native API honest because the
