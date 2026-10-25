@@ -48,7 +48,7 @@ extern "C" {
 #  define NUE_ASSETS_API
 #endif
 
-#define NUE_ASSETS_API_VERSION 1u
+#define NUE_ASSETS_API_VERSION 2u
 #define NUE_ASSET_NO_NODE      0xFFFFFFFFu
 
 NUE_DEFINE_HANDLE(nue_assets_context);
@@ -261,13 +261,13 @@ typedef struct nue_asset_format {
     nue_result (NUE_CALL *get_image)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_tex_image* out_image);
     /* The stored pixels of a texture resource in the game's own encoding. NULL when the format cannot (get_image still works). */
     nue_result (NUE_CALL *get_native)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_native_texture* out, void** out_memory);
-    /* A mesh resource as arrays. *out_memory owns every pointer inside *out (nue_alloc; free with nue_free). NULL when the format has no meshes. */
-    nue_result (NUE_CALL *get_mesh)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_mesh* out, void** out_memory);
     /* Serialise the whole container (current nodes + edits) into the sink, rebuilding every offset, size and padding that depends on them. */
     nue_result (NUE_CALL *write)(void* userdata, nue_asset_container container, void* state, uint32_t flags, nue_asset_sink* sink);
     /* Codec the format normally travels in (by file extension, e.g. ".lzc" -> "jdlz"); NULL if none. Used when writing a container that was not read from a
      * compressed file. */
     const char* (NUE_CALL *default_codec)(void* userdata, const char* extension_with_dot);
+    /* A mesh resource as arrays. *out_memory owns every pointer inside *out (nue_alloc; free with nue_free). NULL when the format has no meshes. */
+    nue_result (NUE_CALL *get_mesh)(void* userdata, nue_asset_container container, void* state, uint32_t resource, nue_asset_mesh* out, void** out_memory);
 } nue_asset_format;
 
 /* ============================================================================================== context (registry) */
