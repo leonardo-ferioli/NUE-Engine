@@ -26,6 +26,13 @@ Internal contracts for implementers: `src/core/internal/backend.h` (devices) and
   (render thread = the thread that created the context; other threads only record changes). Behaviour: `nue_gfx_get_gpu_caps` merges the live renderer's caps (returns `NUE_OK`, was
   always `NUE_OK_PARTIAL`) except for NOOP contexts; the null backend's invented window handles are refused by real renderers. See `GFX.md`, requests in `REQUESTS_gfx.md`.
 
+## assets module (include/nue/assets.h, own version NUE_ASSETS_API_VERSION)
+
+* 2: texture pack / mesh / model export layer. New: mesh resources (`NUE_ASSET_RES_MESH`, `nue_asset_mesh`, `nue_asset_resource_get_mesh`, `nue_asset_format.get_mesh` appended at the end of the
+  struct), `nue_asset_export_model` (glTF / OBJ), the HUFF codec (`nue_huff_*`), `NUE_ASSET_RESFLAG_READONLY`, `nue_pack_variant_for_caps`, `nue_pack_mount_create_for_caps`,
+  `nue_pack_mount_create_container`. Additive only; `tests/abi/reference/{ptr64,ptr32}.txt` refreshed.
+* 1: first version (containers, JDLZ, NFS plugin, `.nuepack`, mounts).
+
 ## 0.1.2 (additive)
 
 * `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).

@@ -82,8 +82,9 @@ TEST_CASE(registry_and_probe) {
     Fx fx;
     CHECK_EQ(nue_assets_format_count(fx.ctx), 1u);
     CHECK_STR(nue_assets_format_name(fx.ctx, 0), "nfs-bun");
-    CHECK_EQ(nue_assets_codec_count(fx.ctx), 1u);
+    CHECK_EQ(nue_assets_codec_count(fx.ctx), 2u);
     CHECK_STR(nue_assets_codec_name(fx.ctx, 0), "jdlz");
+    CHECK_STR(nue_assets_codec_name(fx.ctx, 1), "huff");
     // noise is not a BUN
     nue_asset_container c = nullptr;
     auto junk = noise(4096, 42);

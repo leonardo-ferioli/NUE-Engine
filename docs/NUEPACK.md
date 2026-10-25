@@ -79,6 +79,16 @@ follow the same rules as the runtime. When a variant equals the source bytes (BC
 levels in the non-source variants. A texture that cannot be transcoded for a variant is stored as RGBA8 there and the conversion returns
 `NUE_OK_PARTIAL`.
 
+## Choosing a variant for a device
+
+`nue_pack_variant_for_caps(caps)` returns the first of bc, astc, etc2, pvrtc whose representative formats (BC1 and BC3, ASTC 4x4, ETC2 RGB8 and RGBA8, PVRTC1
+4bpp) the capabilities mark as sampled and filtered, else rgba8; `nue_pack_mount_create_for_caps` mounts a pack with that choice. The caps are the ones the
+texture module already keeps (`nue_tex_caps_for_class` presets, `nue_tex_caps_from_gpu_caps`, `nue_tex_context_get_caps`). `tests/assets/test_vfs_pack.cpp`
+builds a package with every variant of a smooth 128x128 texture, writes it through the VFS (`user:` root), mounts it for five GPU families, reads it with
+asynchronous reads and decodes the variant with the texture module: desktop (BC7, 47 dB), Android ASTC (ASTC 4x4, 47 dB), Android ETC2 (48 dB), Apple PVRTC
+(PVRTC1 4bpp, 27 dB), software (RGBA8). The transcoding policy of the converter is the texture module's planner with `NUE_TEX_POLICY_COMPRESS_RAW`, so an
+uncompressed source (BGRA8, RGBA8 images) is compressed for every platform variant.
+
 ## Reading
 
 - `nue_pack_open_file` reads header and tables; entry data is read on demand with positioned reads. `NUE_PACK_OPEN_MAP` maps the file instead and

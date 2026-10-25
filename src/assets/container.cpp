@@ -396,7 +396,7 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_image(nue_asset_contai
     if (!c || !image) return NUE_ERR_INVALID_ARGUMENT;
     if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
     ResRec& r = c->res[index];
-    if (r.info.kind != NUE_ASSET_RES_TEXTURE) return NUE_ERR_UNSUPPORTED;
+    if (r.info.kind != NUE_ASSET_RES_TEXTURE || (r.info.flags & NUE_ASSET_RESFLAG_READONLY)) return NUE_ERR_UNSUPPORTED;
     nue_tex_image copy = nullptr;
     nue_result res = nue_tex_image_clone(image, &copy);
     if (res < 0) return res;
@@ -406,6 +406,15 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_image(nue_asset_contai
     r.native_data.clear();
     c->dirty = true;
     return NUE_OK;
+}
+
+NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_mesh(nue_asset_container container, uint32_t index, nue_asset_mesh* out, void** out_memory) {
+    nue_asset_container_s* c = cont(container);
+    if (!c || !out || !out_memory) return NUE_ERR_INVALID_ARGUMENT;
+    *out_memory = nullptr;
+    if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
+    if (c->res[index].info.kind != NUE_ASSET_RES_MESH || !c->fmt->format.get_mesh) return NUE_ERR_UNSUPPORTED;
+    return c->fmt->format.get_mesh(c->fmt->format.userdata, container, c->state, index, out, out_memory);
 }
 
 NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_get_native(nue_asset_container container, uint32_t index, nue_asset_native_texture* out, void** out_memory) {
@@ -432,7 +441,7 @@ NUE_ASSETS_API nue_result NUE_CALL nue_asset_resource_set_native(nue_asset_conta
     if (!c || !n || !n->data || n->struct_size < sizeof(nue_asset_native_texture)) return NUE_ERR_INVALID_ARGUMENT;
     if (index >= c->res.size()) return NUE_ERR_NOT_FOUND;
     ResRec& r = c->res[index];
-    if (r.info.kind != NUE_ASSET_RES_TEXTURE) return NUE_ERR_UNSUPPORTED;
+    if (r.info.kind != NUE_ASSET_RES_TEXTURE || (r.info.flags & NUE_ASSET_RESFLAG_READONLY)) return NUE_ERR_UNSUPPORTED;
     if (n->palette_size > n->size || n->width == 0 || n->height == 0 || n->mip_levels == 0) return NUE_ERR_INVALID_ARGUMENT;
     r.native_data.assign(static_cast<const uint8_t*>(n->data), static_cast<const uint8_t*>(n->data) + size_t(n->size));
     r.native = *n;

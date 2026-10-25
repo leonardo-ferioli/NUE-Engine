@@ -1,6 +1,6 @@
 # NUE public C ABI reference for layout 'ptr64'. GENERATED: do not edit by hand.
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
-version assets 1
+version assets 2
 version core 4099
 version texture 1
 assets define NUE_ASSET_NO_NODE 4294967295
@@ -10,6 +10,14 @@ assets define NUE_PACK_VERSION_MAJOR 1
 assets define NUE_PACK_VERSION_MINOR 0
 assets enum NUE_ASSETS_CTX_NO_BUDGET 2
 assets enum NUE_ASSETS_CTX_NO_BUILTINS 1
+assets enum NUE_ASSET_MESH_COLORS 4
+assets enum NUE_ASSET_MESH_NORMALS 1
+assets enum NUE_ASSET_MESH_UVS 2
+assets enum NUE_ASSET_MODEL_BEST_LOD 4
+assets enum NUE_ASSET_MODEL_GLB 1
+assets enum NUE_ASSET_MODEL_KEEP_Z_UP 2
+assets enum NUE_ASSET_MODEL_NO_TEXTURES 1
+assets enum NUE_ASSET_MODEL_OBJ 2
 assets enum NUE_ASSET_NODE_BLOB 0
 assets enum NUE_ASSET_NODE_DERIVED 4
 assets enum NUE_ASSET_NODE_EDITED 2
@@ -24,7 +32,9 @@ assets enum NUE_ASSET_OPEN_LOAD_ALL 4
 assets enum NUE_ASSET_OPEN_NO_UNWRAP 2
 assets enum NUE_ASSET_RESFLAG_EDITED 2
 assets enum NUE_ASSET_RESFLAG_PALETTED 1
+assets enum NUE_ASSET_RESFLAG_READONLY 4
 assets enum NUE_ASSET_RES_BLOB 0
+assets enum NUE_ASSET_RES_MESH 4
 assets enum NUE_ASSET_RES_OTHER 3
 assets enum NUE_ASSET_RES_TEXTURE 1
 assets enum NUE_ASSET_RES_TEXTURE_PACK 2
@@ -71,6 +81,7 @@ assets field nue_asset_format.default_codec off=96 size=8
 assets field nue_asset_format.description off=16 size=8
 assets field nue_asset_format.extensions off=24 size=8
 assets field nue_asset_format.get_image off=72 size=8
+assets field nue_asset_format.get_mesh off=104 size=8
 assets field nue_asset_format.get_native off=80 size=8
 assets field nue_asset_format.index off=64 size=8
 assets field nue_asset_format.name off=8 size=8
@@ -79,6 +90,41 @@ assets field nue_asset_format.probe off=40 size=8
 assets field nue_asset_format.struct_size off=0 size=4
 assets field nue_asset_format.userdata off=32 size=8
 assets field nue_asset_format.write off=88 size=8
+assets field nue_asset_mesh.bbox_max off=164 size=12
+assets field nue_asset_mesh.bbox_min off=152 size=12
+assets field nue_asset_mesh.colors off=56 size=8
+assets field nue_asset_mesh.flags off=16 size=4
+assets field nue_asset_mesh.index_count off=24 size=4
+assets field nue_asset_mesh.indices off=64 size=8
+assets field nue_asset_mesh.name off=8 size=8
+assets field nue_asset_mesh.normals off=40 size=8
+assets field nue_asset_mesh.positions off=32 size=8
+assets field nue_asset_mesh.run_count off=72 size=4
+assets field nue_asset_mesh.runs off=80 size=8
+assets field nue_asset_mesh.struct_size off=0 size=4
+assets field nue_asset_mesh.transform off=88 size=64
+assets field nue_asset_mesh.uvs off=48 size=8
+assets field nue_asset_mesh.vertex_count off=20 size=4
+assets field nue_asset_mesh_run.index_count off=4 size=4
+assets field nue_asset_mesh_run.index_offset off=0 size=4
+assets field nue_asset_mesh_run.material_hash off=8 size=8
+assets field nue_asset_mesh_run.shader_hash off=16 size=8
+assets field nue_asset_model_desc.container_count off=16 size=4
+assets field nue_asset_model_desc.containers off=8 size=8
+assets field nue_asset_model_desc.flags off=24 size=4
+assets field nue_asset_model_desc.format off=20 size=4
+assets field nue_asset_model_desc.max_meshes off=40 size=4
+assets field nue_asset_model_desc.name_filter off=32 size=8
+assets field nue_asset_model_desc.path off=48 size=8
+assets field nue_asset_model_desc.reserved off=56 size=16
+assets field nue_asset_model_desc.struct_size off=0 size=4
+assets field nue_asset_model_stats.bytes_written off=32 size=8
+assets field nue_asset_model_stats.meshes off=4 size=4
+assets field nue_asset_model_stats.meshes_skipped off=12 size=4
+assets field nue_asset_model_stats.struct_size off=0 size=4
+assets field nue_asset_model_stats.textures off=8 size=4
+assets field nue_asset_model_stats.triangles off=24 size=8
+assets field nue_asset_model_stats.vertices off=16 size=8
 assets field nue_asset_native_texture.data off=40 size=8
 assets field nue_asset_native_texture.depth off=20 size=4
 assets field nue_asset_native_texture.flags off=28 size=4
@@ -205,6 +251,7 @@ assets function nue_asset_container_content_hash
 assets function nue_asset_container_get_info
 assets function nue_asset_container_open
 assets function nue_asset_container_write
+assets function nue_asset_export_model
 assets function nue_asset_node_count
 assets function nue_asset_node_find
 assets function nue_asset_node_get
@@ -216,6 +263,7 @@ assets function nue_asset_resource_edit
 assets function nue_asset_resource_find
 assets function nue_asset_resource_get
 assets function nue_asset_resource_get_image
+assets function nue_asset_resource_get_mesh
 assets function nue_asset_resource_get_native
 assets function nue_asset_resource_native_edit
 assets function nue_asset_resource_save_texture
@@ -239,6 +287,8 @@ assets function nue_assets_register_codec
 assets function nue_assets_register_format
 assets function nue_assets_register_nfs
 assets function nue_assets_version_string
+assets function nue_huff_decompress
+assets function nue_huff_identify
 assets function nue_jdlz_compress
 assets function nue_jdlz_compress_bound
 assets function nue_jdlz_decompress
@@ -264,11 +314,13 @@ assets function nue_pack_file_size
 assets function nue_pack_get_info
 assets function nue_pack_mount_create
 assets function nue_pack_mount_create_container
+assets function nue_pack_mount_create_for_caps
 assets function nue_pack_mount_destroy
 assets function nue_pack_mount_exists
 assets function nue_pack_mount_size
 assets function nue_pack_open_file
 assets function nue_pack_open_memory
+assets function nue_pack_variant_for_caps
 assets function nue_pack_variant_for_device_class
 assets function nue_pack_variant_from_name
 assets function nue_pack_variant_name
@@ -276,7 +328,11 @@ assets function nue_pack_verify
 assets struct nue_asset_codec size=56 align=8
 assets struct nue_asset_compress_params size=32 align=4
 assets struct nue_asset_container_info size=56 align=8
-assets struct nue_asset_format size=104 align=8
+assets struct nue_asset_format size=112 align=8
+assets struct nue_asset_mesh size=176 align=8
+assets struct nue_asset_mesh_run size=24 align=8
+assets struct nue_asset_model_desc size=72 align=8
+assets struct nue_asset_model_stats size=40 align=8
 assets struct nue_asset_native_texture size=56 align=8
 assets struct nue_asset_node_info size=80 align=8
 assets struct nue_asset_open_ctx size=48 align=8

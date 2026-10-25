@@ -60,6 +60,10 @@ NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create(nue_assets_context ctx,
     return NUE_OK;
 }
 
+NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create_for_caps(nue_assets_context ctx, const char* path, const nue_tex_caps* caps, nue_pack_mount* out) {
+    return nue_pack_mount_create(ctx, path, nue_pack_variant_for_caps(caps), out);
+}
+
 NUE_ASSETS_API nue_result NUE_CALL nue_pack_mount_create_container(nue_assets_context ctx, nue_asset_container container, nue_pack_mount* out) {
     if (!ctx || !container || !out) return NUE_ERR_INVALID_ARGUMENT;
     std::unique_ptr<nue_pack_mount_s> m(new nue_pack_mount_s());
