@@ -2,6 +2,8 @@
 #include "internal.hpp"
 #include "nue/storage.h"
 
+#include <cstdint>
+
 namespace {
 nue_result NUE_CALL file_read(void* ud, uint64_t offset, void* dst, size_t size, size_t* out_read) {
     return nue_file_read_at(nue_file(uintptr_t(ud)), offset, dst, size, out_read);

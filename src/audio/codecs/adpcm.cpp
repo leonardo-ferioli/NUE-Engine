@@ -11,6 +11,8 @@
 #include "internal.hpp"
 
 #include <climits>
+#include <cstdint>
+#include <cstring>
 
 using nuea::clamp16;
 using nuea::rd_le16;

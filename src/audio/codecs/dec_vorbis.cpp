@@ -3,8 +3,12 @@
 #include "internal.hpp"
 
 #include <cctype>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
+#include <vector>
 
 #define STB_VORBIS_NO_STDIO
 #define STB_VORBIS_NO_PUSHDATA_API

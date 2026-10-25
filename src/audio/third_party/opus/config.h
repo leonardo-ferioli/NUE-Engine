@@ -7,6 +7,9 @@
 #define CUSTOM_MODES 1
 #define HAVE_LRINTF 1
 #define HAVE_LRINT 1
+#ifndef _WIN32
+#  define HAVE_ALLOCA_H 1
+#endif
 #ifdef _MSC_VER
 #  undef HAVE_LRINTF
 #  undef HAVE_LRINT

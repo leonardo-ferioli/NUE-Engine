@@ -4,9 +4,15 @@
 
 #include "opus_multistream.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace nuea {
 namespace {

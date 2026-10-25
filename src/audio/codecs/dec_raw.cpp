@@ -1,9 +1,14 @@
 // Backends for PCM, block ADPCM (IMA / MS / Xbox / EA XAS) and frame-stream ADPCM (PSX / DSP / EA-XA), plus the RIFF WAVE parser.
 #include "internal.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace nuea {
 namespace {

@@ -6,7 +6,10 @@
 #include "dr_flac.h"
 
 #include <cctype>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 
 namespace nuea {

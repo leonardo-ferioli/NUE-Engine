@@ -3,13 +3,18 @@
 
 #include "nue/core.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <new>
 #include <condition_variable>
+#include <cstdint>
+#include <cstring>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <thread>
+#include <vector>
 
 using namespace nuea;
 
