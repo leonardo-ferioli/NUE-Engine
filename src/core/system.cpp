@@ -29,6 +29,7 @@ void compute_caps(uint64_t out[2]) {
     // capabilities the core implements itself
     set_bit(out, NUE_CAP_ASYNC_IO);
     set_bit(out, NUE_CAP_DATA_IMPORT);
+    set_bit(out, NUE_CAP_MMAP_FILES);   // nue_file_map is a real mapping (MapViewOfFile / mmap) on every OS the core supports
     // derived from entries the platform layer filled in
     if (p) {
         if (p->power_apply) { set_bit(out, NUE_CAP_KEEP_AWAKE); }

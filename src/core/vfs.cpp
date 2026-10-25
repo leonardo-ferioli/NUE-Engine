@@ -33,6 +33,10 @@ struct VfsState {
     std::vector<uint16_t> generations;
     std::vector<uint32_t> free_slots;
 
+    struct MapRecord { OsMapping mapping; bool heap_copy = false; };
+    std::mutex maps_mutex;
+    std::map<const void*, MapRecord> maps;                // live nue_file_map results, keyed by the data pointer handed to the caller
+
     std::string owned_temp;   // per-process scratch folder created by vfs_init (removed at shutdown); empty when the platform or portable mode provides it
 };
 
@@ -294,6 +298,16 @@ void vfs_shutdown() {
         v.files.clear(); v.generations.clear(); v.free_slots.clear();
     }
     if (open_files) NUE_LOGW("storage", "%zu file handle(s) were still open at shutdown and were closed", open_files);
+    size_t open_maps = 0;
+    {
+        std::lock_guard<std::mutex> lock(v.maps_mutex);
+        for (auto& m : v.maps) {
+            ++open_maps;
+            if (m.second.heap_copy) nue_free(const_cast<void*>(m.first)); else os_file_unmap(m.second.mapping);
+        }
+        v.maps.clear();
+    }
+    if (open_maps) NUE_LOGW("storage", "%zu file mapping(s) were still alive at shutdown and were released", open_maps);
     std::string owned;
     {
         std::lock_guard<std::mutex> lock(v.mutex);
@@ -586,23 +600,56 @@ NUE_API nue_result NUE_CALL nue_file_map(nue_file id, uint64_t offset, size_t si
     if (NUE_FAILED(r)) return r;
     if (offset > total) return fail(NUE_ERR_INVALID_ARGUMENT, "map offset beyond the end of the file");
     uint64_t len = size ? size : total - offset;
-    if (offset + len > total) return fail(NUE_ERR_INVALID_ARGUMENT, "map range beyond the end of the file");
-    void* mem = nue_alloc(size_t(len) + 1, 64);
-    if (!mem) return NUE_ERR_OUT_OF_MEMORY;
-    size_t got = 0;
-    r = len ? os_file_read_at(f->handle, offset, mem, size_t(len), &got) : NUE_OK;
-    if (NUE_FAILED(r) || got != len) { nue_free(mem); return NUE_FAILED(r) ? r : NUE_ERR_IO; }
+    if (len > total - offset) return fail(NUE_ERR_INVALID_ARGUMENT, "map range beyond the end of the file");
+    if (len > uint64_t(SIZE_MAX) - 1) return fail(NUE_ERR_OUT_OF_MEMORY, "map range does not fit the address space");
+
+    VfsState& v = V();
+    VfsState::MapRecord rec;
+    const void* data = nullptr;
+    bool emulated = false;
+    if (len > 0) {
+        r = os_file_map(f->handle, offset, size_t(len), &data, &rec.mapping);
+        if (NUE_FAILED(r)) {
+            NUE_LOGD("storage", "mmap of %llu bytes failed (%d): falling back to a heap copy", (unsigned long long)len, int(r));
+            data = nullptr;
+        }
+    }
+    if (!data) {
+        // empty ranges and files the OS refuses to map: a heap copy (always NUL-terminated past the end, like nue_file_load)
+        void* mem = nue_alloc(size_t(len) + 1, 64);
+        if (!mem) return NUE_ERR_OUT_OF_MEMORY;
+        size_t got = 0;
+        r = len ? os_file_read_at(f->handle, offset, mem, size_t(len), &got) : NUE_OK;
+        if (NUE_FAILED(r) || got != len) { nue_free(mem); return NUE_FAILED(r) ? r : NUE_ERR_IO; }
+        static_cast<char*>(mem)[len] = 0;
+        data = mem;
+        rec.heap_copy = true;
+        emulated = true;
+    }
+    {
+        std::lock_guard<std::mutex> lock(v.maps_mutex);
+        v.maps[data] = rec;
+    }
     uint32_t keep = out->struct_size ? out->struct_size : uint32_t(sizeof(*out));
     out->struct_size = keep;
-    out->data = mem;
+    out->data = data;
     out->size = size_t(len);
-    out->emulated = NUE_TRUE;   // real mmap is not implemented yet: a heap copy (documented in STATUS.md)
+    out->emulated = emulated ? NUE_TRUE : NUE_FALSE;
     return NUE_OK;
 }
 
 NUE_API nue_result NUE_CALL nue_file_unmap(nue_file, const nue_file_map_info* map) {
     if (!map || !map->data) return NUE_ERR_INVALID_ARGUMENT;
-    nue_free(const_cast<void*>(map->data));
+    VfsState& v = V();
+    VfsState::MapRecord rec;
+    {
+        std::lock_guard<std::mutex> lock(v.maps_mutex);
+        auto it = v.maps.find(map->data);
+        if (it == v.maps.end()) return fail(NUE_ERR_INVALID_ARGUMENT, "nue_file_unmap: this pointer is not a live mapping (already unmapped?)");
+        rec = it->second;
+        v.maps.erase(it);
+    }
+    if (rec.heap_copy) nue_free(const_cast<void*>(map->data)); else os_file_unmap(rec.mapping);
     return NUE_OK;
 }
 

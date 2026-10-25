@@ -1,8 +1,6 @@
 # STATUS (kept honest; updated with every commit that changes it)
 
-Last update: core block 3 (mixer engine, SDL3 backend, C++ wrapper, samples). Legend: **tested** = implemented and covered by passing automated tests on this machine (Windows x64 and x86/-m32, clang; null backend and SDL3 with its dummy drivers); **written** = code exists and compiles, NOT exercised by a test; **skeleton** = declarations or stubs only; **-** = nothing yet. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
-(Windows x64 and x86/-m32, clang, null backend); **written** = code exists, compiled, NOT exercised by a test; **skeleton** = declarations or stubs only;
-**-** = nothing. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
+Last update: core block 4 (consumable SDK, ABI guard, real file mapping). Legend: **tested** = implemented and covered by passing automated tests on this machine (Windows x64 and x86, clang; null backend and SDL3 with its dummy drivers) or by CI; **written** = code exists and compiles, NOT exercised by a test; **skeleton** = declarations or stubs only; **-** = nothing yet. Nothing has been run on a real window, sound card, GPU, Linux, Android or iOS device by the core session.
 
 ## Pinned third-party
 
@@ -32,7 +30,9 @@ Last update: core block 3 (mixer engine, SDL3 backend, C++ wrapper, samples). Le
 | files: open/read/write/seek/append/truncate/atomic save/load, 32-bit generation-checked ids, list/glob/stat/rename/remove | storage | tested | n/a | test_storage |
 | async reads (worker pool, priority, events, cancel), manifest verification, hashes | storage | tested | n/a | test_storage |
 | data import (directory source, resumable, verified, markers, progress/finish events) | storage | tested for PATH sources | n/a | test_storage |
-| file mapping | storage | **emulated by a heap copy** (no real mmap yet) | n/a | test_storage |
+| file mapping (`nue_file_map`): real read-only mapping (MapViewOfFile / mmap), unaligned offsets, outlives the file handle, heap-copy fallback for empty ranges / unmappable files, leaks released at shutdown; `NUE_CAP_MMAP_FILES` set | storage | tested (3 cases; Windows x64 + x86 run, POSIX path compiled for Linux x64 and macOS arm64 only) | n/a | test_storage |
+| installed SDK: `cmake --install` of every preset, `find_package(nue)` (nue::nue, nue::entry, nue::assets, SDL3 for static SDKs, tools, docs), external consumer `samples/consume_sdk` | cmake | tested on Windows x64 and x86 (static CRT) by ctest `nue_sdk_install`: install tree complete, consumer configured, built and its 3 tests run; shared SDK (DLL) installed and consumed by hand on Windows x64 (3 consumer tests passed; not in ctest); Linux, Android, iOS: **not tried by the core session** | n/a | tests/sdk_install.cmake |
+| ABI guard: struct sizes/offsets, enum values, constants and function names of `include/nue/*.h` against committed references (`ptr64`, `ptr32`), version-bump rules per group (core, texture, assets) | all headers | tested (Windows x64 + x86 runs; the `ptr64` table also satisfied by Zig/clang static asserts for Linux x64/arm64, Android arm64 headers and macOS arm64; `ptr32` for Windows x86, Linux armhf; i386 System V has other alignments and no table) | n/a | test_abi, tools/abi |
 | import from URI / picker (SAF, iOS) | storage | written (needs the platform `import` ops, none exist yet) | n/a | - |
 | power: info, thermal/power events, request bookkeeping, thread helpers + perf hints (platform ops forwarded) | power | tested without a platform layer (reports honestly "not honoured") | n/a | test_events |
 | system info + capability flags | system | tested (generic values) | n/a | test_diag |
@@ -67,7 +67,7 @@ Last update: core block 3 (mixer engine, SDL3 backend, C++ wrapper, samples). Le
 * Texture hook: `nue_texture_obj` target and `NUE_HAS_TEXTURE`; the module itself belongs to nue-texture.
 
 * The SDL3 backend has no raw-joystick support for devices SDL cannot map as gamepads, no capture streams, no haptics (platform ops own phone vibration), no real-device validation.
-* `nue_gfx` MANAGED mode (bgfx) and the `NUE_WITH_GFX` module are the next block, together with the mmap-backed `nue_file_map`.
-* Real memory mapping, `NUE_CAP_MMAP_FILES` stays clear until then.
+* `nue_gfx` MANAGED mode (bgfx init / reset / frame inside the engine) and the `NUE_WITH_GFX` module are the one remaining core skeleton: `cmake/NueGfx.cmake` stops with an error and `nue_gfx_create` returns `NUE_ERR_UNSUPPORTED` for MANAGED. The legacy D3D9 layer does not need it (it uses PREPARE mode); native games that want the engine to own bgfx do.
+* The i386 System V layout (`alignof(uint64_t) == 4`) has no ABI table; nothing in the supported matrix builds for it.
 * The null backend's audio device accepts any format; conversion inside streams is only exercised when a real backend negotiates another format.
 * Timestamp domain: the null backend in deterministic mode replaces the engine clock; the SDL3 backend will use the OS monotonic clock.
