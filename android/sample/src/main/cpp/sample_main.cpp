@@ -162,6 +162,23 @@ int main(int, char**) {
         sp.struct_size = sizeof sp;
         if (nue_android_get_storage_paths(&sp) && sp.external_files_dir[0])
             manifest = read_file(std::string(sp.external_files_dir) + "/import_manifest.txt");
+
+        // Scripted run (android/scripts/run_emulator_tests.ps1): <external files dir>/auto_test.txt, one command per line.
+        //   import_dir <directory>    import a plain directory into the game data folder (drop-folder path, no picker)
+        // Results are logged with the tag NUE and prefix "AUTO".
+        if (sp.external_files_dir[0]) {
+            std::istringstream cmds(read_file(std::string(sp.external_files_dir) + "/auto_test.txt"));
+            std::string line;
+            while (std::getline(cmds, line)) {
+                if (line.rfind("import_dir ", 0) == 0) {
+                    std::string dir = line.substr(11);
+                    while (!dir.empty() && (dir.back() == '\r' || dir.back() == ' ')) dir.pop_back();
+                    int ok = nue_android_import_from_directory(dir.c_str(), manifest.empty() ? nullptr : manifest.c_str(), 0);
+                    note("AUTO import_dir " + dir + (ok ? " started" : " NOT started"));
+                }
+            }
+        }
+        note(std::string("AUTO rotation vector available: ") + (nue_android_rotation_available() ? "yes" : "no"));
     }
 
     std::string last_input = "unknown";
