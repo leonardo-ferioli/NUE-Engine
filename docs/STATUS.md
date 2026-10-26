@@ -58,7 +58,7 @@ Last update: core block 4 (consumable SDK, ABI guard, real file mapping). Legend
 |---|---|---|
 | Windows x64 / x86 | `src/platform/windows` | owned by nue-windows; core builds and tests pass with the generic layer on both |
 | Linux x64 | `src/platform/linux` | owned by nue-linux; not built by the core session |
-| Android arm64 | `src/platform/android` | owned by nue-android; not built by the core session |
+| Android arm64 | `src/platform/android`, `android/` | owned by nue-android. **Verified**: the engine AAR and the sample APK build with the real NDK (r28c, AGP 9.4.1, Gradle 9.8.2; arm64-v8a and x86_64), 16 KB alignment and the exported JNI entry points checked on the binaries, 12 host ctest suites green (`src/platform/android/tests`). **Not verified**: nothing has run on any emulator or device (this machine has no hardware acceleration for the emulator; the user decided not to enable it). `android/scripts/run_emulator_tests.ps1` is written, never run end to end. See `PLATFORM_ANDROID.md` |
 | iOS arm64 | `src/platform/ios` | owned by nue-ios; not built by the core session |
 
 ## Known gaps / decisions pending

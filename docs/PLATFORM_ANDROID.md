@@ -182,6 +182,21 @@ ctest --test-dir build_android_host --output-on-failure
 ```
 Resultado esperado: 12 pruebas (`android_storage`, `android_import`, ...) en verde.
 
+### 8.3 Ejecutar en un emulador (SOLO si tu PC tiene aceleración por hardware; no se ha ejecutado nunca)
+Estado: el script `android/scripts/run_emulator_tests.ps1` está escrito y su sintaxis comprobada, pero **nunca se ha ejecutado de principio a fin**: el PC donde se
+desarrolló no tiene aceleración para el emulador (`emulator -accel-check` falla) y se decidió no activarla. Sin aceleración el emulador x86_64 se cierra al
+arrancar. Para repetirlo en un PC que sí la tenga (Windows con "Plataforma de hipervisor de Windows" activada, o el controlador AEHD; Linux con KVM):
+```
+cd android
+gradle :sample:assembleDebug -Pnue.abis=x86_64
+powershell -File scripts/run_emulator_tests.ps1 -Install        # -Install baja el emulador y la imagen Android 16 x86_64 (~1,3 GB)
+```
+El script comprueba la aceleración, crea el AVD `nue_test`, arranca sin ventana ni sonido, instala el APK y verifica en `adb logcat` (etiqueta `NUE`): informe de
+capacidades, pausa/reanudación, eventos de poca memoria (`am send-trim-memory`), térmico (`cmd thermalservice`), ahorro de batería, Game Mode, importación
+desde carpeta, y el manejador de fallos (SIGSEGV y conversión del informe en el siguiente arranque). Los resultados quedan en `android/emulator_results/`
+(ignorado por git) y el código de salida es distinto de cero si algo falla. Se niega a ejecutar si hay un móvil real conectado. Lo que NO cubre: audio real,
+Vulkan/GPU real, ADPF y térmico reales del SoC, rendimiento, el selector de carpetas (SAF), mando/táctil físicos.
+
 ### 8.2 Compilar el AAR y la app de ejemplo (necesita instalar cosas; no se ha hecho)
 Qué instalar y para qué (todo gratis, unos 6-8 GB en total):
 1. **Android Studio** (incluye el JDK 21 "JBR", el SDK Manager y el emulador). Es la forma más sencilla; con él no hace falta instalar Gradle.
