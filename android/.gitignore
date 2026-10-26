@@ -8,3 +8,4 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+emulator_results/
