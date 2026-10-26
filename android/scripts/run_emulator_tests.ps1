@@ -20,10 +20,12 @@ param(
     [string]$Apk = "",
     [switch]$Install,
     [switch]$Keep,
+    [switch]$AllowSoftware,   # try without hardware acceleration (on the author's machine the emulator crashed right after start)
     [int]$BootTimeoutSec = 600
 )
 
 $ErrorActionPreference = "Stop"
+$env:ANDROID_SDK_ROOT = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA "AndroidSdk" }
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA "Android\Sdk" }
 if (-not $env:JAVA_HOME) {
@@ -66,9 +68,17 @@ function Marker([string]$name) { $m = "MARK-$name-$([guid]::NewGuid().ToString('
 Write-Host "== acceleration"
 if (Test-Path $emu) {
     $accel = (& $emu -accel-check 2>&1 | Out-String).Trim()
+    $accelOk = ($LASTEXITCODE -eq 0)
     Write-Host $accel
     Set-Content (Join-Path $out "accel_check.txt") $accel
+    if (-not $accelOk -and -not $AllowSoftware) {
+        throw ("No hardware acceleration for the emulator ('emulator -accel-check' failed). Enable 'Windows Hypervisor Platform' " +
+               "(Windows features, needs administrator + reboot) or install the Android Emulator hypervisor driver (AEHD), " +
+               "then run again. -AllowSoftware tries anyway.")
+    }
+    $emuArgsExtra = @(); if (-not $accelOk) { $emuArgsExtra = @("-no-accel") }
 } else {
+    $emuArgsExtra = @()
     Write-Host "emulator not installed (use -Install)"
 }
 
@@ -91,7 +101,7 @@ if ($existing -match "(?m)^(?!emulator-)\S+\s+device") {
     throw "A real device is attached; this script only runs on the emulator it starts. Unplug it or use ANDROID_SERIAL carefully."
 }
 Write-Host "== starting emulator (headless)"
-$emuProc = Start-Process -FilePath $emu -ArgumentList @("-avd", $AvdName, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot", "-no-metrics", "-gpu", "swiftshader_indirect", "-netdelay", "none", "-netspeed", "full") -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $out "emulator_stdout.txt") -RedirectStandardError (Join-Path $out "emulator_stderr.txt")
+$emuProc = Start-Process -FilePath $emu -ArgumentList ((@("-avd", $AvdName, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot", "-no-metrics", "-gpu", "swiftshader_indirect", "-netdelay", "none", "-netspeed", "full")) + $emuArgsExtra) -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $out "emulator_stdout.txt") -RedirectStandardError (Join-Path $out "emulator_stderr.txt")
 try {
     Adb wait-for-device | Out-Null
     $deadline = (Get-Date).AddSeconds($BootTimeoutSec)
