@@ -8,7 +8,9 @@
 //     at the real-time rate of the output, and its jump never exceeds what was mixed.
 // Sinks tested here: the manual sink (tests) and the native stream on the NUE null backend with its virtual clock. The real endpoint is checked by
 // nue_dsound_endpoint_smoke (hardware, tool).
+#include <chrono>
 #include <functional>
+#include <thread>
 
 #include "nue/nue.h"
 #include "nue/null_backend.h"
@@ -123,6 +125,91 @@ void cursor_contract(const char* name, std::unique_ptr<OutputSink> sink, const s
     engine->shutdown();
 }
 
+// A sink whose device is gone: it starts, reports running, and never calls back (an unplugged endpoint that is being re-acquired).
+class SilentSink final : public OutputSink {
+public:
+    bool open(const SinkDesc& desc, SinkCallback, void*) override { spec_ = desc.spec; if (!spec_.sample_rate) spec_.sample_rate = 48000; return true; }
+    OutputLayout actual() const override { return spec_; }
+    bool start() override { running_ = true; return true; }
+    bool stop() override { running_ = false; return true; }
+    void close() override { running_ = false; }
+    bool running() const override { return running_; }
+    uint64_t frames_played() const override { return 0; }
+    SinkLatency latency() const override { return {}; }
+    SinkStats stats() const override { return {}; }
+
+private:
+    OutputLayout spec_;
+    bool running_ = false;
+};
+
+// The DirectSound clock must not freeze when the output stops calling back (a client rebuilds its audio after 100 identical cursor reads), and must hand
+// over to the sink as soon as it is back.
+void clock_without_output() {
+    std::printf("clock without output\n");
+    EngineConfig config;
+    config.sample_rate = 48000;
+    config.keep_clock_without_output = true;
+    config.watchdog_ms = 100;
+    auto engine = Engine::create(config, std::make_unique<SilentSink>());
+    CHECK(engine != nullptr);
+    if (!engine) return;
+    auto& d = engine->device();
+    dsx::BufferDesc sd;
+    sd.flags = 0x18000;
+    sd.bytes = 22016 * 4;
+    sd.has_format = true;
+    sd.format = pcm16(44100, 2);
+    auto ring = d.create_buffer(sd);
+    CHECK(engine->start());
+    d.play(ring.id, 0, dsx::play_flag::looping);
+    const auto t0 = std::chrono::steady_clock::now();
+    uint32_t last = 0;
+    double moved_bytes = 0;
+    int frozen = 0, max_frozen = 0;
+    bool first = true;
+    for (int i = 0; i < 60; ++i) {   // 600 ms of 10 ms polls in real time
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        uint32_t cur = 0;
+        d.get_current_position(ring.id, &cur, nullptr);
+        if (!first) {
+            moved_bytes += (cur + sd.bytes - last) % sd.bytes;
+            frozen = cur == last ? frozen + 1 : 0;
+            if (i >= 15) max_frozen = std::max(max_frozen, frozen);   // before the watchdog takes over (watchdog_ms) nothing moves; a client tolerates 100 polls
+        }
+        first = false;
+        last = cur;
+    }
+    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch() - t0.time_since_epoch()).count();
+    const double heard = moved_bytes / 4.0 / 44100.0;
+    std::printf("  silent output: cursor moved %.3f s in %.3f s of wall time, watchdog rendered %llu frames, longest frozen run %d\n", heard, elapsed,
+                static_cast<unsigned long long>(engine->watchdog_frames()), max_frozen);
+    CHECK(engine->watchdog_frames() > 48000 * 3 / 10);   // it took over after 100 ms
+    CHECK(heard > 0.3 && heard < elapsed + 0.05);        // the cursor ran at about the real-time rate (the first 100 ms plus the sink latency are not covered)
+    CHECK(max_frozen < 3);
+    engine->shutdown();
+}
+
+// With a sink that does call back, the watchdog stays out of the way.
+void watchdog_stays_idle() {
+    std::printf("watchdog idle with a live sink\n");
+    EngineConfig config;
+    config.sample_rate = 48000;
+    config.keep_clock_without_output = true;
+    config.watchdog_ms = 100;
+    auto sink = std::make_unique<ManualSink>(480, 0);
+    ManualSink* raw = sink.get();
+    auto engine = Engine::create(config, std::move(sink));
+    CHECK(engine && engine->start());
+    if (!engine) return;
+    for (int i = 0; i < 40; ++i) {   // a callback every 10 ms of wall time for 400 ms
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        raw->advance(480);
+    }
+    CHECK(engine->watchdog_frames() == 0);
+    engine->shutdown();
+}
+
 }  // namespace
 
 int main() {
@@ -154,6 +241,8 @@ int main() {
         cursor_contract("native stream (null backend)", make_nue_sink(), advance);
         nue_shutdown();
     }
+    clock_without_output();
+    watchdog_stays_idle();
     std::printf("%s: %d checks, %d failures\n", g_failures ? "FAIL" : "PASS", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

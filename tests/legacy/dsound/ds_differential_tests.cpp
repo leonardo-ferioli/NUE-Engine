@@ -500,8 +500,9 @@ void run_realtime(Rig& r) {
         std::printf("        %5llu   %8lu / %-8lu            %8lu / %-8lu\n", static_cast<unsigned long long>(elapsed), play / 4, write / 4, mp / 4, mw / 4);
         real_margin_sum += double((write + bytes - play) % bytes) / 4.0 / 44.1;
         mine_margin_sum += double((mw + bytes - mp) % bytes) / 4.0 / 44.1;
-        real_monotone = real_monotone && play >= last_real_play;
-        mine_monotone = mine_monotone && mp >= last_mine_play;
+        // The ring is one second long and the machine may be busy (a step of 100 ms can take 250 ms): "forward" is judged modulo the ring.
+        real_monotone = real_monotone && (play + bytes - last_real_play) % bytes < bytes * 6 / 10;
+        mine_monotone = mine_monotone && (mp + bytes - last_mine_play) % bytes < bytes * 6 / 10;
         last_real_play = play;
         last_mine_play = mp;
     }
@@ -511,8 +512,11 @@ void run_realtime(Rig& r) {
     DWORD play = 0, mp = 0;
     b.real->GetCurrentPosition(&play, nullptr);
     b.mine->GetCurrentPosition(&mp, nullptr);
-    report("real play cursor is near 0.8 s after 8 x 100 ms (within 150 ms)", std::fabs(double(play) / 4.0 / 44.1 - 800.0) < 150.0);
-    report("mine play cursor is near 0.8 s (within 60 ms)", std::fabs(double(mp) / 4.0 / 44.1 - 800.0) < 60.0);
+    // The real cursor follows the wall clock (it starts about 50 ms behind it); compared on the circle of the 1 s ring, whatever the load.
+    const double elapsed_ms = double(GetTickCount64() - t0);
+    auto circular_ms = [](double a, double b) { double d = std::fmod(std::fabs(a - b), 1000.0); return d > 500.0 ? 1000.0 - d : d; };
+    report("real play cursor follows the clock (within 200 ms of elapsed time, modulo the ring)", circular_ms(double(play) / 4.0 / 44.1, elapsed_ms - 50.0) < 200.0);
+    report("mine play cursor is where 8 x 100 ms of our time put it (within 60 ms)", std::fabs(double(mp) / 4.0 / 44.1 - 800.0) < 60.0);
     // Stop keeps the position; a stopped buffer does not move.
     BOTH("Stop", b, b->Stop());
     DWORD p1 = 0, p2 = 0;

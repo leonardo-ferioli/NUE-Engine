@@ -202,7 +202,12 @@ A sink for any of them is accepted when it passes `ds_sink_tests.cpp` (the confo
 and never ahead of what the callback produced, `stop` pauses with the position kept, nothing runs after `close`, a closed sink opens again, and through an `Engine` the DirectSound
 play cursor of a looping ring moves at every 10 ms poll (a client rebuilds its audio after 100 identical ones) at the real-time rate. It runs headless on the manual sink and on
 the native stream over the null backend; on hardware, `nue_dsound_endpoint_smoke` does the equivalent. The channel count is clamped to the device's native count
-(`SinkDesc::match_device_channels`) so the layer's own down-mix runs, not the platform converter. Requests per platform are in [REQUESTS_dsound.md](REQUESTS_dsound.md).
+(`SinkDesc::match_device_channels`) so the layer's own down-mix runs, not the platform converter.
+
+**The cursor must not freeze when the output goes away.** A client rebuilds its audio when the play cursor stands still for 100 polls, so an unplugged endpoint (the callback stops while
+the device is re-acquired) must not stop the DirectSound clock. `EngineConfig::keep_clock_without_output` (on in `dsound.dll`, off in tests that drive virtual time) starts a watchdog
+that, after `watchdog_ms` (150) without a callback, renders at the real-time rate into nothing and hands over the moment the sink calls back (`ds_sink_tests.cpp`: a sink that never calls
+back keeps a moving cursor, and a live sink never wakes the watchdog). This is the port's WASAPI behaviour made independent of the backend. Not tried on a real unplug. Requests per platform are in [REQUESTS_dsound.md](REQUESTS_dsound.md).
 
 ## Level A trace: record, replay, compare
 
@@ -285,6 +290,7 @@ The full suites (`ctest --preset windows-x64`, 42 tests, and `windows-x86`) also
 * **No audible run of a game.** The first one is the player's; send back the `NueDsoundReport` text.
 * **No 5.1/7.1 endpoint test.** The 6-channel path is tested on the null device (stream opened with 6 channels) and on a stereo endpoint (stays at 2); a real 5.1/7.1
   endpoint, exclusive mode and Windows spatial formats are untested.
+* **Endpoint loss was simulated** (a sink that stops calling back), not exercised with a real unplug.
 * **No follow of a default-device change in the layer.** The native stream follows the system default device by itself; the layer reads the device latency once when
   it opens the output, so a new device with another latency or rate keeps the old play-cursor offset. (Request to the platform sessions in `REQUESTS_dsound.md`.)
 * **No platform spatializer backend** (`nue_spatial_backend_ops` is passed through, nothing implements it), **no measured HRTF** (`Device::set_hrtf` forwards a dataset to

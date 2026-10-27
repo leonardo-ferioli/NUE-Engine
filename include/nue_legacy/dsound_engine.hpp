@@ -2,8 +2,10 @@
 // device; the shipped implementation (make_nue_sink) is a native audio stream (nue_audio_stream, callback model). A test, or a host that
 // has its own audio path, supplies another one.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <string_view>
 
 #include "nue_legacy/dsound_device.hpp"
@@ -65,6 +67,11 @@ struct EngineConfig {
     uint32_t latency_ms = 40;
     SpatialOptions spatial;
     bool follow_primary_channels = true; // when the application sets a 4/6 channel primary format, ask the sink for that many channels (falls back to its own layout)
+    // When the output stops asking for audio (the endpoint was unplugged, the device is being re-acquired) keep the DirectSound clock running at real time: a
+    // watchdog thread renders into nothing until the sink calls back again. A client rebuilds its audio when the play cursor stands still for 100 polls, so the
+    // cursor must never freeze. Off by default (tests drive virtual time); dsound.dll turns it on.
+    bool keep_clock_without_output = false;
+    uint32_t watchdog_ms = 150;          // how long the sink may be silent before the watchdog takes over
     TraceRecorder* trace = nullptr;      // records every call the client makes on the device (dsound_trace.hpp); must outlive the engine
     bool match_device_channels = true;   // ... but not more than the output device natively has: the layer's ITU down-mix beats the platform converter
 };
@@ -82,6 +89,7 @@ public:
     Device& device() { return *device_; }
     OutputSink& sink() { return *sink_; }
     uint32_t reopen_count() const { return reopens_; }   // times the sink was reopened to follow a new primary format
+    uint64_t watchdog_frames() const { return watchdog_frames_; }   // frames the watchdog rendered while the sink was silent
 
 private:
     Engine() = default;
@@ -92,7 +100,11 @@ private:
     EngineConfig cfg_;
     std::unique_ptr<Device> device_;
     std::unique_ptr<OutputSink> sink_;
-    bool started_ = false;
+    void watchdog();
+    std::atomic<bool> started_{false}, stop_watchdog_{false};
+    std::atomic<int64_t> last_callback_ns_{0};
+    std::atomic<uint64_t> watchdog_frames_{0};
+    std::thread watchdog_thread_;
     uint32_t reopens_ = 0;
 };
 

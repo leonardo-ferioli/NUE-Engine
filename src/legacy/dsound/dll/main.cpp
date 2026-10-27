@@ -72,6 +72,7 @@ private:
         }
         nue_initialized_ = true;
         EngineConfig config;
+        config.keep_clock_without_output = true;   // an unplugged endpoint must not freeze the play cursor (a client rebuilds its audio after 100 identical reads)
         trace_path_ = env("NUE_DSOUND_TRACE");
         if (!trace_path_.empty()) config.trace = &trace_;
         if (const std::string ms = env("NUE_DSOUND_LATENCY_MS"); !ms.empty()) config.latency_ms = uint32_t(std::atoi(ms.c_str()));
