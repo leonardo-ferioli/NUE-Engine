@@ -800,7 +800,7 @@ HRESULT Impl::ListenerView::CommitDeferredSettings() { LOCKED("IDirectSound3DLis
 // IDirectSoundNotify
 HRESULT Impl::NotifyView::SetNotificationPositions(DWORD count, LPCDSBPOSITIONNOTIFY positions) {
     std::lock_guard<std::mutex> lock(o->impl->mutex);
-    if (count > 0 && !positions) return o->impl->note("IDirectSoundNotify::SetNotificationPositions", E_INVALIDARG);
+    if ((count > 0 && !positions) || count > 0x10000u) return o->impl->note("IDirectSoundNotify::SetNotificationPositions", E_INVALIDARG);   // a hostile count would read past the list
     std::vector<Notify> list;
     for (DWORD i = 0; i < count; ++i) list.push_back({positions[i].dwOffset, uint64_t(reinterpret_cast<uintptr_t>(positions[i].hEventNotify))});
     return o->impl->note("IDirectSoundNotify::SetNotificationPositions", as_hresult(o->impl->device->set_notifications(o->id, list)));

@@ -384,7 +384,8 @@ void test_hostile_arguments() {
     const uint32_t primary = g.get32(out);
     g.call(ds, ds_slot::CreateSoundBuffer, {g.desc(0x10 | 0x100 | 0x80, 4000, g.wave(1, 48000)), out, 0});
     const uint32_t buf = g.get32(out);
-    uint32_t seed = 12345;
+    for (uint32_t seed0 : {12345u, 777u, 31337u, 99u}) {   // four seeds
+    uint32_t seed = seed0;
     auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return seed; };
     const auto& methods = DsoundGuestFacade::methods();
     uint32_t objects[5] = {ds, buf, 0, primary, buf};
@@ -396,7 +397,7 @@ void test_hostile_arguments() {
     g.call(buf, buf_slot::QI, {g.guid(IID_IDirectSoundNotify), pp});
     objects[4] = g.get32(pp);
     uint64_t calls = 0;
-    for (int round = 0; round < 3000; ++round) {
+    for (int round = 0; round < 5000; ++round) {
         const size_t m = rnd() % methods.size();
         const MethodDesc& d = methods[m];
         if (d.slot == 2) continue;   // Release would destroy the objects the loop uses
@@ -409,23 +410,30 @@ void test_hostile_arguments() {
         g.facade->call(m, args);
         ++calls;
     }
-    CHECK(calls > 2000);
+    CHECK(calls > 3000);
     CHECK(g.facade->live_objects() >= 3);   // the objects are still there and the facade still answers
     uint32_t pcell = g.cell();
     CHECK_HR(g.call(buf, buf_slot::GetStatus, {pcell}), HR_OK);
     // `this` that is not a COM pointer of this facade: invalid argument, never a fault.
     const uint32_t bogus[1] = {0xDEADBEEFu};
     CHECK(g.facade->call(0, bogus) != 0);
+    }
 }
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     // Twice: guest address 0 of the arena at a low address and above 2 GiB (host addresses are unrelated to either).
     for (uint32_t base : {0x10000u, 0xA0000000u}) {
         g_arena_base = base;
+        std::puts("run test_game_sequence");
         test_game_sequence();
+        std::puts("run test_com_behaviour");
         test_com_behaviour();
+        std::puts("run test_duplicate_and_formats_via_abi");
         test_duplicate_and_formats_via_abi();
+        std::puts("run test_3d_and_notify_via_abi");
         test_3d_and_notify_via_abi();
+        std::puts("run test_hostile_arguments");
         test_hostile_arguments();
     }
     std::printf("%s: %d checks, %d failures\n", g_failures ? "FAIL" : "PASS", g_checks, g_failures);

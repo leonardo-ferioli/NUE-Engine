@@ -762,7 +762,9 @@ struct DsoundGuestFacade::Impl {
         if (slot == 0) return query_interface(o, a[1], a[2]);
         if (slot != 3) return hr::unsupported;
         const uint32_t count = a[1];
-        if (count > 0 && (!a[2] || !at(a[2], count * 8))) return hr::invalid_param;
+        // count * 8 must not wrap in 32 bits (a hostile count of 0x20000001 would pass the range check with 8 bytes and then loop 536 million times), and a
+        // buffer cannot have more notification positions than bytes; DirectSound itself refuses lists like that.
+        if (count > 0 && (count > 0x10000u || !a[2] || uint64_t(a[2]) + uint64_t(count) * 8 > 0x100000000ull || !at(a[2], count * 8))) return hr::invalid_param;
         std::vector<Notify> list;
         for (uint32_t i = 0; i < count; ++i) {
             uint32_t off, handle;
