@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "nue_legacy/dsound_device.hpp"
+#include "nue_legacy/dsound_trace.hpp"
 
 namespace nue::dsound {
 
@@ -64,6 +65,7 @@ struct EngineConfig {
     uint32_t latency_ms = 40;
     SpatialOptions spatial;
     bool follow_primary_channels = true; // when the application sets a 4/6 channel primary format, ask the sink for that many channels (falls back to its own layout)
+    TraceRecorder* trace = nullptr;      // records every call the client makes on the device (dsound_trace.hpp); must outlive the engine
     bool match_device_channels = true;   // ... but not more than the output device natively has: the layer's ITU down-mix beats the platform converter
 };
 

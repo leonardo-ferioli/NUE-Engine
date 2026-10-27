@@ -50,3 +50,6 @@ nue_dsound_test(guest ds_guest_tests.cpp)
 
 # What any OutputSink must satisfy for the cursor logic (manual sink and the native stream on the null backend); a new platform sink runs this too.
 nue_dsound_test(sink ds_sink_tests.cpp)
+
+# Level A trace: record, replay, divergence, comparison of two clients by the PCM they write.
+nue_dsound_test(trace ds_trace_tests.cpp)

@@ -9,6 +9,7 @@ std::unique_ptr<Engine> Engine::create(const EngineConfig& config, std::unique_p
     std::unique_ptr<Engine> e(new Engine());
     e->cfg_ = config;
     e->device_ = make_device(config.device);
+    if (config.trace) e->device_ = make_recording_device(std::move(e->device_), *config.trace);
     e->device_->set_spatial(config.spatial);
     e->sink_ = std::move(sink);
     SinkDesc desc;

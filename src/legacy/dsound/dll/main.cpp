@@ -5,6 +5,7 @@
 //   NUE_DSOUND_LATENCY_MS   output latency target in milliseconds (default 40)
 //   NUE_DSOUND_SPATIAL      auto | balance | pan | binaural | ambisonic (default auto: DirectSound's own balance law on stereo, pairwise panning above)
 //   NUE_DSOUND_HEADLESS     1: no audio device (NUE null backend); used by the tests
+//   NUE_DSOUND_TRACE        path of a Level A trace (include/nue_legacy/dsound_trace.hpp) written when the dll is unloaded or the process ends
 //   NUE_DSOUND_LOG          path of a text file that receives the call counts and the first failing call when the dll is unloaded
 #include <windows.h>
 #include <mmsystem.h>   // WAVEFORMATEX needs these two when WIN32_LEAN_AND_MEAN is set
@@ -41,7 +42,11 @@ public:
     // output device each time would cost more than a stream playing silence.
     void release() override {}
 
+    void save_trace() const {
+        if (!trace_path_.empty()) trace_.save(trace_path_);
+    }
     void shutdown() {
+        save_trace();
         engine_.reset();
         if (nue_initialized_) nue_shutdown();
         nue_initialized_ = false;
@@ -67,6 +72,8 @@ private:
         }
         nue_initialized_ = true;
         EngineConfig config;
+        trace_path_ = env("NUE_DSOUND_TRACE");
+        if (!trace_path_.empty()) config.trace = &trace_;
         if (const std::string ms = env("NUE_DSOUND_LATENCY_MS"); !ms.empty()) config.latency_ms = uint32_t(std::atoi(ms.c_str()));
         const std::string spatial = env("NUE_DSOUND_SPATIAL");
         if (spatial == "balance") config.spatial.mode = SpatialMode::balance;
@@ -84,6 +91,8 @@ private:
     }
 
     std::unique_ptr<Engine> engine_;
+    TraceRecorder trace_;
+    std::string trace_path_;
     bool nue_initialized_ = false, failed_ = false;
 };
 
@@ -92,6 +101,7 @@ Runtime& g_runtime = *new Runtime;
 com::Facade& g_facade = *new com::Facade(g_runtime);
 
 void write_log() {
+    g_runtime.save_trace();
     const std::string path = env("NUE_DSOUND_LOG");
     if (path.empty()) return;
     if (FILE* f = std::fopen(path.c_str(), "wb")) {

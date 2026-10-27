@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <string>
 
+#include "nue_legacy/dsound_trace.hpp"
 #include "test_support.hpp"
 
 namespace {
@@ -16,6 +17,10 @@ using CreateFn = HRESULT(WINAPI*)(LPCGUID, LPDIRECTSOUND*, LPUNKNOWN);
 
 void run(const wchar_t* path) {
     SetEnvironmentVariableA("NUE_DSOUND_HEADLESS", "1");
+    char tmp[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmp);
+    const std::string trace_path = std::string(tmp) + "nue_dsound_dll_test_" + std::to_string(GetCurrentProcessId()) + ".ndst";
+    SetEnvironmentVariableA("NUE_DSOUND_TRACE", trace_path.c_str());
     HMODULE dll = LoadLibraryW(path);
     CHECK(dll != nullptr);
     if (!dll) return;
@@ -96,8 +101,24 @@ void run(const wchar_t* path) {
     CHECK(report_fn && shutdown_fn);
     char buffer[4096] = {};
     const std::string text = report_fn ? (report_fn(buffer, sizeof(buffer)), std::string(buffer)) : std::string();
-    if (shutdown_fn) shutdown_fn();
+    if (shutdown_fn) shutdown_fn();   // also writes the trace
     CHECK(FreeLibrary(dll));
+    {   // the trace the dll recorded replays identically on a fresh Device
+        std::vector<uint8_t> data;
+        if (FILE* f = std::fopen(trace_path.c_str(), "rb")) {
+            uint8_t buf[65536];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) data.insert(data.end(), buf, buf + n);
+            std::fclose(f);
+            std::remove(trace_path.c_str());
+        }
+        const nue::dsound::TraceInfo info = nue::dsound::trace_info(data.data(), data.size());
+        CHECK(info.valid && info.renders > 0 && info.unlocks >= 1);
+        auto fresh = nue::dsound::make_device();
+        const nue::dsound::ReplayResult r = nue::dsound::replay_trace(data.data(), data.size(), *fresh);
+        if (!r.ok) std::printf("dll trace replay: %s\n", r.error.c_str());
+        CHECK(r.ok && r.mixed_hash == info.mixed_hash && r.pcm_hash == info.pcm_hash);
+    }
     CHECK(text.find("DirectSoundCreate calls: 1") != std::string::npos);
     CHECK(text.find("IDirectSoundBuffer::Lock: 1 calls") != std::string::npos);
     CHECK(text.find("failed") == std::string::npos);   // not one DirectSound call failed
