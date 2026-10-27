@@ -65,7 +65,7 @@ code never sees a host pointer.
 | Model | Used when | Guest address -> host address | Notes |
 |---|---|---|---|
 | `IDENTITY32` | 32-bit host (Windows x86 today) | `host = guest` | the fast backend reads/writes guest memory directly; guest image and heaps are real mappings at their addresses |
-| `WINDOW64` | 64-bit host | `host = base + guest`, `base` = a reserved 4 GiB window | generated code adds the base (one register); Windows x64 / Linux / Android reserve the window with low-address hints (`MAP_32BIT`, `MAP_FIXED_NOREPLACE`, `VirtualAlloc` low range) |
+| `WINDOW64` | 64-bit host | `host = base + guest`, `base` = a reserved, 4 GiB aligned window (the arena) | generated code adds the base (one register). The base can be **anywhere** 4 GiB aligned: no low-address hint is needed (only `IDENTITY32` needs low addresses). Windows x64 reserves it with `VirtualAlloc2` (alignment requirement, measured), POSIX with `mmap(PROT_NONE)` + trim. Guest page protections are a software table (4 KiB guest pages on 16 KiB hosts). Proposal for the shared interface and the generic `nue_vm` service: `docs/GUEST_MEMORY.md` |
 | `INDIRECT` | hosts that cannot reserve a window (iOS arm64: nothing is mapped below 4 GiB, `__PAGEZERO` is 4 GiB; a reduced page zero via linker flags is unverified) | every access goes through a translation | slowest; correctness fallback, decided at translation time |
 
 The model is a compile-time property of the generated code (`NUE_GUEST_MEM_MODEL`), not a run-time switch. **Open item (not implemented, not verified on
