@@ -192,6 +192,21 @@ def ea_xa_stereo(frame, st):
         st[ch] = (h1, h2)
     return outs
 
+def xas_v0_frame(f):
+    hdr = struct.unpack_from('<I', f, 0)[0]
+    c1, c2 = XA_COEF[hdr & 15]
+    h2 = struct.unpack('<h', struct.pack('<H', hdr & 0xFFF0))[0]
+    h1 = struct.unpack('<h', struct.pack('<H', (hdr >> 16) & 0xFFF0))[0]
+    shift = (hdr >> 16) & 15
+    out = [h2, h1]
+    for i in range(30):
+        b = f[4 + i // 2]
+        n = (b & 15) if (i & 1) else (b >> 4)
+        s = struct.unpack('<h', struct.pack('<H', (n << 12) & 0xFFFF))[0] >> shift
+        s = clamp16(int(s + h1 * c1 + h2 * c2))
+        out.append(s); h2 = h1; h1 = s
+    return out
+
 def c_bytes(name, data):
     lines = []
     for i in range(0, len(data), 16):
@@ -317,6 +332,34 @@ def main():
         for j in range(28): exp += [l[j], r[j]]
     o.append(c_bytes('eaxa_st_data', bytes(frames)))
     o.append('static const uint32_t eaxa_st_hash = 0x%08Xu; static const uint32_t eaxa_st_frames = %d;\n' % (fnv(exp), len(exp) // 2))
+    # EA XAS v0: 0x13-byte mono frames (header u32 + 15 bytes), 40 frames, the output includes both history samples
+    frames = bytearray(); exp = []
+    for i in range(40):
+        f = bytearray(rnd.randrange(256) for _ in range(0x13))
+        hdr = struct.unpack_from('<I', f, 0)[0]
+        hdr = (hdr & ~0xF) | rnd.randrange(0, 4)
+        if i == 7: hdr = (hdr & ~0xF) | 9          # filter index > 3: no filter
+        struct.pack_into('<I', f, 0, hdr)
+        frames += f
+        exp += xas_v0_frame(bytes(f))
+    o.append(c_bytes('xas0_data', bytes(frames)))
+    o.append('static const uint32_t xas0_hash = 0x%08Xu; static const uint32_t xas0_frames = %d;\n' % (fnv(exp), len(exp)))
+
+    # EA-XA mono stream mixing 15-byte ADPCM frames and 61-byte 0xEE PCM frames (engine banks)
+    data = bytearray(); exp = []; h1 = h2 = 0
+    for i in range(36):
+        if i % 7 == 3:
+            f = bytearray([0xEE]) + struct.pack('>hh', rnd.randrange(-9000, 9000), rnd.randrange(-9000, 9000)) + b''.join(struct.pack('>h', rnd.randrange(-12000, 12000)) for _ in range(28))
+            h1, h2 = struct.unpack_from('>hh', f, 1)
+            exp += list(struct.unpack_from('>28h', f, 5))
+        else:
+            f = bytearray(rnd.randrange(256) for _ in range(15))
+            f[0] = (rnd.randrange(0, 5) << 4) | rnd.randrange(0, 12)
+            s, h1, h2 = ea_xa_frame(bytes(f), h1, h2, True)
+            exp += s
+        data += f
+    o.append(c_bytes('eaxa_mix_data', bytes(data)))
+    o.append('static const uint32_t eaxa_mix_hash = 0x%08Xu; static const uint32_t eaxa_mix_frames = %d;\n' % (fnv(exp), len(exp)))
     sys.stdout.write('\n'.join(o))
 
 main()

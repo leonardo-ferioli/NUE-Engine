@@ -111,6 +111,7 @@ NUE_API const char* NUE_CALL nue_acodec_name(nue_acodec c) {
     case NUE_ACODEC_DSP_ADPCM: return "dsp_adpcm";
     case NUE_ACODEC_EA_XAS: return "ea_xas";
     case NUE_ACODEC_EA_XA: return "ea_xa";
+    case NUE_ACODEC_EA_XAS_V0: return "ea_xas_v0";
     case NUE_ACODEC_FLAC: return "flac";
     case NUE_ACODEC_VORBIS: return "vorbis";
     case NUE_ACODEC_OPUS: return "opus";

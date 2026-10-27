@@ -35,7 +35,8 @@ Reverb and convolver effects return the **wet signal only**; set the effect's `w
 | PlayStation SPU / VAG | `nue_adpcm_psx_decode_frame` | raw, interleave, checkpoints for seek | hash incl. bad filter / shift / flag 7 frames |
 | GameCube / Wii DSP ADPCM | `nue_adpcm_dsp_decode_frame` (+ nibble helpers) | raw with per-channel coefficients | hash |
 | EA XAS v1 | `nue_adpcm_ea_xas_decode_block` | raw | hash (stereo) |
-| EA-XA v1 / v2, stereo v1 | `nue_adpcm_ea_xa_decode_frame`, `_stereo_frame` | raw (mono) | hash |
+| EA XAS v0 (Ginsu sweeps, 0x13-byte frames) | `nue_adpcm_ea_xas_v0_decode_frame` | raw (`NUE_ACODEC_EA_XAS_V0`, mono) | hash |
+| EA-XA v1 / v2, stereo v1, 0xEE PCM frames | `nue_adpcm_ea_xa_decode_frame`, `_frame_ex`, `_stereo_frame` | raw (mono, ADPCM and 0xEE frames mixed, seekable) | hash |
 | FLAC | - | yes | **bit exact** against embedded PCM, seek exact |
 | Ogg Vorbis | - | yes (whole compressed file is read into memory) | tone frequency / level per channel, 5.1 channel order, seek |
 | Ogg Opus | - | yes (own Ogg reader, 200 ms pre-roll on seek) | tone level, length, seek error < 0.005, tags with loop points |

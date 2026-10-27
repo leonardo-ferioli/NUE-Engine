@@ -155,6 +155,49 @@ TEST_CASE(adpcm_block_vectors_match_reference) {
     CHECK_EQ(fnv(out.data(), out.size()), eaxa_st_hash);
 }
 
+static std::vector<int16_t> decode_all(nue_adec d, uint32_t channels);
+
+TEST_CASE(ea_xas_v0_and_mixed_ea_xa_streams_match_reference) {
+    std::vector<int16_t> out;
+    for (size_t o = 0; o + 0x13 <= sizeof(xas0_data); o += 0x13) {
+        int16_t f[32];
+        CHECK_EQ(nue_adpcm_ea_xas_v0_decode_frame(xas0_data + o, f), 32u);
+        out.insert(out.end(), f, f + 32);
+    }
+    CHECK_EQ(out.size(), xas0_frames);
+    CHECK_EQ(fnv(out.data(), out.size()), xas0_hash);
+    // streaming: as a block codec (every frame independent) and the mixed ADPCM / PCM EA-XA stream, both seekable
+    nue_adec_raw_desc d;
+    NUE_STRUCT_INIT(&d);
+    d.codec = NUE_ACODEC_EA_XAS_V0; d.channels = 1; d.sample_rate = 28000;
+    nue_adec dec = nullptr;
+    CHECK_EQ(nue_adec_open_raw_memory(xas0_data, sizeof(xas0_data), &d, &dec), NUE_OK);
+    if (dec) { auto all = decode_all(dec, 1); CHECK_EQ(fnv(all.data(), all.size()), xas0_hash); CHECK_EQ(nue_adec_seek(dec, 32 * 17 + 5), NUE_OK); int16_t two[2]; uint32_t g = 0; nue_adec_read_s16(dec, two, 2, &g); CHECK_EQ(two[0], out[32 * 17 + 5]); nue_adec_destroy(dec); }
+    d.codec = NUE_ACODEC_EA_XA; d.sample_rate = 22050;
+    CHECK_EQ(nue_adec_open_raw_memory(eaxa_mix_data, sizeof(eaxa_mix_data), &d, &dec), NUE_OK);
+    if (dec) {
+        nue_adec_info info;
+        NUE_STRUCT_INIT(&info);
+        nue_adec_get_info(dec, &info);
+        CHECK_EQ(info.frame_count, eaxa_mix_frames);
+        auto all = decode_all(dec, 1);
+        CHECK_EQ(all.size(), size_t(eaxa_mix_frames));
+        CHECK_EQ(fnv(all.data(), all.size()), eaxa_mix_hash);
+        for (uint64_t at : {uint64_t(0), uint64_t(28 * 3), uint64_t(28 * 3 + 5), uint64_t(28 * 30 + 1), uint64_t(100), uint64_t(28 * 4)}) {
+            CHECK_EQ(nue_adec_seek(dec, at), NUE_OK);
+            int16_t blk[40]; uint32_t g = 0;
+            nue_adec_read_s16(dec, blk, 40, &g);
+            CHECK(std::memcmp(blk, all.data() + at, std::min<size_t>(g, 40) * 2) == 0);
+        }
+        nue_adec_destroy(dec);
+    }
+    // frame_ex: a truncated PCM frame is refused
+    nue_ea_xa_state st{0, 0};
+    int16_t o28[28];
+    uint8_t cut[10] = {0xEE};
+    CHECK_EQ(nue_adpcm_ea_xa_decode_frame_ex(&st, NUE_EA_XA_V1, cut, sizeof(cut), o28), 0u);
+}
+
 TEST_CASE(dsp_nibble_sample_conversions) {
     CHECK_EQ(nue_dsp_samples_to_nibbles(14), 16u);
     CHECK_EQ(nue_dsp_samples_to_nibbles(28), 32u);
@@ -508,6 +551,7 @@ TEST_MAIN_BEGIN
     RUN(ima_hand_computed_vector);
     RUN(ms_adpcm_hand_computed_block);
     RUN(adpcm_block_vectors_match_reference);
+    RUN(ea_xas_v0_and_mixed_ea_xa_streams_match_reference);
     RUN(dsp_nibble_sample_conversions);
     RUN(raw_streams_match_block_decoders_and_seek_exactly);
     RUN(raw_interleaved_channels_and_partial_reads);

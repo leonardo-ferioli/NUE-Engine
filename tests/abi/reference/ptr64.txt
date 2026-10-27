@@ -1,7 +1,7 @@
 # NUE public C ABI reference for layout 'ptr64'. GENERATED: do not edit by hand.
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
 version assets 1
-version audio 1
+version audio 2
 version core 4098
 version texture 1
 assets define NUE_ASSET_NO_NODE 4294967295
@@ -295,8 +295,11 @@ audio define NUE_DSP_FRAME_BYTES 8
 audio define NUE_DSP_FRAME_SAMPLES 14
 audio define NUE_EA_XAS_BYTES_PER_CHANNEL 76
 audio define NUE_EA_XAS_FRAMES_PER_BLOCK 128
+audio define NUE_EA_XAS_V0_FRAME_BYTES 19
+audio define NUE_EA_XAS_V0_FRAME_SAMPLES 32
 audio define NUE_EA_XA_FRAME_BYTES 15
 audio define NUE_EA_XA_FRAME_SAMPLES 28
+audio define NUE_EA_XA_PCM_FRAME_BYTES 61
 audio define NUE_EA_XA_STEREO_FRAME_BYTES 30
 audio define NUE_I3DL2_PRESET_COUNT 30
 audio define NUE_PSX_FRAME_BYTES 16
@@ -306,6 +309,7 @@ audio define NUE_XBOX_ADPCM_FRAMES_PER_BLOCK 64
 audio enum NUE_ACODEC_DSP_ADPCM 12
 audio enum NUE_ACODEC_EA_XA 14
 audio enum NUE_ACODEC_EA_XAS 13
+audio enum NUE_ACODEC_EA_XAS_V0 18
 audio enum NUE_ACODEC_FLAC 15
 audio enum NUE_ACODEC_IMA_WAV 8
 audio enum NUE_ACODEC_IMA_XBOX 9
@@ -569,8 +573,10 @@ audio function nue_adec_stream_underruns
 audio function nue_adec_tell
 audio function nue_adpcm_dsp_decode_frame
 audio function nue_adpcm_ea_xa_decode_frame
+audio function nue_adpcm_ea_xa_decode_frame_ex
 audio function nue_adpcm_ea_xa_decode_stereo_frame
 audio function nue_adpcm_ea_xas_decode_block
+audio function nue_adpcm_ea_xas_v0_decode_frame
 audio function nue_adpcm_ima_wav_decode_block
 audio function nue_adpcm_ima_wav_samples_per_block
 audio function nue_adpcm_ms_decode_block

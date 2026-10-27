@@ -84,6 +84,7 @@ public:
         case NUE_ACODEC_MS_ADPCM: spb_ = nue_adpcm_ms_samples_per_block(block_, ch_); break;
         case NUE_ACODEC_IMA_XBOX: block_ = NUE_XBOX_ADPCM_BYTES_PER_CHANNEL * ch_; spb_ = NUE_XBOX_ADPCM_FRAMES_PER_BLOCK; break;
         case NUE_ACODEC_EA_XAS: block_ = NUE_EA_XAS_BYTES_PER_CHANNEL * ch_; spb_ = NUE_EA_XAS_FRAMES_PER_BLOCK; break;
+        case NUE_ACODEC_EA_XAS_V0: if (ch_ == 1) { block_ = NUE_EA_XAS_V0_FRAME_BYTES; spb_ = NUE_EA_XAS_V0_FRAME_SAMPLES; } break;
         default: break;
         }
         ok_ = spb_ != 0 && block_ != 0;
@@ -129,6 +130,7 @@ private:
         case NUE_ACODEC_MS_ADPCM: n = nue_adpcm_ms_decode_block(p, bytes, ch_, coefs_.empty() ? nullptr : coefs_.data(), uint32_t(coefs_.size()), pcm_.data()); break;
         case NUE_ACODEC_IMA_XBOX: n = nue_adpcm_xbox_decode_block(p, ch_, pcm_.data()); break;
         case NUE_ACODEC_EA_XAS: n = nue_adpcm_ea_xas_decode_block(p, ch_, pcm_.data()); break;
+        case NUE_ACODEC_EA_XAS_V0: n = nue_adpcm_ea_xas_v0_decode_frame(p, pcm_.data()); break;
         default: break;
         }
         if (n == 0) { if (corrupt) *corrupt = true; return false; }
@@ -262,6 +264,70 @@ private:
     bool psx_ignore_flags_ = false;
 };
 
+
+// EA-XA mono stream whose frames are 15-byte ADPCM or 61-byte 0xEE PCM frames: the frame offsets are indexed once at open.
+class EaXaMonoBackend : public Backend {
+public:
+    EaXaMonoBackend(ByteSource* src, uint64_t offset, uint64_t size) : src_(src) {
+        uint64_t p = offset;
+        const uint64_t end = offset + size;
+        while (p < end) {
+            const uint8_t* b = src->fetch(p, 1);
+            if (!b) break;
+            const uint32_t len = b[0] == 0xEE ? NUE_EA_XA_PCM_FRAME_BYTES : NUE_EA_XA_FRAME_BYTES;
+            if (p + len > end) break;
+            offs_.push_back(p);
+            p += len;
+        }
+        frames_ = offs_.size() * NUE_EA_XA_FRAME_SAMPLES;
+        info.frame_count = frames_;
+        ckpt_.reserve(offs_.size() / kStride + 2);
+    }
+    uint32_t read(float* out, uint32_t frames, bool*) override {
+        uint32_t done = 0;
+        while (done < frames && pos < frames_) {
+            const uint64_t f = pos / NUE_EA_XA_FRAME_SAMPLES;
+            if (f != cur_ && !decode_frame(f)) { frames_ = pos; break; }
+            const uint32_t in = uint32_t(pos % NUE_EA_XA_FRAME_SAMPLES);
+            const uint32_t n = uint32_t(std::min<uint64_t>(std::min<uint64_t>(frames - done, NUE_EA_XA_FRAME_SAMPLES - in), frames_ - pos));
+            for (uint32_t i = 0; i < n; ++i) out[done + i] = float(pcm_[in + i]) * (1.0f / 32768.0f);
+            done += n; pos += n;
+        }
+        return done;
+    }
+    bool seek(uint64_t frame) override { pos = std::min(frame, frames_); return true; }
+private:
+    static constexpr uint64_t kStride = 256;
+    bool decode_frame(uint64_t f) {
+        if (f != next_) {
+            if (f < next_ || f > next_ + kStride) {
+                if (ckpt_.empty()) { st_ = nue_ea_xa_state{0, 0}; next_ = 0; }
+                else { const uint64_t k = std::min<uint64_t>(f / kStride, ckpt_.size() - 1); st_ = ckpt_[size_t(k)]; next_ = k * kStride; }
+            }
+            while (next_ < f) if (!step()) return false;
+        }
+        return step();
+    }
+    bool step() {
+        const uint64_t f = next_;
+        if (f >= offs_.size()) return false;
+        if (f % kStride == 0 && f / kStride == ckpt_.size()) ckpt_.push_back(st_);
+        const uint8_t* p = src_->fetch(offs_[f], NUE_EA_XA_FRAME_BYTES);
+        if (!p) return false;
+        size_t avail = NUE_EA_XA_FRAME_BYTES;
+        if (p[0] == 0xEE) { avail = NUE_EA_XA_PCM_FRAME_BYTES; p = src_->fetch(offs_[f], avail); if (!p) return false; }
+        if (!nue_adpcm_ea_xa_decode_frame_ex(&st_, NUE_EA_XA_V1, p, avail, pcm_)) return false;
+        cur_ = f; next_ = f + 1;
+        return true;
+    }
+    ByteSource* src_;
+    std::vector<uint64_t> offs_;
+    std::vector<nue_ea_xa_state> ckpt_;
+    nue_ea_xa_state st_{0, 0};
+    int16_t pcm_[NUE_EA_XA_FRAME_SAMPLES] = {};
+    uint64_t frames_ = 0, cur_ = ~0ull, next_ = 0;
+};
+
 // ------------------------------------------------------------------------------------------------------------------------- WAV
 
 struct WavFmt {
@@ -289,7 +355,7 @@ std::unique_ptr<Backend> open_raw(ByteSource* src, const nue_adec_raw_desc& d) {
         be->info.frame_count = frames;
         break;
     }
-    case NUE_ACODEC_IMA_WAV: case NUE_ACODEC_MS_ADPCM: case NUE_ACODEC_IMA_XBOX: case NUE_ACODEC_EA_XAS: {
+    case NUE_ACODEC_IMA_WAV: case NUE_ACODEC_MS_ADPCM: case NUE_ACODEC_IMA_XBOX: case NUE_ACODEC_EA_XAS: case NUE_ACODEC_EA_XAS_V0: {
         auto b = std::make_unique<BlockBackend>(src, d.codec, d.channels, d.start_offset, data, d.block_size, d.ms_coefs, d.ms_coef_count);
         if (!b->ok()) return nullptr;
         if (d.frame_count) b->set_frames(d.frame_count);
@@ -299,6 +365,11 @@ std::unique_ptr<Backend> open_raw(ByteSource* src, const nue_adec_raw_desc& d) {
     case NUE_ACODEC_PSX_ADPCM: case NUE_ACODEC_DSP_ADPCM: case NUE_ACODEC_EA_XA: {
         if (d.codec == NUE_ACODEC_DSP_ADPCM && !d.dsp) return nullptr;
         if (d.codec == NUE_ACODEC_EA_XA && d.channels != 1 && d.interleave == 0) return nullptr;
+        if (d.codec == NUE_ACODEC_EA_XA && d.channels == 1) {
+            auto e = std::make_unique<EaXaMonoBackend>(src, d.start_offset, data);
+            be = std::move(e);
+            break;
+        }
         be = std::make_unique<FrameBackend>(src, d, data);
         break;
     }

@@ -238,6 +238,29 @@ NUE_API uint32_t NUE_CALL nue_adpcm_ea_xas_decode_block(const uint8_t* block, ui
     return NUE_EA_XAS_FRAMES_PER_BLOCK;
 }
 
+NUE_API uint32_t NUE_CALL nue_adpcm_ea_xas_v0_decode_frame(const uint8_t* frame, int16_t* out) {
+    if (!frame || !out) return 0;
+    static const int8_t k[4][2] = {{0, 0}, {60, 0}, {115, -52}, {98, -55}};
+    const uint32_t hdr = rd_le32(frame);
+    const uint32_t fi = hdr & 0xF;
+    const int32_t k1 = fi < 4 ? k[fi][0] : 0, k2 = fi < 4 ? k[fi][1] : 0;
+    int32_t h2 = int16_t(hdr & 0xFFF0);
+    int32_t h1 = int16_t((hdr >> 16) & 0xFFF0);
+    const uint32_t shift = (hdr >> 16) & 0xF;
+    out[0] = int16_t(h2);
+    out[1] = int16_t(h1);
+    for (uint32_t i = 0; i < 30; ++i) {
+        const uint8_t byte = frame[4 + (i >> 1)];
+        const uint32_t nib = (i & 1) ? (byte & 0xF) : (byte >> 4);
+        int32_t s = int32_t(int16_t(nib << 12)) >> shift;
+        s = (s * 64 + h1 * k1 + h2 * k2) / 64;                 // float reference truncates toward zero
+        s = s < -32768 ? -32768 : (s > 32767 ? 32767 : s);
+        out[2 + i] = int16_t(s);
+        h2 = h1; h1 = s;
+    }
+    return NUE_EA_XAS_V0_FRAME_SAMPLES;
+}
+
 }  // extern "C"
 
 // ---------------------------------------------------------------------------------------------------------------- EA-XA
@@ -267,6 +290,20 @@ NUE_API void NUE_CALL nue_adpcm_ea_xa_decode_frame(nue_ea_xa_state* st, nue_ea_x
         h2 = h1; h1 = s;
     }
     st->hist1 = h1; st->hist2 = h2;
+}
+
+NUE_API uint32_t NUE_CALL nue_adpcm_ea_xa_decode_frame_ex(nue_ea_xa_state* st, nue_ea_xa_variant variant, const uint8_t* data, size_t avail, int16_t* out) {
+    if (!data || !avail || !out) return 0;
+    if (data[0] == 0xEE) {
+        if (avail < NUE_EA_XA_PCM_FRAME_BYTES) return 0;
+        st->hist1 = int16_t(nuea::rd_be16(data + 1));
+        st->hist2 = int16_t(nuea::rd_be16(data + 3));
+        for (uint32_t i = 0; i < NUE_EA_XA_FRAME_SAMPLES; ++i) out[i] = int16_t(nuea::rd_be16(data + 5 + 2 * i));
+        return NUE_EA_XA_PCM_FRAME_BYTES;
+    }
+    if (avail < NUE_EA_XA_FRAME_BYTES) return 0;
+    nue_adpcm_ea_xa_decode_frame(st, variant, data, out);
+    return NUE_EA_XA_FRAME_BYTES;
 }
 
 NUE_API void NUE_CALL nue_adpcm_ea_xa_decode_stereo_frame(nue_ea_xa_state* left, nue_ea_xa_state* right, const uint8_t* frame,

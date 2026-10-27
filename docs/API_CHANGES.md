@@ -56,3 +56,7 @@ Internal contracts (platform sessions)
 
 * New headers `include/nue/audio_codec.h`, `audio_dsp.h`, `audio_spatial.h` (library `nue::audio`, not included by `nue.h`), group version `NUE_AUDIO_API_VERSION 1`. Nothing in the core headers changed.
 * `tools/abi/gen_abi_probe.py`: the three headers map to the `audio` group (one-line change to `GROUPS`, requested in `docs/REQUESTS_audio.md`). References refreshed for `ptr64` and `ptr32`.
+
+## audio 2 (additive)
+
+* `audio_codec.h`: `nue_adpcm_ea_xas_v0_decode_frame` (EA XAS v0, the 0x13-byte "Ginsu" frames), `nue_adpcm_ea_xa_decode_frame_ex` (EA-XA ADPCM frame or 61-byte 0xEE PCM frame), `NUE_ACODEC_EA_XAS_V0`, `NUE_EA_XAS_V0_*` and `NUE_EA_XA_PCM_FRAME_BYTES`. `NUE_ACODEC_EA_XA` streams now accept the mixed frame grammar. `NUE_AUDIO_API_VERSION` is 2.

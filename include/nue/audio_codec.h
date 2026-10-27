@@ -23,7 +23,7 @@
 
 /* Version of the audio API group (audio_codec.h, audio_dsp.h, audio_spatial.h share it); see docs/ABI.md 3.2. */
 #ifndef NUE_AUDIO_API_VERSION
-#define NUE_AUDIO_API_VERSION 1u
+#define NUE_AUDIO_API_VERSION 2u
 #endif
 
 #include "nue/base.h"
@@ -96,6 +96,13 @@ NUE_API uint32_t NUE_CALL nue_dsp_samples_to_nibbles(uint32_t samples);
 #define NUE_EA_XAS_FRAMES_PER_BLOCK 128u
 NUE_API uint32_t NUE_CALL nue_adpcm_ea_xas_decode_block(const uint8_t* block, uint32_t channels, int16_t* out_interleaved);
 
+/* Electronic Arts XAS version 0 (the "Ginsu" engine sweeps, GIN_*.gin): self-contained 0x13-byte mono frames of 32 samples = u32 LE header (coef index
+ * bits 0-3, history2 = bits 4-15, shift = bits 16-19, history1 = bits 20-31; both histories are output) + 15 bytes of nibbles (high first). Every
+ * frame decodes independently, so any frame can be the start of a stream. Returns 32. */
+#define NUE_EA_XAS_V0_FRAME_BYTES 0x13u
+#define NUE_EA_XAS_V0_FRAME_SAMPLES 32u
+NUE_API uint32_t NUE_CALL nue_adpcm_ea_xas_v0_decode_frame(const uint8_t* frame, int16_t* out32);
+
 /* Electronic Arts "EA-XA" (EA ADPCM, descended from CD-XA): 15-byte mono frame = [coef index:4 | shift:4] + 14 bytes of nibbles (high
  * nibble first) -> 28 samples. V1 (PS1/PS2/PC era) rounds with +128, V2 (later revisions) does not. The stereo V1 frame is 30 bytes: byte 0 =
  * coef indices (left high nibble, right low), byte 1 = shifts, then 28 bytes where the left channel is the high nibble and the right the low.
@@ -106,6 +113,10 @@ typedef struct nue_ea_xa_state { int32_t hist1, hist2; } nue_ea_xa_state;
 #define NUE_EA_XA_STEREO_FRAME_BYTES 30u
 #define NUE_EA_XA_FRAME_SAMPLES 28u
 NUE_API void NUE_CALL nue_adpcm_ea_xa_decode_frame(nue_ea_xa_state* state, nue_ea_xa_variant variant, const uint8_t* frame, int16_t* out28);
+/* One frame of an EA-XA mono stream as found in the PlayStation / PC engine banks: either a 15-byte ADPCM frame or a 61-byte PCM frame (first byte 0xEE:
+ * big-endian s16 history1 @+1, history2 @+3, then 28 big-endian s16 samples @+5). Returns the bytes consumed (15 or 61), 0 if `avail` is too short. */
+#define NUE_EA_XA_PCM_FRAME_BYTES 61u
+NUE_API uint32_t NUE_CALL nue_adpcm_ea_xa_decode_frame_ex(nue_ea_xa_state* state, nue_ea_xa_variant variant, const uint8_t* data, size_t avail, int16_t* out28);
 NUE_API void NUE_CALL nue_adpcm_ea_xa_decode_stereo_frame(nue_ea_xa_state* left, nue_ea_xa_state* right, const uint8_t* frame,
                                                           int16_t* out_left28, int16_t* out_right28);
 
@@ -128,10 +139,11 @@ typedef enum nue_acodec {
     NUE_ACODEC_PSX_ADPCM,               /* VAG: raw_desc.interleave bytes per channel (0 = 16 for mono, 0x1000 typical for multichannel) */
     NUE_ACODEC_DSP_ADPCM,               /* raw_desc.dsp[channel] carries coefficients and history */
     NUE_ACODEC_EA_XAS,
-    NUE_ACODEC_EA_XA,
+    NUE_ACODEC_EA_XA,                   /* mono; frames may be 15-byte ADPCM or 61-byte 0xEE PCM frames (variant V1) */
     NUE_ACODEC_FLAC,
     NUE_ACODEC_VORBIS,
-    NUE_ACODEC_OPUS
+    NUE_ACODEC_OPUS,
+    NUE_ACODEC_EA_XAS_V0                /* mono, 0x13-byte frames, see nue_adpcm_ea_xas_v0_decode_frame */
 } nue_acodec;
 
 /* A random access byte source. `read` fills up to `size` bytes at `offset` and stores how many were read (short reads only at the end).

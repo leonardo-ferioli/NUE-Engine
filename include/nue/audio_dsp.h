@@ -21,7 +21,7 @@
 
 /* Version of the audio API group (audio_codec.h, audio_dsp.h, audio_spatial.h share it); see docs/ABI.md 3.2. */
 #ifndef NUE_AUDIO_API_VERSION
-#define NUE_AUDIO_API_VERSION 1u
+#define NUE_AUDIO_API_VERSION 2u
 #endif
 
 #include "nue/base.h"
