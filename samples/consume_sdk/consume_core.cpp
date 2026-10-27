@@ -1,6 +1,7 @@
 // Smallest useful client of the installed SDK with its own main(): headless engine on the null backend, files, mapping, hashing, the mixer through
 // the C++ wrapper. Exit code 0 = everything the SDK promises worked. Console only: no window, no sound device.
 #include "nuepp/nue.hpp"
+#include "nue_legacy/guest_memory.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -50,6 +51,22 @@ int main() {
         nue_file_close(f);
         uint32_t crc = 0;
         EXPECT(NUE_SUCCEEDED(nue_file_hash_crc32("user:saves/slot1.dat", &crc)) && crc == nue_crc32(0, text, sizeof(text) - 1));
+
+        // guest memory (legacy-layer header, header only) on top of the virtual address space service: a small masked arena, skipped on 32-bit hosts
+        if (sizeof(void*) == 8) {
+            nue::legacy::ArenaConfig ac;
+            ac.arena_size = 64ull << 20;
+            ac.alloc_begin = 0x01000000u;
+            ac.alloc_end = 0x03000000u;
+            nue_result ar = NUE_OK;
+            auto arena = nue::legacy::ArenaMemory::create(ac, &ar);
+            EXPECT(arena != nullptr);
+            if (arena) {
+                const uint32_t block = arena->alloc(256);
+                EXPECT(block != 0 && arena->host(block, 256) == arena->base() + block && arena->address_of(arena->host(block, 1)) == block);
+                EXPECT(arena->write_u32(block, 0xA5A5A5A5u));
+            }
+        }
 
         // mixer: one voice, deterministic output
         nuepp::Mixer mixer = nuepp::Mixer::manual(48000, 2, 64);

@@ -351,10 +351,11 @@ if(NUE_INSTALL)
             INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(DIRECTORY include/nue include/nuepp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
             FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    # legacy-layer headers (header-only GuestMemory / GuestCpu contracts, the layers' public headers): installed even when libnue_legacy itself is not built
+    install(DIRECTORY include/nue_legacy DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
     if(TARGET nue_legacy)
         install(TARGETS nue_legacy EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
                 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-        install(DIRECTORY include/nue_legacy DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
     endif()
     # Extension headers published by platform layers (optional): src/platform/<os>/include/nue_ext_*.h
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${NUE_OS}/include")

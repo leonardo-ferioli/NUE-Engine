@@ -1,7 +1,6 @@
-# Guest memory in NUE: one interface for every legacy layer (PROPOSAL)
+# Guest memory in NUE: one interface for every legacy layer
 
-Status: **proposal, nothing implemented in `include/nue`**. Written by the core session for the port integration session (2026-10-27). The user decides the points
-marked **DECISION**. Context: the port's 64-bit model (`docs/MEMORY_MODEL_64.md` and `guest_memory.hpp` in the port repository, commit 7e357af) and
+Status: **implemented (2026-10-27, API 0.1.4, approved by the user)**: `include/nue/vm.h` + `src/core/vm.cpp` (tests: `test_vm`), `include/nue_legacy/guest_memory.hpp` (`GuestMemory`, `ArenaMemory`, `IdentityMemory`; tests: `test_guest_memory`) and `include/nue_legacy/guest_cpu.hpp` (`GuestCpu`, contract only). Written by the core session for the port integration session. The sections below are the design; where the code differs it says so in "As built". Context: the port's 64-bit model (`docs/MEMORY_MODEL_64.md` and `guest_memory.hpp` in the port repository, commit 7e357af) and
 `docs/ABI.md` section 2.2 (native vs legacy ABI).
 
 ## 1. Reconciling the two documents
@@ -93,9 +92,13 @@ fits); guest addresses above `arena_size` are simply never handed out and are no
 * **ABI guard:** `include/nue_legacy/*.hpp` is C++ and is not read by `tools/abi`. Its stability rule: `GuestMemory` and `GuestCpu` get a `NUE_LEGACY_MEMORY_ABI` integer that changes
   when a virtual function is added or reordered (append-only, like the vtable orders in 2.6).
 
-## 6. Order of work (needs the user's go)
+## 6. As built, and what is still open
 
-1. **DECISION 3:** approve `nue/vm.h` (additive, small, core implements it in about a day with Windows x64 and POSIX tests; arena reservation tested on Windows, POSIX compile-checked).
-2. Add `include/nue_legacy/guest_memory.hpp` + `IdentityMemory`/`ArenaMemory` with tests (Windows x64 and x86 here; Linux/macOS/Android/iOS by their sessions or CI).
-3. Platform sessions run the reservation test on their hosts (Linux CI, Android emulator/device, iOS device): `nue_test_vm` reserves 4 GiB aligned, commits, protects, releases.
-4. Correct `docs/ABI.md` 2.2 text (done with this proposal) and freeze the token ranges.
+* `nue/vm.h` as in section 2, plus `nue_vm_region_get_info`, `NUE_VM_RESERVE_EXACT` and committed-byte totals; regions are the caller's (not released by `nue_shutdown`), the service works without `nue_init`.
+* `GuestMemory` has one method more than section 3: `protection(address)` (the PAGE_* of a page, 0 when not committed: what `VirtualQuery` needs). `alloc(bytes, align = 16)`; `alloc(0)` returns a valid 16 byte block (HeapAlloc(0)).
+* `ArenaMemory::create(ArenaConfig)`: arena size is configuration (DECISION 1; default 4 GiB, a smaller value is the masked arena), base aligned to 4 GiB by default so that `(uint32_t)host_pointer == guest address`,
+  allocator range `[alloc_begin, alloc_end)` defaults to `0x10000000..0xE0000000` (the image at `0x00400000` and the token ranges `0xF0000000+` stay outside), freed blocks of 256 KiB or more give their whole 4 KiB pages back,
+  guest pages that become committed inside an already committed host page are zeroed (16 KiB hosts), guest protections are the software table (not enforced by the MMU).
+* `IdentityMemory` is the reference implementation for 32-bit hosts (own blocks + `adopt()` for memory the loader mapped); `commit/decommit` return `NUE_ERR_UNSUPPORTED` there, the port keeps `VirtualAlloc`.
+* **Not done:** the token ranges are still not frozen in `docs/ABI.md` 2.3/2.5 (DECISION 2 is open); no run on Linux, macOS, Android or iOS (the POSIX code is compiled for Linux x64 and macOS arm64 only); the host-side `GuestCpu` is a contract, the implementation belongs to the port runtime;
+  memory budgets are not charged by `nue_vm` (the caller budgets committed bytes).

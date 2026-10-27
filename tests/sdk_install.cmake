@@ -35,7 +35,7 @@ run_step("cmake --install" ${install_cmd})
 
 # --- 2. completeness ---------------------------------------------------------------------------------------------------------------------
 set(missing "")
-foreach(dir include/nue include/nuepp)
+foreach(dir include/nue include/nuepp include/nue_legacy)
     file(GLOB_RECURSE headers RELATIVE "${SOURCE_DIR}" "${SOURCE_DIR}/${dir}/*.h" "${SOURCE_DIR}/${dir}/*.hpp")
     foreach(h IN LISTS headers)
         if(NOT EXISTS "${PREFIX}/${h}")
