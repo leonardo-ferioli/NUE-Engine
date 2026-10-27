@@ -46,6 +46,7 @@ option(NUE_BACKEND_SDL3 "Compile the SDL3 backend (needs third_party/SDL, see do
 option(NUE_BUILD_LEGACY "Build the legacy ABI layer (src/legacy -> libnue_legacy) when it exists; native games never link it" ON)
 option(NUE_WITH_GFX "Compile the bgfx graphics module (nue_gfx); needs bgfx.cmake" OFF)
 option(NUE_WITH_LEGACY_D3D9 "Build the legacy Direct3D 9 layer (src/legacy/d3d9: translator, bgfx adapter, drop-in d3d9.dll on Windows); needs third_party/bgfx.cmake" OFF)
+option(NUE_WITH_LEGACY_WIN32 "Build the legacy Win32 subset and DirectInput layers (src/legacy/win32, src/legacy/dinput: Level A libraries and the platform interfaces they use)" OFF)
 option(NUE_STATIC_CRT "MSVC/clang-cl/Windows: link the C runtime statically (no redistributable next to the game)" OFF)
 option(NUE_INSTALL "Generate install and package-config rules" ${NUE_IS_TOP_LEVEL})
 option(NUE_WARNINGS_AS_ERRORS "Treat warnings as errors in the engine's own sources" OFF)
@@ -319,6 +320,12 @@ endif()
 # ---------------------------------------------------------------------------------------------------- legacy ABI: Direct3D 9 layer (owner: legacy-d3d9)
 if(NUE_WITH_LEGACY_D3D9)
     add_subdirectory(src/legacy/d3d9)
+endif()
+
+# ---------------------------------------------------------------------------------------------------- legacy ABI: Win32 subset and DirectInput (owner: legacy-win32)
+# Needs only nue::nue. Registers its own tests (tests/legacy/win32) when NUE_BUILD_TESTS is on. Builds with NUE_WITH_LEGACY_D3D9=OFF.
+if(NUE_WITH_LEGACY_WIN32)
+    add_subdirectory(src/legacy/win32)
 endif()
 
 # ---------------------------------------------------------------------------------------------------- install / package config (find_package(nue))
