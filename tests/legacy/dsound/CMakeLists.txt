@@ -44,3 +44,6 @@ endif()
 add_executable(nue_dsound_endpoint_smoke ds_endpoint_smoke.cpp)
 target_link_libraries(nue_dsound_endpoint_smoke PRIVATE nue::legacy_dsound nue_internal)
 target_include_directories(nue_dsound_endpoint_smoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+
+# The guest-pointer facade (dsound_guest.hpp) over a fake guest arena: the call sequence of a streaming client through call tokens.
+nue_dsound_test(guest ds_guest_tests.cpp)

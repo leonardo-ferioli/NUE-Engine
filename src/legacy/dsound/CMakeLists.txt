@@ -11,7 +11,7 @@ if(NOT TARGET nue_audio)
     message(FATAL_ERROR "legacy_dsound needs the audio module (src/audio): target nue_audio is missing")
 endif()
 
-file(GLOB NUE_DSOUND_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/*.cpp")
+file(GLOB NUE_DSOUND_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/*.cpp" "${CMAKE_CURRENT_LIST_DIR}/guest/*.cpp")
 add_library(nue_legacy_dsound STATIC ${NUE_DSOUND_SOURCES})
 add_library(nue::legacy_dsound ALIAS nue_legacy_dsound)
 target_include_directories(nue_legacy_dsound
