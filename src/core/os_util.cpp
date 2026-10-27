@@ -1,5 +1,6 @@
 // OS file system helpers. Windows: Win32 wide-character API. POSIX: open/pread/pwrite.
 #include "internal/os_util.h"
+#include "nue/vm.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -15,11 +16,13 @@
 #else
 #  include <fcntl.h>
 #  include <sys/mman.h>
+#  include <sys/resource.h>
 #  include <sys/stat.h>
 #  include <sys/types.h>
 #  include <unistd.h>
 #  if defined(__APPLE__)
 #    include <mach-o/dyld.h>
+#    include <TargetConditionals.h>
 #  endif
 #endif
 
@@ -332,6 +335,173 @@ void os_file_unmap(const OsMapping& mapping) {
     UnmapViewOfFile(mapping.base);
 #else
     ::munmap(mapping.base, mapping.length);
+#endif
+}
+
+// ---- virtual address space (nue/vm.h) --------------------------------------------------------------------------------------------------
+
+#if defined(_WIN32)
+namespace {
+DWORD vm_page_protection(uint32_t p) {
+    const bool x = (p & NUE_VM_EXEC) != 0, w = (p & NUE_VM_WRITE) != 0, r = (p & NUE_VM_READ) != 0;
+    if (x) return w ? PAGE_EXECUTE_READWRITE : (r ? PAGE_EXECUTE_READ : PAGE_EXECUTE);
+    if (w) return PAGE_READWRITE;
+    return r ? PAGE_READONLY : PAGE_NOACCESS;
+}
+}  // namespace
+#else
+namespace {
+int vm_prot(uint32_t p) {
+    return ((p & NUE_VM_READ) ? PROT_READ : 0) | ((p & NUE_VM_WRITE) ? PROT_WRITE : 0) | ((p & NUE_VM_EXEC) ? PROT_EXEC : 0);
+}
+#  if defined(MAP_NORESERVE)
+constexpr int kMapNoReserve = MAP_NORESERVE;
+#  else
+constexpr int kMapNoReserve = 0;
+#  endif
+bool vm_exec_allowed() {
+#  if defined(__APPLE__) && TARGET_OS_IPHONE
+    return false;   // iOS gives an app no executable memory it can write
+#  else
+    return true;
+#  endif
+}
+}  // namespace
+#endif
+
+OsVmInfo os_vm_info() {
+    OsVmInfo i;
+#if defined(_WIN32)
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    i.page_size = si.dwPageSize ? si.dwPageSize : 4096;
+    i.granularity = si.dwAllocationGranularity ? si.dwAllocationGranularity : 65536;
+    uint64_t top = uint64_t(reinterpret_cast<uintptr_t>(si.lpMaximumApplicationAddress));
+    uint32_t bits = 0;
+    while (top) { ++bits; top >>= 1; }
+    i.address_bits = bits ? bits : (sizeof(void*) == 8 ? 47 : 31);
+#else
+    long ps = ::sysconf(_SC_PAGESIZE);
+    i.page_size = ps > 0 ? uint32_t(ps) : 4096;
+    i.granularity = i.page_size;
+    i.address_bits = sizeof(void*) == 8 ? 47 : 32;   // "at least": 48 bit user space on x86-64 / arm64 Linux with 4-level tables is 47 bits of positive addresses
+    struct rlimit rl;
+    if (::getrlimit(RLIMIT_AS, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY) i.address_limit = uint64_t(rl.rlim_cur);
+    i.can_exec = vm_exec_allowed();
+#endif
+    return i;
+}
+
+nue_result os_vm_reserve(size_t size, size_t alignment, const void* hint, bool exact, void** out_base) {
+    const OsVmInfo info = os_vm_info();
+    if (alignment < info.granularity) alignment = info.granularity;
+    if (hint && (reinterpret_cast<uintptr_t>(hint) % alignment) != 0) {
+        if (exact) return NUE_ERR_INVALID_ARGUMENT;
+        hint = nullptr;
+    }
+#if defined(_WIN32)
+    auto reserve_at = [&](const void* where) -> void* {
+        return VirtualAlloc(const_cast<void*>(where), size, MEM_RESERVE, PAGE_NOACCESS);
+    };
+    void* base = nullptr;
+    if (hint) {
+        base = reserve_at(hint);
+        if (!base && exact) return NUE_ERR_OUT_OF_MEMORY;
+    }
+    if (!base && alignment <= info.granularity) base = reserve_at(nullptr);
+    if (!base) {
+        // VirtualAlloc2 (Windows 10 1803+) places an aligned reservation atomically
+        using VirtualAlloc2Fn = PVOID(WINAPI*)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER*, ULONG);
+        static VirtualAlloc2Fn va2 = []() -> VirtualAlloc2Fn {
+            HMODULE k = GetModuleHandleW(L"kernelbase.dll");
+            return k ? reinterpret_cast<VirtualAlloc2Fn>(reinterpret_cast<void*>(GetProcAddress(k, "VirtualAlloc2"))) : nullptr;
+        }();
+        if (va2) {
+            MEM_ADDRESS_REQUIREMENTS req = {};
+            req.Alignment = alignment;
+            MEM_EXTENDED_PARAMETER ep = {};
+            ep.Type = MemExtendedParameterAddressRequirements;
+            ep.Pointer = &req;
+            base = va2(GetCurrentProcess(), nullptr, size, MEM_RESERVE, PAGE_NOACCESS, &ep, 1);
+        }
+    }
+    if (!base) {
+        // portable fallback: reserve a bigger range, release it and reserve the aligned part (another thread can take the hole in between: retry)
+        for (int attempt = 0; attempt < 8 && !base; ++attempt) {
+            if (size > SIZE_MAX - alignment) break;
+            void* wide = VirtualAlloc(nullptr, size + alignment, MEM_RESERVE, PAGE_NOACCESS);
+            if (!wide) break;
+            uintptr_t aligned = (reinterpret_cast<uintptr_t>(wide) + alignment - 1) & ~(uintptr_t(alignment) - 1);
+            VirtualFree(wide, 0, MEM_RELEASE);
+            base = reserve_at(reinterpret_cast<void*>(aligned));
+        }
+    }
+    if (!base) return NUE_ERR_OUT_OF_MEMORY;
+    if ((reinterpret_cast<uintptr_t>(base) % alignment) != 0) { VirtualFree(base, 0, MEM_RELEASE); return NUE_ERR_OUT_OF_MEMORY; }
+    *out_base = base;
+    return NUE_OK;
+#else
+    const int flags = MAP_PRIVATE | MAP_ANONYMOUS | kMapNoReserve;
+    if (hint) {
+        void* p = ::mmap(const_cast<void*>(hint), size, PROT_NONE, flags, -1, 0);
+        if (p != MAP_FAILED && p == hint) { *out_base = p; return NUE_OK; }
+        if (p != MAP_FAILED) ::munmap(p, size);
+        if (exact) return NUE_ERR_OUT_OF_MEMORY;
+    }
+    const size_t wide = alignment > info.page_size ? size + alignment : size;
+    if (wide < size) return NUE_ERR_OUT_OF_MEMORY;
+    void* p = ::mmap(nullptr, wide, PROT_NONE, flags, -1, 0);
+    if (p == MAP_FAILED) return NUE_ERR_OUT_OF_MEMORY;
+    uintptr_t start = reinterpret_cast<uintptr_t>(p);
+    uintptr_t aligned = (start + alignment - 1) & ~(uintptr_t(alignment) - 1);
+    if (aligned > start) ::munmap(p, size_t(aligned - start));
+    uintptr_t tail_begin = aligned + size, end = start + wide;
+    if (end > tail_begin) ::munmap(reinterpret_cast<void*>(tail_begin), size_t(end - tail_begin));
+    *out_base = reinterpret_cast<void*>(aligned);
+    return NUE_OK;
+#endif
+}
+
+nue_result os_vm_commit(void* address, size_t size, uint32_t protection) {
+#if defined(_WIN32)
+    if (!VirtualAlloc(address, size, MEM_COMMIT, vm_page_protection(protection))) return NUE_ERR_OUT_OF_MEMORY;
+    return NUE_OK;
+#else
+    if ((protection & NUE_VM_EXEC) && !vm_exec_allowed()) return NUE_ERR_UNSUPPORTED;
+    if (::mprotect(address, size, vm_prot(protection)) != 0) return errno == ENOMEM ? NUE_ERR_OUT_OF_MEMORY : NUE_ERR_IO;
+    return NUE_OK;
+#endif
+}
+
+nue_result os_vm_protect(void* address, size_t size, uint32_t protection) {
+#if defined(_WIN32)
+    DWORD old = 0;
+    if (!VirtualProtect(address, size, vm_page_protection(protection), &old)) return NUE_ERR_ACCESS_DENIED;
+    return NUE_OK;
+#else
+    if ((protection & NUE_VM_EXEC) && !vm_exec_allowed()) return NUE_ERR_UNSUPPORTED;
+    if (::mprotect(address, size, vm_prot(protection)) != 0) return NUE_ERR_ACCESS_DENIED;
+    return NUE_OK;
+#endif
+}
+
+nue_result os_vm_decommit(void* address, size_t size) {
+#if defined(_WIN32)
+    if (!VirtualFree(address, size, MEM_DECOMMIT)) return NUE_ERR_IO;
+    return NUE_OK;
+#else
+    // a fresh PROT_NONE mapping over the range drops the contents on every POSIX system (madvise semantics differ between Linux and macOS)
+    void* p = ::mmap(address, size, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS | kMapNoReserve, -1, 0);
+    return p == MAP_FAILED ? NUE_ERR_IO : NUE_OK;
+#endif
+}
+
+void os_vm_release(void* base, size_t size) {
+#if defined(_WIN32)
+    (void)size;
+    VirtualFree(base, 0, MEM_RELEASE);
+#else
+    ::munmap(base, size);
 #endif
 }
 

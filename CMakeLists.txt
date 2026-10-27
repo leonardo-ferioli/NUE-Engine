@@ -13,7 +13,7 @@
 # src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
 cmake_minimum_required(VERSION 3.21)
 
-project(nue VERSION 0.1.3 LANGUAGES C CXX)
+project(nue VERSION 0.1.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

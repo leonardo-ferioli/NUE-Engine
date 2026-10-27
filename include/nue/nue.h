@@ -14,6 +14,7 @@
  *   memory.h    memory info, pressure events, configurable budgets with eviction hooks
  *   gfx.h       graphics context (bgfx) and the Direct3D 9 layer seam
  *   diag.h      crash reports, assertions, counters, frame stats, trace
+ *   vm.h        virtual address space: reserve, commit, protect, decommit (arenas, sparse tables)
  *   null_backend.h  test control of the headless backend (not included here)
  *   entry.h     portable entry point (nue::entry target; not included here)
  */
@@ -33,6 +34,7 @@
 #include "nue/memory.h"
 #include "nue/gfx.h"
 #include "nue/diag.h"
+#include "nue/vm.h"
 
 /* Optional modules, present when their headers are installed (owned by their own sessions). */
 #if defined(__has_include)
