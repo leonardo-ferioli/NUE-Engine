@@ -61,11 +61,26 @@ Sent as a message as well. Nothing is duplicated: the layer calls `nue_resampler
   Windows Sonic) belongs to the windows session once the audio session confirms the entry points; not started here.
 * **Exclusive / low latency** (`NUE_AUDIO_LOW_LATENCY`) is supported by `SinkDesc::low_latency` and untested on real devices.
 
+## Sinks per platform (all behind `OutputSink`; the layer ships one, the native stream)
+
+The layer has no platform code: `make_nue_sink()` is a `nue_audio_stream` on the default device, so each platform needs its backend of the engine to meet what `ds_sink_tests.cpp`
+checks (clock, latency, stop/close/reopen, a DirectSound cursor that moves at every 10 ms poll at the real-time rate). Requests, by owner:
+
+* **nue-android:** AAudio/Oboe backend honouring `latency_ms`, `NUE_AUDIO_LOW_LATENCY` (the cursor logic is happy with any stable latency, it only needs it reported by
+  `nue_audio_stream_get_latency`), and `nue_audio_get_device_info(0).preferred.channels` as the real route's channel count (headset vs speaker changes it).
+* **nue-ios / macOS:** CoreAudio backend, same points; interruptions (`NUE_EVENT_AUDIO_INTERRUPTED`) must pause the stream with the position kept.
+* **nue-linux:** PipeWire/ALSA through SDL3, same points.
+* **nue-windows:** WASAPI is run here on one endpoint; exclusive mode and the endpoint mask are open.
+* **nue-audio / all:** a way to run the conformance test on a device from a tool (`nue_dsound_endpoint_smoke` is the Windows-only start; it uses only `nue_audio_*`).
+
+No owner needs to touch `legacy_dsound` for this.
+
 ## To the legacy-core work (planned; not started)
 
-The guest-pointer facade of a recompiled 32-bit game needs five things from `legacy_core`; the exact interface is written in
-[LEGACY_DSOUND.md](LEGACY_DSOUND.md), section "Guest facade seam": guest memory (translate, allocate), a handle/COM-object table with generation checks, call
-tokens for the 75 vtable slots, `override_import(module, ordinal)`, and host services (event signalling, window validation). Nothing here depends on it.
+The guest-pointer facade of a recompiled 32-bit game is built (`dsound_guest.hpp`) on `nue::legacy::guest::Memory` (`include/nue_legacy/guest_memory.hpp`, the same contract as the NFS Underground 2
+port's `guest::Memory`); what `legacy_core` must provide is that header's implementation (a 4 GiB arena at any base on 64-bit hosts, identity on 32-bit), a call-token dispatcher for the
+75 vtable slots (`DsoundGuestFacade::methods()`), `override_import(module, ordinal)` and host services (event signalling, window validation). Please take ownership of
+`guest_memory.hpp` when `legacy_core` starts and reconcile it with the ptr32/ptr64 references of `docs/ABI.md`.
 
 ## To the d3d9 / platform-api sessions
 

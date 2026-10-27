@@ -8,8 +8,9 @@ that project. Open items and requests to other areas: [REQUESTS_dsound.md](REQUE
 
 > **State, honestly.** Implemented, compiled for Windows x64 and x86 (clang), tested headless, and compared call for call with the real Windows DirectSound
 > (296 comparisons, 0 differences). Tested on a real output endpoint with **silence** only. **The audio has not been heard in a real game**: the first audible
-> run of a game through this layer is still to be done, and nothing here claims that it sounds right by ear. The guest-pointer facade of a recompiled 32-bit
-> game is **not built** (it needs `legacy_core`, which does not exist yet); the seam is designed below. Not run on Linux/GCC, Android or iOS (see "What was run").
+> run of a game through this layer is still to be done, and nothing here claims that it sounds right by ear. The guest-pointer facade of a recompiled 32-bit game
+> is built and tested against a fake guest arena (any base, 32- and 64-bit hosts) but **not wired to a real guest**: that needs the dispatcher of `legacy_core`
+> or the port's launcher. Not run on Linux/GCC, Android or iOS (see "What is implemented / tested / only written").
 
 ## Structure
 
@@ -35,6 +36,8 @@ that project. Open items and requests to other areas: [REQUESTS_dsound.md](REQUE
 | Engine and sinks | `include/nue_legacy/dsound_engine.hpp`, `src/engine.cpp`, `src/nue_sink.cpp` | ties a Device to an output; the shipped sink is a native stream; reopens the stream when the primary format changes the channel count |
 | COM facade | `src/legacy/dsound/dll/com_facade.{hpp,cpp}` | the five interfaces as real COM objects (static library `nue_dsound_comlib`), used by the dll and the tests |
 | `dsound.dll` | `src/legacy/dsound/dll/main.cpp`, `dsound.def` | the drop-in: `DirectSoundCreate` and the other exports of the system dll, with its ordinals |
+| Guest facade | `include/nue_legacy/dsound_guest.hpp`, `guest_memory.hpp`, `src/legacy/dsound/guest/guest_facade.cpp` | the five interfaces for a recompiled 32-bit guest, over `guest::Memory` (no host address assumption) |
+| Level A trace | `include/nue_legacy/dsound_trace.hpp`, `src/trace.cpp`, `tools/dsound_trace.cpp` | record every call and the PCM written, replay on a fresh Device, compare clients by the PCM hash |
 | Inventory tool | `src/legacy/dsound/tools/dsound_inventory.py` | finds out how any 32-bit Windows executable uses DirectSound (imports, interface IDs present, call sites, vtable slots); needs `capstone` |
 | Tests | `tests/legacy/dsound/` | see "Tests" |
 
@@ -137,31 +140,35 @@ Not offered: `DirectSoundCreate8`, capture and full duplex (they answer `DSERR_N
 Every method counts its calls and failures; the report (`NueDsoundReport`, or `NUE_DSOUND_LOG`) lists them and the first failing call, which is what to send back after
 a game session.
 
-## Guest facade seam (for a recompiled 32-bit game; not built)
+## Guest facade (a recompiled 32-bit game on any 64-bit or 32-bit host)
 
-A recompiled game calls `IDirectSound*` through guest memory: a COM pointer whose first word is a vtable of **call tokens**, arguments as stdcall words on a guest stack,
-structures at guest addresses, 32-bit event handles. The COM facade above cannot be used (its objects are host objects), but everything below it can: the guest
-facade is another front end over the same `Device`, as the NFS Underground 2 port's `DsoundFacade` is. It is deliberately not written here because `legacy_core` (guest
-memory, handle tables, call tokens, import resolver; `docs/ABI.md` 2) does not exist, and a fake would only have to be rewritten. What it needs, so `legacy_core` can be
-shaped for it:
+`include/nue_legacy/dsound_guest.hpp`, `src/legacy/dsound/guest/guest_facade.cpp`: `nue::dsound::guest::DsoundGuestFacade(Memory&, HostServices&, Device&)`. A recompiled
+game calls `IDirectSound*` through guest memory: a COM pointer whose first word is a vtable of **call tokens**, arguments as stdcall words on a guest stack, structures at
+guest addresses, 32-bit event handles. The facade turns that into `Device` calls and back. It is the part of the layer that knows the guest ABI, and nothing else:
 
 ```cpp
-// 1. Guest memory (legacy_core): every guest pointer the facade reads or writes goes through this; nothing else knows addresses.
-struct GuestMemory {
-    virtual uint8_t* ptr(uint32_t guest_address, uint32_t bytes) = 0;   // host pointer for [address, address+bytes), nullptr if not mapped/in range
-    virtual uint32_t alloc(uint32_t bytes) = 0;                         // zeroed, in the guest address space (COM objects, vtables, Lock mirrors); 0 on failure
-    virtual void free(uint32_t guest_address) = 0;
+// include/nue_legacy/guest_memory.hpp (legacy_core will own it; the NFS Underground 2 port's guest::Memory is the same contract)
+class nue::legacy::guest::Memory {
+    uint32_t alloc(uint32_t bytes);                     // zeroed, 16-byte aligned, inside the guest address range; 0 on failure
+    void     free(uint32_t address);
+    uint8_t* host(uint32_t address, uint32_t bytes);    // host pointer for the whole range, nullptr when not mapped
+    uint32_t address_of(const void* host_pointer);      // guest address of memory this object handed out (0 when foreign)
 };
-// 2. Host services (legacy_core / legacy_win32)
-struct HostServices {
-    virtual void set_event(uint32_t guest_event_handle) = 0;            // SetEvent on a guest event handle (notifications; runs on the mix thread)
-    virtual bool is_window(uint32_t guest_hwnd) = 0;                    // SetCooperativeLevel validation
-};
-// 3. Call tokens: for every method of the 5 interfaces, a token that legacy_core's dispatcher recognises, with the number of stdcall words to pop.
-//    The facade registers (interface, slot, words, name) and receives (token index, pointer to the argument words) back:
-uint32_t DsoundGuestFacade::call(size_t method_index, const uint32_t* args);   // args[0] = this; returns EAX (HRESULT or the new refcount)
-// 4. Import override: DirectSoundCreate(guid*, ppDS*, outer) by name or ordinal 1 of "dsound.dll"  ->  uint32_t DsoundGuestFacade::direct_sound_create(guid, out, outer)
+struct HostServices { void set_event(uint32_t guest_handle); bool is_window(uint32_t guest_hwnd); };
 ```
+
+* **No host address assumption.** Every guest address goes through `Memory::host()`, checked for its whole range; there is no cast between a guest address and a pointer
+  anywhere in the layer. Guest addresses are 32-bit values and the facade does its address arithmetic in 32 bits (the `Lock` mirror lives in guest memory: `Lock` returns
+  guest addresses inside it and `Unlock` reads the bytes back through `host()`; a 64-bit host never exposes buffer memory to the guest, it only copies). Works with a 4 GiB
+  arena at any base on any 64-bit little-endian host (x86-64, arm64; Windows, Linux, Android, macOS, iOS) and on a 32-bit identity host. Tested with the fake arena at guest
+  base `0x10000` and at `0xA0000000`, host addresses unrelated to either, on x64 and x86.
+* **Hostile guests do not fault the host.** A stale or foreign `this` fails with `E_INVALIDARG`; wild pointers and sizes are rejected by `host()` or by the checks; counts are
+  bounded (a 32-bit `count * 8` overflow in `SetNotificationPositions` was found by the hostile-argument test and fixed here and in the COM facade). The test makes 5000
+  random calls per seed, four seeds, over every method of every interface.
+* **How calls reach it** (the glue, not in the library): register a call token for each of the 75 vtable slots (`DsoundGuestFacade::methods()`: interface, slot, stdcall words
+  including `this`, name; `set_token(index, token)` before the first create), override the import `dsound.dll!DirectSoundCreate` (ordinal 1) to call
+  `direct_sound_create(guid, ppDS, outer)`, and in the dispatcher read the words from the guest stack and call `call(index, args)` (`args[0]` is `this`, the return value is EAX).
+  The port's `dsound_install.cpp` is the example (`NativePlatform::add_method_token`, `override_import("#1")`).
 
 Vtable layout and argument words (this included), identical to the SDK order the COM facade implements:
 
@@ -173,13 +180,54 @@ Vtable layout and argument words (this included), identical to the SDK order the
 | IDirectSound3DListener (18) | QI 3, AddRef 1, Release 1, GetAllParameters 2, GetDistanceFactor 2, GetDopplerFactor 2, GetOrientation 3, GetPosition 2, GetRolloffFactor 2, GetVelocity 2, SetAllParameters 3, SetDistanceFactor 3, SetDopplerFactor 3, SetOrientation 8, SetPosition 5, SetRolloffFactor 3, SetVelocity 5, CommitDeferredSettings 1 |
 | IDirectSoundNotify (4) | QI 3, AddRef 1, Release 1, SetNotificationPositions 3 |
 
-Rules the guest facade must keep (they are what the COM facade does, and what the port's 969 facade checks verified): COM objects are `{vtable, id}` records in guest
-memory, one identity per object with a shared reference count and a generation-checked table (a stale pointer fails with `E_INVALIDARG`, never a host crash); the
-device is a "zombie" while buffers it created are alive; `Lock` returns guest addresses inside a **guest-resident mirror** of the buffer and `Unlock` reads the bytes back from
-guest memory (a 64-bit host never exposes buffer memory to the guest, it only copies); `WAVEFORMATEX`/`DSBUFFERDESC`/`DS3D*` structures are read field by field with their
-sizes checked; GUIDs are compared by bytes; a failing call never traps (it returns the HRESULT, and the report keeps the first one). The format, structure and validation code is
-the part worth sharing between the two front ends: when `legacy_core` exists, turn `read_format`/`write_format`/`read_3d_buffer` of `com_facade.cpp` into functions over a
-byte reader so the COM and the guest facade share them instead of copying.
+The format, structure and validation code is duplicated between this facade and the COM one (they differ only in how memory is read). Sharing it (functions over a byte reader) is the
+next cleanup and is cheap now that both exist and both are tested against the same semantics.
+
+## Sinks: one interface, one implementation per platform
+
+Everything the layer needs from an output is `OutputSink` (`dsound_engine.hpp`): `open(spec, callback)`, `actual()`, `start/stop/close`, `frames_played()` (a device clock),
+`latency()` (the time from handing a frame to hearing it: the DirectSound play cursor is reported that far behind what was mixed, so the client's lead stays right), `stats()`.
+The shipped sink, `make_nue_sink()`, is a `nue_audio_stream` with a callback on the default device (device 0, which follows the system default), so **every platform backend of
+the engine is already a DirectSound output**; the layer contains no platform code.
+
+| Platform | Output | Who provides it | State |
+|---|---|---|---|
+| Windows | WASAPI, through the engine's SDL3 backend (the port's own event-driven WASAPI sink also fits `OutputSink`) | engine (windows / core) | **run** here on one stereo endpoint, silence |
+| Linux, SteamOS | PipeWire / ALSA (SDL3) | engine (linux) | not run |
+| Android | AAudio / Oboe | engine (android); `NUE_AUDIO_LOW_LATENCY` selects the low-latency path | not run |
+| macOS, iOS | CoreAudio | engine (ios) | not run |
+| tests | `ManualSink` (tests) and the engine's null backend with its virtual clock | here | run |
+
+A sink for any of them is accepted when it passes `ds_sink_tests.cpp` (the conformance test): format reported, nothing runs before `start`, latency reported, the clock is monotonic
+and never ahead of what the callback produced, `stop` pauses with the position kept, nothing runs after `close`, a closed sink opens again, and through an `Engine` the DirectSound
+play cursor of a looping ring moves at every 10 ms poll (a client rebuilds its audio after 100 identical ones) at the real-time rate. It runs headless on the manual sink and on
+the native stream over the null backend; on hardware, `nue_dsound_endpoint_smoke` does the equivalent. The channel count is clamped to the device's native count
+(`SinkDesc::match_device_channels`) so the layer's own down-mix runs, not the platform converter. Requests per platform are in [REQUESTS_dsound.md](REQUESTS_dsound.md).
+
+## Level A trace: record, replay, compare
+
+`include/nue_legacy/dsound_trace.hpp`. `EngineConfig::trace` (or `NUE_DSOUND_TRACE=<file>` for `dsound.dll`) records every call the client makes on the `Device` (arguments and answers,
+every `Lock`/`Unlock` with the PCM written, every mixed block's hash) in a versioned binary file (`NDST`, version 1). `replay_trace()` runs it again on a fresh `Device` without the client
+and stops at the first record whose answer differs, naming it. `nue_dsound_trace info|replay|pcm <file>` does it from the command line. The **PCM hash** (FNV-1a of every byte passed to
+`Unlock`, in order) is independent of how the client mixes: two implementations of the same audio (for instance the game's own mixer translated ahead of time, and a native
+reimplementation) are equal when they write the same bytes into the buffers; the test shows two clients with different refill patterns and equal hash. Recorded traces are
+deterministic: the same session gives the same hashes at 32 and 64 bits.
+
+## No interpreter and no JIT (iOS): what the DirectSound side needs
+
+The DirectSound layer is ordinary host C++: no run-time code, nothing to interpret. The questions are about the client of the layer, the game's audio modules, which are x86 code loaded
+from data files. What the layer needs and offers for each alternative of the port's `MEMORY_MODEL_64.md`:
+
+* **A. The modules translated ahead of time.** Nothing changes below the buffers: the translated pages call the same facade through the same tokens, and the ring contract is the same
+  (a play cursor that always moves, `Lock`/`Unlock` of what the mixer produced). The layer needs nothing from A. What A gives the layer is a **reference**: record a session of the
+  translated modules with the trace; its PCM hash and its bytes are the ground truth for B.
+* **B. A native reimplementation** (codecs / mixer on `nue_audio`). If B replaces only the codecs and keeps the game's mixer, the layer is unchanged. If B replaces the game's mixer,
+  there is no ring to feed and the layer degenerates into an `OutputSink` consumer: B can write the PCM directly (to an `OutputSink`, or into the same buffers to keep the cursor
+  contract). Either way the fidelity check is the trace: run the same inputs through A and B and compare the PCM hash (equal bytes); if they differ the byte offset says where.
+* **What can be verified without the game**: the ring contract with synthetic clients (done: the cursor, the 100-poll rule, Lock/Unlock wrapping), the guest facade against a fake guest at
+  any arena base and under hostile arguments (done), the sinks (conformance, done headless), the trace record/replay and its divergence report (done), and 32/64-bit determinism of
+  the output (done: identical hashes). **What cannot**: that B sounds like A (needs a recorded session of A, so one run of the original game), and any real device other than the
+  stereo endpoint tested here.
 
 ## Tests
 
@@ -190,7 +238,10 @@ All headless and deterministic unless marked. Presets: `windows-x64`, `windows-x
 | `nue_dsound_device` (`ds_device_tests.cpp`) | Level A: creation/validation matrix, Lock regions and flags, **bit-exact pass-through** at the output rate, 8/24/32-bit and float conversion, volume/pan/frequency/master volume levels, resampling error (1 kHz tone from 44.1 to 48 kHz, DC gain, 96 to 48 kHz), exact cursor values with 10 ms latency and 256-frame blocks, stop/seek/one-shot, a cursor that never stands still over 300 polls, chunking independence, notifications, `DuplicateSoundBuffer`, 5.1 to stereo/5.1 and stereo into 5.1, DS3D (distance law, cone, disable mode, validation), Doppler both ways, listener orientation, pairwise panning on a 5.1 output, binaural, the environment sends and EAX 2 mappings, the engine reopening for a 6-channel primary, the scripted session hash | 246 checks, x64 and x86 |
 | `nue_dsound_com` (`ds_com_tests.cpp`) | the COM facade through the real `dsound.h` interfaces: a streaming client's probe (1/2/4/6 channels), 0.5 s ring, 200 refill polls with wrapping `Lock`s, teardown and re-creation, 5.1 reopening the sink; COM rules (shared refcount, `QueryInterface` graph, the device outliving its buffers); argument validation; Lock/Unlock discipline; formats; 3D listener and buffer with deferred settings; notification events | 984 checks, x64 and x86 |
 | `nue_dsound_nue` (`ds_nue_tests.cpp`) | the layer on the native stack end to end: `nue_init` on the null backend, the native sink, a streaming client under the virtual clock, the played frames read back (523.25 Hz tone, level, both channels), two runs give the same samples **and the same hash as the manual sink**; a 5.1 primary on a stereo device | 32 checks, x64 and x86 |
-| `nue_dsound_dll_test` (`ds_dll_tests.cpp`) | the built `dsound.dll` loaded by path: the exports by ordinal and by name, `DirectSoundCreate`, a ring that plays and whose cursor moves (null backend, real time), the other exports, the report, no failed call | 28 checks, x64 and x86 |
+| `nue_dsound_dll_test` (`ds_dll_tests.cpp`) | the built `dsound.dll` loaded by path: the exports by ordinal and by name, `DirectSoundCreate`, a ring that plays and whose cursor moves (null backend, real time), the other exports, the report, no failed call, and the trace it recorded replays identically | 30 checks, x64 and x86 |
+| `nue_dsound_guest` (`ds_guest_tests.cpp`) | the guest-pointer facade through call tokens over a fake guest arena: the 969 checks of the port's facade tests, run with the arena at guest base `0x10000` and at `0xA0000000`, plus a hostile-argument pass (5000 random calls x 4 seeds over all 75 slots, stale `this`, wild pointers) | 1970 checks, x64 and x86 |
+| `nue_dsound_sink` (`ds_sink_tests.cpp`) | the `OutputSink` conformance (clock, latency, stop/close/reopen) and the DirectSound cursor contract through an Engine, on the manual sink and on the native stream over the null backend | 847 checks, x64 and x86 |
+| `nue_dsound_trace` (`ds_trace_tests.cpp`) | the Level A trace: record, replay on a fresh Device (every answer and mixed block equal), divergence named by record, damaged traces refused, two clients compared by the PCM hash, recording through the Engine; pinned hashes identical at 32 and 64 bits | 21 checks, x64 and x86 |
 | `nue_dsound_differential` (`ds_differential_tests.cpp`, **tool, not in ctest** unless `-DNUE_DSOUND_SYSTEM_TESTS=ON`) | the same calls on the **system DirectSound** and on the layer: HRESULTs of about 120 argument combinations, `GetCaps`, Lock lengths, status, notifications, cursors in real time (the real write-play margin is 30.0 ms, the layer's 30.0 ms), a streaming client's own sequence. Plays only zero-filled buffers at volume -10000, never touches the system volume, skips itself without an output device | **296 comparisons, 0 differences**, x64 and x86 |
 | `nue_dsound_endpoint_smoke` (tool, **real endpoint, silence**) | the engine on the default output: opens, the cursor runs at the real-time rate, 0 underruns, a 6-channel primary on a stereo endpoint keeps 2 channels and the layer down-mixes | x64: 8 checks (stereo Realtek endpoint, 48 kHz, 21.3 ms device latency) |
 
@@ -223,7 +274,8 @@ The full suites (`ctest --preset windows-x64`, 42 tests, and `windows-x86`) also
 | Rate conversion, layouts, 3D placement, reverb through `nue::audio` | implemented, tested headless (levels, positions, hashes); **never heard** |
 | Native output sink (`nue_audio_stream`), channel follow, latency | implemented; tested on the null backend and on **one** real stereo endpoint with silence |
 | COM facade, `dsound.dll` (x64 and x86 build and tests) | implemented, tested through COM and through the built dll |
-| Guest-pointer facade | **only designed** (section above) |
+| Guest-pointer facade | implemented and tested against a fake guest at two arena bases and under hostile arguments; **not wired to a real guest** (needs the dispatcher of `legacy_core` or the port's launcher) |
+| Level A trace (record / replay / PCM hash) | implemented, tested, identical at 32 and 64 bits; never used on a real game |
 | `IKsPropertySet`/EAX facade, `DirectSound8`, capture | not written |
 | Binaural / ambisonic / OS spatializer modes | implemented as plumbing to `nue_spatial` and tested for level/position; no measured HRTF, no OS backend |
 | Linux, Android, iOS | the portable part (Level A, engine, sink) is plain C++20 on `nue::audio`; compiled and run only on Windows with clang (the strict-warning pass with `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wold-style-cast` is clean); **GCC and the Linux job were not run here** |
@@ -238,7 +290,6 @@ The full suites (`ctest --preset windows-x64`, 42 tests, and `windows-x86`) also
 * **No platform spatializer backend** (`nue_spatial_backend_ops` is passed through, nothing implements it), **no measured HRTF** (`Device::set_hrtf` forwards a dataset to
   `nue_spatial_set_hrtf`; there is no SOFA reader), **no height layers**.
 * **No `IKsPropertySet`/EAX facade**; EAX 1, 3 and 4 mappings are not written; the environment-id tables of EAX 1/2 are missing in `nue_audio`.
-* No trace format for Level A calls. The NUE checklist asks for a versioned trace before recording; the report counters are what exists. Proposal: record
-  `create_buffer/lock/unlock/play/stop/set_*` with their data, as the d3d9 trace does, and replay on the manual sink.
+* The trace records the client's calls on the Device; it does not record the guest (a recorded session of the original game is still needed as the reference for any native reimplementation).
 * `DuplicateSoundBuffer` copies the data (no sharing of static data), hardware voices, focus-loss muting for non-`GLOBALFOCUS` buffers, `DirectSoundCaptureCreate`.
 * Linux/GCC, Android and iOS builds of this layer were not run.
