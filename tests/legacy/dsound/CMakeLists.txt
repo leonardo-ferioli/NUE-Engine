@@ -47,3 +47,6 @@ target_include_directories(nue_dsound_endpoint_smoke PRIVATE "${CMAKE_CURRENT_LI
 
 # The guest-pointer facade (dsound_guest.hpp) over a fake guest arena: the call sequence of a streaming client through call tokens.
 nue_dsound_test(guest ds_guest_tests.cpp)
+
+# What any OutputSink must satisfy for the cursor logic (manual sink and the native stream on the null backend); a new platform sink runs this too.
+nue_dsound_test(sink ds_sink_tests.cpp)
