@@ -274,3 +274,18 @@ What that changed in this library:
 - **To move into NUE**: the library is C++20 (`std::span`, defaulted `operator==`); NUE's root sets C++17, so the legacy targets need `CXX_STANDARD 20` or a C++17 port. `platform/types.hpp` forwards
   to the d3d9 translator's `nue/types.hpp` (Status, Result, Id, Bytes): legacy_win32 should get its own tiny status header instead. The platform interfaces (Clock, Threads, Storage, Config, System, Input)
   need NUE-backed implementations calling the `nue_*` C API; the std and null ones stay as test fixtures.
+
+### Where the NUE copy is (2026-10-27)
+
+The library, the platform interfaces, the tests and these notes were copied into the NUE engine repository (branch `legacy-win32`, option `NUE_WITH_LEGACY_WIN32`, `docs/LEGACY_WIN32.md`):
+namespaces `nue::legacy::{win32,dinput,platform,guest}`, headers under `include/nue_legacy/`, `guest::Memory` is `nue::legacy::guest::Memory` of legacy_dsound (same four methods), value types in
+`include/nue_legacy/status.hpp`, DirectInput is its own target (`nue::legacy_dinput`), and `nue_backend/` has the interfaces over the native API (clock, threads, mutexes, conditions,
+semaphores, TLS, timers, system) with a conformance suite that runs against the std and the nue implementation. Not yet over the native API: Storage, Config, Input, Window, Display (the std and null ones
+serve). The port keeps its own copy until the user approves the switch; a bug found in one must be fixed in both.
+
+### What a player must do to unlock the controller action maps
+
+Plug in a game controller before starting, then start the game with the environment variable `NFSU2_TRACE_INPUT=1` (PowerShell: `$env:NFSU2_TRACE_INPUT = 1` and then the usual launcher command), reach the main menu, open the
+controller or controls screen in Options if there is one, and quit. Send the lines of `logs/native_trace.log` that start with `DI action format` and `DI action[`
+(PowerShell: `Select-String -Path logs\native_trace.log -Pattern "DI action" | ForEach-Object Line`). They hold the game's genre and the semantic of every action; the genre tables cannot be written without them.
+
