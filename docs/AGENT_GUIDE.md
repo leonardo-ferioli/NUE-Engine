@@ -35,7 +35,8 @@ owner session (resolve names with ListAgents).
   are named `<area>-<topic>`.
 - During the migration the first version of each area branch is extracted from the old game repository with
   `git subtree split --prefix=nue_engine`, so the history is kept and the old `nue_engine/` prefix disappears from paths.
-- You never push. The main session pushes your branch and merges it when the checks are green.
+- Every commit is pushed to GitHub right away (`git push -u origin <your branch>`, never force). GitHub is the home of the work at this stage; a local-only
+  commit does not count. Only the main session merges into `main`.
 
 ## Your worktree
 

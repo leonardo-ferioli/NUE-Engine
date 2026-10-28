@@ -15,6 +15,8 @@
 //   nue_pack verify <file>                            .BUN/.LZC: open, rebuild and compare, every texture decodes; .nuepack: every hash
 //   nue_pack jdlz c|d IN OUT [--level N]              the JDLZ codec on its own
 //
+//   --max-memory MB (any command)                   limit the module's engine memory budget; by default there is no limit
+//
 // Names: NAME is a texture name ("TEX" or "PACK/TEX", case-insensitive) or 0xHASH. Nothing here sends data anywhere; game files stay where they are.
 #include "nue/assets.h"
 #include "nue/core.h"
@@ -42,7 +44,7 @@ struct Args {
     const char* get(const char* n) const { auto it = opt.find(n); return it == opt.end() || it->second.empty() ? nullptr : it->second.back().c_str(); }
 };
 
-bool is_flag_only(const std::string& a) { return a == "--nodes" || a == "--textures" || a == "--raw" || a == "--no-compress" || a == "--help" || a == "-h" || a == "--all"; }
+bool is_flag_only(const std::string& a) { return a == "--best-lod" || a == "--keep-z-up" || a == "--no-textures" || a == "--meshes" || a == "--model" || a == "--nodes" || a == "--textures" || a == "--raw" || a == "--no-compress" || a == "--help" || a == "-h" || a == "--all"; }
 
 Args parse(int argc, char** argv, int first) {
     Args a;
@@ -147,7 +149,16 @@ bool parse_targets(const char* list, uint32_t* mask) {
 struct Session {
     Engine engine;
     nue_assets_context ctx = nullptr;
-    Session() { if (engine.ok) nue_assets_context_create(nullptr, &ctx); }
+    // The tool is not memory constrained by default (a whole city pack is built in memory): the engine budget is off unless --max-memory MB asks for one.
+    static uint64_t& budget_mb() { static uint64_t v = 0; return v; }
+    Session() {
+        if (!engine.ok) return;
+        nue_assets_context_desc d;
+        NUE_STRUCT_INIT(&d);
+        if (budget_mb()) { d.budget_policy.struct_size = sizeof(nue_budget_policy); d.budget_policy.fixed_bytes = budget_mb() << 20; }
+        else d.flags = NUE_ASSETS_CTX_NO_BUDGET;
+        nue_assets_context_create(&d, &ctx);
+    }
     ~Session() { nue_assets_context_destroy(ctx); }
 };
 
@@ -258,8 +269,12 @@ int cmd_list(Args& a) {
             nue_asset_resource_get(c, i, &r);
             if (r.kind == NUE_ASSET_RES_TEXTURE_PACK) {
                 if (a.flag("--textures")) continue;
-                std::printf("pack  %-32s hash %08llx  %llu bytes%s\n", r.name, (unsigned long long)r.hash, (unsigned long long)r.data_size, r.derived_node == NUE_ASSET_NO_NODE ? "  (layout not understood: kept as it is)" : "");
+                std::printf("pack  %-32s hash %08llx  %llu bytes%s\n", r.name, (unsigned long long)r.hash, (unsigned long long)r.data_size, r.derived_node == NUE_ASSET_NO_NODE ? "  (read only: kept as it is)" : "");
+            } else if (r.kind == NUE_ASSET_RES_MESH) {
+                if (a.flag("--textures")) continue;
+                std::printf("  mesh %-40s %6u vertices %6u triangles\n", r.name, r.width, r.height);
             } else if (r.kind == NUE_ASSET_RES_TEXTURE) {
+                if (a.flag("--meshes")) continue;
                 std::printf("  tex %-26s %5ux%-5u %-12s mips %-2u hash %08llx native 0x%02x%s\n", r.name, r.width, r.height, tex_name(r.format), r.mip_levels, (unsigned long long)r.hash, r.native_format, (r.flags & NUE_ASSET_RESFLAG_PALETTED) ? " (palette)" : "");
             }
         }
@@ -269,7 +284,69 @@ int cmd_list(Args& a) {
 }
 
 // ---------------------------------------------------------------------------------------------------- extract
+// extract --model: the meshes of a file (or of a car folder: GEOMETRY.BIN + TEXTURES.BIN) as one .glb / .obj with its textures
+int cmd_model(Args& a) {
+    Session s;
+    if (!s.engine.ok) return fail("engine init", NUE_ERR_FAILED);
+    std::vector<std::string> inputs;
+    std::error_code ec;
+    for (const std::string& p : a.pos) {
+        if (fs::is_directory(p, ec)) {
+            // a car folder: every .BIN that is a chunk stream, geometry first (VINYLS.BIN is skipped: it holds thousands of decals)
+            std::vector<std::string> found;
+            for (auto& e : fs::directory_iterator(p, ec)) {
+                const std::string ext = lower(e.path().extension().string()), nm = lower(e.path().filename().string());
+                if (!e.is_regular_file() || (ext != ".bin" && ext != ".bun" && ext != ".lzc") || nm == "vinyls.bin") continue;
+                found.push_back(e.path().generic_string());
+            }
+            std::sort(found.begin(), found.end());
+            inputs.insert(inputs.end(), found.begin(), found.end());
+        } else {
+            inputs.push_back(p);
+        }
+    }
+    if (inputs.empty()) return 2;
+    std::vector<nue_asset_container> containers;
+    for (const std::string& in : inputs) {
+        nue_asset_container c = nullptr;
+        nue_asset_open_desc d;
+        NUE_STRUCT_INIT(&d);
+        d.path = in.c_str();
+        d.flags = NUE_ASSET_OPEN_LENIENT;
+        nue_result r = nue_asset_container_open(s.ctx, &d, &c);
+        if (r < 0) { std::fprintf(stderr, "skipping %s (%s)\n", in.c_str(), nue_result_name(r)); continue; }
+        containers.push_back(c);
+    }
+    const std::string fmt = a.get("--format") ? lower(a.get("--format")) : "glb";
+    fs::path first = fs::path(a.pos[0]);
+    std::string stem = fs::is_directory(first, ec) ? first.filename().string() : first.stem().string();
+    if (stem.empty() || stem == ".") stem = fs::absolute(first, ec).parent_path().filename().string();
+    const fs::path out = fs::path(a.get("-o")) / (safe_name(stem) + (fmt == "obj" ? ".obj" : ".glb"));
+    fs::create_directories(out.parent_path(), ec);
+    const std::string out_path = out.generic_string();
+    nue_asset_model_desc md;
+    NUE_STRUCT_INIT(&md);
+    md.containers = containers.data();
+    md.container_count = uint32_t(containers.size());
+    md.format = fmt == "obj" ? NUE_ASSET_MODEL_OBJ : NUE_ASSET_MODEL_GLB;
+    if (a.flag("--no-textures")) md.flags |= NUE_ASSET_MODEL_NO_TEXTURES;
+    if (a.flag("--keep-z-up")) md.flags |= NUE_ASSET_MODEL_KEEP_Z_UP;
+    if (a.flag("--best-lod")) md.flags |= NUE_ASSET_MODEL_BEST_LOD;
+    md.name_filter = a.get("--filter");
+    md.max_meshes = a.get("--max-meshes") ? uint32_t(std::atoi(a.get("--max-meshes"))) : 0;
+    md.path = out_path.c_str();
+    nue_asset_model_stats st;
+    NUE_STRUCT_INIT(&st);
+    const nue_result r = nue_asset_export_model(&md, &st);
+    for (auto c : containers) nue_asset_container_close(c);
+    if (r < 0) return fail("model export failed", r);
+    std::printf("%s: %u meshes (%llu vertices, %llu triangles), %u textures, %llu bytes%s\n", out_path.c_str(), st.meshes, (unsigned long long)st.vertices, (unsigned long long)st.triangles, st.textures,
+                (unsigned long long)st.bytes_written, st.meshes_skipped ? (", " + std::to_string(st.meshes_skipped) + " meshes could not be read").c_str() : "");
+    return 0;
+}
+
 int cmd_extract(Args& a) {
+    if (a.flag("--model")) return a.pos.empty() || !a.get("-o") ? 2 : cmd_model(a);
     if (a.pos.empty() || !a.get("-o")) return 2;
     Session s;
     if (!s.engine.ok) return fail("engine init", NUE_ERR_FAILED);
@@ -632,6 +709,7 @@ int main(int argc, char** argv) {
     if (argc < 2 || !std::strcmp(argv[1], "--help") || !std::strcmp(argv[1], "-h")) { usage(); return argc < 2 ? 2 : 0; }
     const std::string cmd = argv[1];
     Args a = parse(argc, argv, 2);
+    if (a.get("--max-memory")) Session::budget_mb() = uint64_t(std::strtoull(a.get("--max-memory"), nullptr, 10));
     int rc;
     if (cmd == "info") rc = cmd_info(a);
     else if (cmd == "list") rc = cmd_list(a);

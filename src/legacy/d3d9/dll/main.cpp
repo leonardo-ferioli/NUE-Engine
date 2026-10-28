@@ -69,6 +69,7 @@ void load_config() {
     g_config.log = truthy(ini_value(ini, "log"), g_config.log);
     g_config.log_unsupported = truthy(ini_value(ini, "log_unsupported"), g_config.log_unsupported);
     g_config.shader_cache = ini_value(ini, "shader_cache");
+    g_config.shader_cache_ini = g_config.shader_cache;
     if (auto v = ini_value(ini, "msaa"); !v.empty()) g_config.msaa = v == "off" ? 1u : v == "auto" ? 0u : uint32_t(std::atoi(v.c_str()));
     if (auto v = ini_value(ini, "texture_copy_mb"); !v.empty()) g_config.texture_copy_mb = uint32_t(std::atoi(v.c_str()));
     if (auto v = ini_value(ini, "texture_report_at"); !v.empty()) g_config.texture_report_at = uint32_t(std::atoi(v.c_str()));
@@ -121,6 +122,10 @@ void log(const char* format, ...) {
 }
 
 void device_destroyed() { --g_devices; }
+
+namespace { d3d9::GfxProvider* g_gfx_provider = nullptr; }
+void set_gfx_provider(d3d9::GfxProvider* provider) { g_gfx_provider = provider; }
+d3d9::GfxProvider* gfx_provider() { return g_gfx_provider; }
 
 void apply_d3d9_fpu_mode(DWORD behaviour_flags) {
 #if defined(_M_IX86) || defined(__i386__)
@@ -509,7 +514,10 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     options.renderer = cfg.renderer == "vulkan" ? gpu::Renderer::vulkan : gpu::Renderer::d3d11;
     options.vsync = cfg.vsync && pp->PresentationInterval != D3DPRESENT_INTERVAL_IMMEDIATE;
     options.single_threaded = !cfg.render_thread;
-    options.shader_cache_dir = cfg.shader_cache;
+    d3d9::GfxProvider* provider = gfx_provider();   // null unless the engine installed one: the dll's own path
+    const std::string cache_dir = d3d9::choose_shader_cache_dir(cfg.shader_cache_ini, provider, cfg.shader_cache);
+    options.shader_cache_dir = cache_dir;
+    options.external_init = provider && provider->owns_bgfx();   // bgfx was initialised by the engine on the thread that creates the device
     options.log = log_line;
     d3d9::LayerOptions layer_options;
     layer_options.log = log_line;
@@ -517,8 +525,9 @@ HRESULT Direct3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND focus, DWORD
     layer_options.msaa_override = cfg.msaa;
     layer_options.texture_copy_mb = cfg.texture_copy_mb;
     layer_options.mark_missing_textures = cfg.mark_missing;
-    layer_options.program_list = cfg.shader_cache + "\\nue_programs.txt";   // programs of earlier runs are made while the game loads, not at their first draw
+    layer_options.program_list = cache_dir + "\\nue_programs.txt";   // programs of earlier runs are made while the game loads, not at their first draw
     auto core = std::make_shared<Core>();
+    core->gfx_provider = provider;
     std::string error;
     // bgfx is used from the thread that started it: in worker mode the adapter and the layer are made (and later destroyed) on the worker
     if (cfg.worker_thread) core->threaded = std::make_unique<ThreadedLayer>(uint64_t(cfg.worker_copy_mb) << 20);

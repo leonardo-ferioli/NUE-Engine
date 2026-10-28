@@ -13,7 +13,7 @@
 # src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
 cmake_minimum_required(VERSION 3.21)
 
-project(nue VERSION 0.1.2 LANGUAGES C CXX)
+project(nue VERSION 0.1.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -249,6 +249,10 @@ if(NUE_HAVE_SDL3)
         target_link_libraries(nue PRIVATE "$<BUILD_INTERFACE:SDL3::SDL3-static>" "$<INSTALL_INTERFACE:SDL3::SDL3-static>")
     endif()
 endif()
+if(TARGET nue_gfx_obj)
+    # bgfx, bx, bimg (static): folded into a shared libnue; a static SDK installs them next to it in the nue export set (nue::bgfx, nue::bx, nue::bimg)
+    target_link_libraries(nue PRIVATE bgfx bx bimg)
+endif()
 # Libraries/frameworks the platform and texture fragments asked for: libraries linked PUBLIC to an OBJECT library do not travel with
 # $<TARGET_OBJECTS>, so they are forwarded to the final library here (iOS frameworks, Android liblog, Linux libs...).
 foreach(_obj nue_platform_obj nue_texture_obj)
@@ -282,6 +286,10 @@ target_link_libraries(nue_entry PUBLIC nue::nue PRIVATE "$<BUILD_INTERFACE:nue_i
 if(NUE_ENTRY_SOURCES AND NUE_HAVE_SDL3)
     # the stub includes <SDL3/SDL_main.h>; SDL_main's platform glue (WinMain, SDL_RunApp...) comes from SDL itself
     target_link_libraries(nue_entry PRIVATE "$<BUILD_INTERFACE:SDL3::SDL3-static>")
+    if(NUE_BUILD_SHARED)
+        # SDL is folded into the DLL with hidden symbols; the stub still needs SDL_RunApp (the stateless main glue), so it carries its own copy
+        target_link_libraries(nue_entry PRIVATE "$<INSTALL_INTERFACE:SDL3::SDL3-static>")
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------------------------------- asset module (owned by the assets session)
@@ -300,6 +308,9 @@ endif()
 # ---------------------------------------------------------------------------------------------------- tests, samples
 if(NUE_BUILD_TESTS)
     add_subdirectory(tests)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/gfx/CMakeLists.txt")
+        add_subdirectory(tests/gfx)   # owner: gfx session
+    endif()
 endif()
 if(NUE_BUILD_SAMPLES)
     add_subdirectory(samples)
@@ -311,9 +322,27 @@ if(NUE_WITH_LEGACY_D3D9)
 endif()
 
 # ---------------------------------------------------------------------------------------------------- install / package config (find_package(nue))
+# `cmake --install <build> --prefix <dir>` writes the SDK:
+#   include/nue, include/nuepp (+ include/nue_legacy when built)   headers
+#   lib/ nue, nue_entry, nue_assets, SDL3-static (static SDK) or bin/+lib/ nue (shared SDK)
+#   lib/cmake/nue/nueConfig.cmake                                    find_package(nue CONFIG): nue::nue, nue::entry, nue::assets, nue::legacy
+#   bin/ nue_pack, nue_texconv                                       command line tools (desktop builds)
+#   share/doc/nue, licenses                                          documentation, third party licences
+# samples/consume_sdk is an external project that uses it; ctest runs it against a fresh install (tests/sdk_install.cmake).
 if(NUE_INSTALL)
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)
+
+    # the exported names match the build tree aliases (nue::entry, nue::assets, nue::legacy)
+    if(TARGET nue_entry)
+        set_target_properties(nue_entry PROPERTIES EXPORT_NAME entry)
+    endif()
+    if(TARGET nue_assets)
+        set_target_properties(nue_assets PROPERTIES EXPORT_NAME assets)
+    endif()
+    if(TARGET nue_legacy)
+        set_target_properties(nue_legacy PROPERTIES EXPORT_NAME legacy)
+    endif()
 
     install(TARGETS nue nue_entry EXPORT nueTargets
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -332,13 +361,38 @@ if(NUE_INSTALL)
         install(DIRECTORY src/platform/${NUE_OS}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/nue/ext
                 FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
     endif()
+    # Command line tools (they exist on desktop builds only)
+    foreach(_tool nue_pack nue_texconv)
+        if(TARGET ${_tool})
+            install(TARGETS ${_tool} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endif()
+    endforeach()
+    if(TARGET nue_gfx_obj AND NOT NUE_BUILD_SHARED)
+        install(TARGETS bgfx bx bimg EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(DIRECTORY "${NUE_BGFX_CMAKE_DIR}/bgfx/include/bgfx" "${NUE_BGFX_CMAKE_DIR}/bx/include/bx" "${NUE_BGFX_CMAKE_DIR}/bimg/include/bimg"
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bgfx/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bgfx)
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bx/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bx)
+        install(FILES "${NUE_BGFX_CMAKE_DIR}/bimg/LICENSE" DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/bimg)
+    endif()
     install(EXPORT nueTargets NAMESPACE nue:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
 
+    # facts a consumer must match (see cmake/nueConfig.cmake.in)
+    set(NUE_CONFIG_SHARED ${NUE_BUILD_SHARED})
+    set(NUE_CONFIG_STATIC_CRT ${NUE_STATIC_CRT})
+    if(TARGET nue_gfx_obj)
+        set(NUE_CONFIG_HAS_GFX ON)
+    else()
+        set(NUE_CONFIG_HAS_GFX OFF)
+    endif()
     configure_package_config_file(cmake/nueConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/nueConfig.cmake"
                                   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
     write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/nueConfigVersion.cmake"
-                                     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+                                     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/nueConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/nueConfigVersion.cmake"
             DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nue)
-    install(FILES docs/API.md docs/ARCHITECTURE.md docs/PORTING.md docs/STATUS.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+    install(FILES docs/API.md docs/API_CHANGES.md docs/ABI.md docs/ARCHITECTURE.md docs/PORTING.md docs/STATUS.md docs/NUEPACK.md docs/TEXTURE.md
+                  docs/ASSET_FORMATS.md docs/GFX_D3D9_SEAM.md docs/GFX.md docs/THIRD_PARTY_GFX.md docs/LEGACY_LAYERS.md
+            DESTINATION ${CMAKE_INSTALL_DOCDIR})
+    install(DIRECTORY samples/consume_sdk DESTINATION ${CMAKE_INSTALL_DOCDIR}/samples)   # the minimal external project, ready to copy
 endif()

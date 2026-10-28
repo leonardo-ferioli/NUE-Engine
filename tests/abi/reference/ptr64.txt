@@ -1,0 +1,2767 @@
+# NUE public C ABI reference for layout 'ptr64'. GENERATED: do not edit by hand.
+# Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
+version assets 2
+version core 4099
+version texture 1
+assets define NUE_ASSET_NO_NODE 4294967295
+assets define NUE_ASSET_OPEN_COPY 16
+assets define NUE_PACK_MAGIC 1346721102
+assets define NUE_PACK_VERSION_MAJOR 1
+assets define NUE_PACK_VERSION_MINOR 0
+assets enum NUE_ASSETS_CTX_NO_BUDGET 2
+assets enum NUE_ASSETS_CTX_NO_BUILTINS 1
+assets enum NUE_ASSET_MESH_COLORS 4
+assets enum NUE_ASSET_MESH_NORMALS 1
+assets enum NUE_ASSET_MESH_UVS 2
+assets enum NUE_ASSET_MODEL_BEST_LOD 4
+assets enum NUE_ASSET_MODEL_GLB 1
+assets enum NUE_ASSET_MODEL_KEEP_Z_UP 2
+assets enum NUE_ASSET_MODEL_NO_TEXTURES 1
+assets enum NUE_ASSET_MODEL_OBJ 2
+assets enum NUE_ASSET_NODE_BLOB 0
+assets enum NUE_ASSET_NODE_DERIVED 4
+assets enum NUE_ASSET_NODE_EDITED 2
+assets enum NUE_ASSET_NODE_GROUP 1
+assets enum NUE_ASSET_NODE_HAS_NAME 4
+assets enum NUE_ASSET_NODE_OPAQUE 1
+assets enum NUE_ASSET_NODE_PADDING 2
+assets enum NUE_ASSET_NODE_TAIL 3
+assets enum NUE_ASSET_OPEN_FORMAT 8
+assets enum NUE_ASSET_OPEN_LENIENT 1
+assets enum NUE_ASSET_OPEN_LOAD_ALL 4
+assets enum NUE_ASSET_OPEN_NO_UNWRAP 2
+assets enum NUE_ASSET_RESFLAG_EDITED 2
+assets enum NUE_ASSET_RESFLAG_PALETTED 1
+assets enum NUE_ASSET_RESFLAG_READONLY 4
+assets enum NUE_ASSET_RES_BLOB 0
+assets enum NUE_ASSET_RES_MESH 4
+assets enum NUE_ASSET_RES_OTHER 3
+assets enum NUE_ASSET_RES_TEXTURE 1
+assets enum NUE_ASSET_RES_TEXTURE_PACK 2
+assets enum NUE_ASSET_WRITE_FORCE_CODEC 4
+assets enum NUE_ASSET_WRITE_NO_CODEC 2
+assets enum NUE_ASSET_WRITE_REBUILD 1
+assets enum NUE_ASSET_WRITE_RECOMPRESS 8
+assets enum NUE_ASSET_WRITE_REGENERATE 16
+assets enum NUE_PACK_CONVERT_KEEP_TREE 2
+assets enum NUE_PACK_CONVERT_NO_COMPRESS 1
+assets enum NUE_PACK_ENTRY_PALETTED 1
+assets enum NUE_PACK_ENTRY_TREE_BLOB 2
+assets enum NUE_PACK_OPEN_MAP 2
+assets enum NUE_PACK_OPEN_VERIFY 1
+assets enum NUE_PACK_VARIANT_ASTC 2
+assets enum NUE_PACK_VARIANT_BC 1
+assets enum NUE_PACK_VARIANT_COUNT 6
+assets enum NUE_PACK_VARIANT_ETC2 3
+assets enum NUE_PACK_VARIANT_PVRTC 4
+assets enum NUE_PACK_VARIANT_RGBA8 5
+assets enum NUE_PACK_VARIANT_SOURCE 0
+assets field nue_asset_codec.compress off=40 size=8
+assets field nue_asset_codec.compress_bound off=48 size=8
+assets field nue_asset_codec.decompress off=32 size=8
+assets field nue_asset_codec.identify off=24 size=8
+assets field nue_asset_codec.name off=8 size=8
+assets field nue_asset_codec.struct_size off=0 size=4
+assets field nue_asset_codec.userdata off=16 size=8
+assets field nue_asset_compress_params.flags off=8 size=4
+assets field nue_asset_compress_params.level off=4 size=4
+assets field nue_asset_compress_params.reserved off=12 size=20
+assets field nue_asset_compress_params.struct_size off=0 size=4
+assets field nue_asset_container_info.codec off=16 size=8
+assets field nue_asset_container_info.content_size off=40 size=8
+assets field nue_asset_container_info.dirty off=48 size=1
+assets field nue_asset_container_info.file_size off=32 size=8
+assets field nue_asset_container_info.format off=8 size=8
+assets field nue_asset_container_info.lenient_repairs off=49 size=1
+assets field nue_asset_container_info.node_count off=24 size=4
+assets field nue_asset_container_info.resource_count off=28 size=4
+assets field nue_asset_container_info.struct_size off=0 size=4
+assets field nue_asset_format.close off=56 size=8
+assets field nue_asset_format.default_codec off=96 size=8
+assets field nue_asset_format.description off=16 size=8
+assets field nue_asset_format.extensions off=24 size=8
+assets field nue_asset_format.get_image off=72 size=8
+assets field nue_asset_format.get_mesh off=104 size=8
+assets field nue_asset_format.get_native off=80 size=8
+assets field nue_asset_format.index off=64 size=8
+assets field nue_asset_format.name off=8 size=8
+assets field nue_asset_format.open off=48 size=8
+assets field nue_asset_format.probe off=40 size=8
+assets field nue_asset_format.struct_size off=0 size=4
+assets field nue_asset_format.userdata off=32 size=8
+assets field nue_asset_format.write off=88 size=8
+assets field nue_asset_mesh.bbox_max off=164 size=12
+assets field nue_asset_mesh.bbox_min off=152 size=12
+assets field nue_asset_mesh.colors off=56 size=8
+assets field nue_asset_mesh.flags off=16 size=4
+assets field nue_asset_mesh.index_count off=24 size=4
+assets field nue_asset_mesh.indices off=64 size=8
+assets field nue_asset_mesh.name off=8 size=8
+assets field nue_asset_mesh.normals off=40 size=8
+assets field nue_asset_mesh.positions off=32 size=8
+assets field nue_asset_mesh.run_count off=72 size=4
+assets field nue_asset_mesh.runs off=80 size=8
+assets field nue_asset_mesh.struct_size off=0 size=4
+assets field nue_asset_mesh.transform off=88 size=64
+assets field nue_asset_mesh.uvs off=48 size=8
+assets field nue_asset_mesh.vertex_count off=20 size=4
+assets field nue_asset_mesh_run.index_count off=4 size=4
+assets field nue_asset_mesh_run.index_offset off=0 size=4
+assets field nue_asset_mesh_run.material_hash off=8 size=8
+assets field nue_asset_mesh_run.shader_hash off=16 size=8
+assets field nue_asset_model_desc.container_count off=16 size=4
+assets field nue_asset_model_desc.containers off=8 size=8
+assets field nue_asset_model_desc.flags off=24 size=4
+assets field nue_asset_model_desc.format off=20 size=4
+assets field nue_asset_model_desc.max_meshes off=40 size=4
+assets field nue_asset_model_desc.name_filter off=32 size=8
+assets field nue_asset_model_desc.path off=48 size=8
+assets field nue_asset_model_desc.reserved off=56 size=16
+assets field nue_asset_model_desc.struct_size off=0 size=4
+assets field nue_asset_model_stats.bytes_written off=32 size=8
+assets field nue_asset_model_stats.meshes off=4 size=4
+assets field nue_asset_model_stats.meshes_skipped off=12 size=4
+assets field nue_asset_model_stats.struct_size off=0 size=4
+assets field nue_asset_model_stats.textures off=8 size=4
+assets field nue_asset_model_stats.triangles off=24 size=8
+assets field nue_asset_model_stats.vertices off=16 size=8
+assets field nue_asset_native_texture.data off=40 size=8
+assets field nue_asset_native_texture.depth off=20 size=4
+assets field nue_asset_native_texture.flags off=28 size=4
+assets field nue_asset_native_texture.height off=16 size=4
+assets field nue_asset_native_texture.mip_levels off=24 size=4
+assets field nue_asset_native_texture.native_format off=4 size=4
+assets field nue_asset_native_texture.palette_size off=32 size=4
+assets field nue_asset_native_texture.size off=48 size=8
+assets field nue_asset_native_texture.struct_size off=0 size=4
+assets field nue_asset_native_texture.tex_format off=8 size=4
+assets field nue_asset_native_texture.width off=12 size=4
+assets field nue_asset_node_info.align off=36 size=4
+assets field nue_asset_node_info.depth off=20 size=4
+assets field nue_asset_node_info.first_child off=12 size=4
+assets field nue_asset_node_info.flags off=28 size=4
+assets field nue_asset_node_info.header_size off=32 size=4
+assets field nue_asset_node_info.id off=48 size=8
+assets field nue_asset_node_info.index off=4 size=4
+assets field nue_asset_node_info.kind off=24 size=4
+assets field nue_asset_node_info.name off=72 size=8
+assets field nue_asset_node_info.next_sibling off=16 size=4
+assets field nue_asset_node_info.offset off=56 size=8
+assets field nue_asset_node_info.parent off=8 size=4
+assets field nue_asset_node_info.reserved off=40 size=4
+assets field nue_asset_node_info.size off=64 size=8
+assets field nue_asset_node_info.struct_size off=0 size=4
+assets field nue_asset_open_ctx.container off=16 size=8
+assets field nue_asset_open_ctx.flags off=32 size=4
+assets field nue_asset_open_ctx.internal off=40 size=8
+assets field nue_asset_open_ctx.ops off=8 size=8
+assets field nue_asset_open_ctx.source off=24 size=8
+assets field nue_asset_open_ctx.struct_size off=0 size=4
+assets field nue_asset_open_ctx_ops.add_node off=8 size=8
+assets field nue_asset_open_ctx_ops.get_state off=32 size=8
+assets field nue_asset_open_ctx_ops.set_state off=24 size=8
+assets field nue_asset_open_ctx_ops.struct_size off=0 size=4
+assets field nue_asset_open_ctx_ops.truncate_children off=16 size=8
+assets field nue_asset_open_desc.flags off=4 size=4
+assets field nue_asset_open_desc.format_name off=40 size=8
+assets field nue_asset_open_desc.memory off=16 size=8
+assets field nue_asset_open_desc.memory_size off=24 size=8
+assets field nue_asset_open_desc.name_hint off=32 size=8
+assets field nue_asset_open_desc.path off=8 size=8
+assets field nue_asset_open_desc.reserved off=48 size=16
+assets field nue_asset_open_desc.struct_size off=0 size=4
+assets field nue_asset_resource_info.data_size off=80 size=8
+assets field nue_asset_resource_info.depth off=52 size=4
+assets field nue_asset_resource_info.derived_node off=68 size=4
+assets field nue_asset_resource_info.flags off=20 size=4
+assets field nue_asset_resource_info.format off=40 size=4
+assets field nue_asset_resource_info.hash off=24 size=8
+assets field nue_asset_resource_info.height off=48 size=4
+assets field nue_asset_resource_info.index off=4 size=4
+assets field nue_asset_resource_info.kind off=8 size=4
+assets field nue_asset_resource_info.mip_levels off=56 size=4
+assets field nue_asset_resource_info.name off=32 size=8
+assets field nue_asset_resource_info.native_format off=60 size=4
+assets field nue_asset_resource_info.node off=12 size=4
+assets field nue_asset_resource_info.parent off=16 size=4
+assets field nue_asset_resource_info.reserved off=72 size=4
+assets field nue_asset_resource_info.struct_size off=0 size=4
+assets field nue_asset_resource_info.sub_index off=64 size=4
+assets field nue_asset_resource_info.width off=44 size=4
+assets field nue_asset_resource_ops.add_resource off=8 size=8
+assets field nue_asset_resource_ops.struct_size off=0 size=4
+assets field nue_asset_write_desc.codec off=32 size=8
+assets field nue_asset_write_desc.codec_level off=40 size=4
+assets field nue_asset_write_desc.flags off=4 size=4
+assets field nue_asset_write_desc.out_data off=16 size=8
+assets field nue_asset_write_desc.out_size off=24 size=8
+assets field nue_asset_write_desc.path off=8 size=8
+assets field nue_asset_write_desc.reserved off=44 size=16
+assets field nue_asset_write_desc.struct_size off=0 size=4
+assets field nue_assets_context_desc.budget_name off=8 size=8
+assets field nue_assets_context_desc.budget_policy off=16 size=48
+assets field nue_assets_context_desc.flags off=4 size=4
+assets field nue_assets_context_desc.reserved off=64 size=16
+assets field nue_assets_context_desc.struct_size off=0 size=4
+assets field nue_pack_builder_desc.flags off=4 size=4
+assets field nue_pack_builder_desc.reserved off=16 size=16
+assets field nue_pack_builder_desc.source_name off=8 size=8
+assets field nue_pack_builder_desc.struct_size off=0 size=4
+assets field nue_pack_convert_options.executor off=24 size=8
+assets field nue_pack_convert_options.flags off=12 size=4
+assets field nue_pack_convert_options.max_dimension off=16 size=4
+assets field nue_pack_convert_options.quality off=8 size=4
+assets field nue_pack_convert_options.reserved off=32 size=16
+assets field nue_pack_convert_options.struct_size off=0 size=4
+assets field nue_pack_convert_options.variants off=4 size=4
+assets field nue_pack_entry_info.codec off=88 size=4
+assets field nue_pack_entry_info.crc32 off=92 size=4
+assets field nue_pack_entry_info.depth off=32 size=4
+assets field nue_pack_entry_info.faces off=44 size=4
+assets field nue_pack_entry_info.flags off=16 size=4
+assets field nue_pack_entry_info.height off=28 size=4
+assets field nue_pack_entry_info.index off=4 size=4
+assets field nue_pack_entry_info.kind off=8 size=4
+assets field nue_pack_entry_info.layers off=40 size=4
+assets field nue_pack_entry_info.mip_levels off=36 size=4
+assets field nue_pack_entry_info.name off=56 size=8
+assets field nue_pack_entry_info.name_hash off=48 size=8
+assets field nue_pack_entry_info.offset off=80 size=8
+assets field nue_pack_entry_info.raw_size off=72 size=8
+assets field nue_pack_entry_info.sha256 off=96 size=32
+assets field nue_pack_entry_info.stored_size off=64 size=8
+assets field nue_pack_entry_info.struct_size off=0 size=4
+assets field nue_pack_entry_info.tex_format off=20 size=4
+assets field nue_pack_entry_info.variant off=12 size=4
+assets field nue_pack_entry_info.width off=24 size=4
+assets field nue_pack_info.codec_name off=82 size=16
+assets field nue_pack_info.entry_count off=12 size=4
+assets field nue_pack_info.format_name off=50 size=32
+assets field nue_pack_info.has_tree off=48 size=1
+assets field nue_pack_info.source_name off=40 size=8
+assets field nue_pack_info.struct_size off=0 size=4
+assets field nue_pack_info.total_size off=24 size=8
+assets field nue_pack_info.tree_node_count off=16 size=4
+assets field nue_pack_info.variant_mask off=32 size=4
+assets field nue_pack_info.verified_header off=49 size=1
+assets field nue_pack_info.version_major off=4 size=4
+assets field nue_pack_info.version_minor off=8 size=4
+assets function nue_asset_container_close
+assets function nue_asset_container_content_hash
+assets function nue_asset_container_get_info
+assets function nue_asset_container_open
+assets function nue_asset_container_write
+assets function nue_asset_export_model
+assets function nue_asset_node_count
+assets function nue_asset_node_find
+assets function nue_asset_node_get
+assets function nue_asset_node_peek
+assets function nue_asset_node_read
+assets function nue_asset_node_set_payload
+assets function nue_asset_resource_count
+assets function nue_asset_resource_edit
+assets function nue_asset_resource_find
+assets function nue_asset_resource_get
+assets function nue_asset_resource_get_image
+assets function nue_asset_resource_get_mesh
+assets function nue_asset_resource_get_native
+assets function nue_asset_resource_native_edit
+assets function nue_asset_resource_save_texture
+assets function nue_asset_resource_set_image
+assets function nue_asset_resource_set_native
+assets function nue_asset_sink_patch
+assets function nue_asset_sink_position
+assets function nue_asset_sink_write
+assets function nue_asset_source_peek
+assets function nue_asset_source_read
+assets function nue_asset_source_size
+assets function nue_assets_codec_count
+assets function nue_assets_codec_decode
+assets function nue_assets_codec_encode
+assets function nue_assets_codec_name
+assets function nue_assets_context_create
+assets function nue_assets_context_destroy
+assets function nue_assets_format_count
+assets function nue_assets_format_name
+assets function nue_assets_register_codec
+assets function nue_assets_register_format
+assets function nue_assets_register_nfs
+assets function nue_assets_version_string
+assets function nue_huff_decompress
+assets function nue_huff_identify
+assets function nue_jdlz_compress
+assets function nue_jdlz_compress_bound
+assets function nue_jdlz_decompress
+assets function nue_jdlz_identify
+assets function nue_pack_builder_add_blob
+assets function nue_pack_builder_add_container
+assets function nue_pack_builder_add_image
+assets function nue_pack_builder_create
+assets function nue_pack_builder_destroy
+assets function nue_pack_builder_write
+assets function nue_pack_close
+assets function nue_pack_entry_count
+assets function nue_pack_entry_data
+assets function nue_pack_entry_find
+assets function nue_pack_entry_get
+assets function nue_pack_entry_image
+assets function nue_pack_export_container
+assets function nue_pack_file_close
+assets function nue_pack_file_open
+assets function nue_pack_file_read_async
+assets function nue_pack_file_read_at
+assets function nue_pack_file_size
+assets function nue_pack_get_info
+assets function nue_pack_mount_create
+assets function nue_pack_mount_create_container
+assets function nue_pack_mount_create_for_caps
+assets function nue_pack_mount_destroy
+assets function nue_pack_mount_exists
+assets function nue_pack_mount_size
+assets function nue_pack_open_file
+assets function nue_pack_open_memory
+assets function nue_pack_variant_for_caps
+assets function nue_pack_variant_for_device_class
+assets function nue_pack_variant_from_name
+assets function nue_pack_variant_name
+assets function nue_pack_verify
+assets struct nue_asset_codec size=56 align=8
+assets struct nue_asset_compress_params size=32 align=4
+assets struct nue_asset_container_info size=56 align=8
+assets struct nue_asset_format size=112 align=8
+assets struct nue_asset_mesh size=176 align=8
+assets struct nue_asset_mesh_run size=24 align=8
+assets struct nue_asset_model_desc size=72 align=8
+assets struct nue_asset_model_stats size=40 align=8
+assets struct nue_asset_native_texture size=56 align=8
+assets struct nue_asset_node_info size=80 align=8
+assets struct nue_asset_open_ctx size=48 align=8
+assets struct nue_asset_open_ctx_ops size=40 align=8
+assets struct nue_asset_open_desc size=64 align=8
+assets struct nue_asset_resource_info size=88 align=8
+assets struct nue_asset_resource_ops size=16 align=8
+assets struct nue_asset_write_desc size=64 align=8
+assets struct nue_assets_context_desc size=80 align=8
+assets struct nue_pack_builder_desc size=32 align=8
+assets struct nue_pack_convert_options size=48 align=8
+assets struct nue_pack_entry_info size=128 align=8
+assets struct nue_pack_info size=104 align=8
+core define NUE_AUDIO_MAX_CHANNELS 8
+core define NUE_BUS_MAX_EFFECTS 4
+core define NUE_KEYCODE_SCANCODE_MASK 1073741824
+core define NUE_MAX_FINGERS 16
+core define NUE_MAX_GPUS 8
+core define NUE_SCANCODE_COUNT 512
+core define NUE_SUBSYSTEM_ALL_DEFAULT 4294967295
+core enum NUE_APP_CONTINUE 0
+core enum NUE_APP_QUIT_FAILURE 2
+core enum NUE_APP_QUIT_OK 1
+core enum NUE_APP_STATE_BACKGROUND 2
+core enum NUE_APP_STATE_FOREGROUND 0
+core enum NUE_APP_STATE_INACTIVE 1
+core enum NUE_APP_STATE_TERMINATING 3
+core enum NUE_ARCH_KIND_ARM32 3
+core enum NUE_ARCH_KIND_ARM64 4
+core enum NUE_ARCH_KIND_UNKNOWN 0
+core enum NUE_ARCH_KIND_X64 2
+core enum NUE_ARCH_KIND_X86 1
+core enum NUE_ASSERT_ABORT 2
+core enum NUE_ASSERT_BREAK 0
+core enum NUE_ASSERT_IGNORE 1
+core enum NUE_ATTEN_EXPONENTIAL 2
+core enum NUE_ATTEN_INVERSE 0
+core enum NUE_ATTEN_LINEAR 1
+core enum NUE_ATTEN_NONE 3
+core enum NUE_AUDIO_CAPTURE 16
+core enum NUE_AUDIO_EXACT_FORMAT 4
+core enum NUE_AUDIO_F32 2
+core enum NUE_AUDIO_FORMAT_UNKNOWN 0
+core enum NUE_AUDIO_KEEP_RUNNING_IN_BACKGROUND 1
+core enum NUE_AUDIO_LOW_LATENCY 8
+core enum NUE_AUDIO_S16 1
+core enum NUE_AUDIO_START_PAUSED 2
+core enum NUE_AUDIO_U8 3
+core enum NUE_BACKEND_AUTO 0
+core enum NUE_BACKEND_NULL 1
+core enum NUE_BACKEND_SDL3 2
+core enum NUE_BUDGET_AUDIO 3
+core enum NUE_BUDGET_CACHE_DISK 5
+core enum NUE_BUDGET_CACHE_RAM 4
+core enum NUE_BUDGET_GAME 100
+core enum NUE_BUDGET_GEOMETRY 2
+core enum NUE_BUDGET_IMPORT_STAGING 6
+core enum NUE_BUDGET_TEXTURE 1
+core enum NUE_CAP_ACCELEROMETER 17
+core enum NUE_CAP_ASYNC_IO 25
+core enum NUE_CAP_ATTACH_NATIVE_WINDOW 4
+core enum NUE_CAP_AUDIO_CAPTURE 21
+core enum NUE_CAP_AUDIO_DEVICE_SELECTION 23
+core enum NUE_CAP_AUDIO_LOW_LATENCY 22
+core enum NUE_CAP_AUDIO_OUTPUT 20
+core enum NUE_CAP_BATTERY 30
+core enum NUE_CAP_CORE_CLASS 36
+core enum NUE_CAP_COUNT 49
+core enum NUE_CAP_CRASH_HANDLER 39
+core enum NUE_CAP_CURSOR_CLIP 7
+core enum NUE_CAP_DATA_IMPORT 26
+core enum NUE_CAP_DATA_IMPORT_PICKER 27
+core enum NUE_CAP_DISPLAY_MODE_CHANGE 3
+core enum NUE_CAP_EXCLUSIVE_FULLSCREEN 2
+core enum NUE_CAP_GAMEPAD 11
+core enum NUE_CAP_GAMEPAD_LED 13
+core enum NUE_CAP_GAMEPAD_RUMBLE 12
+core enum NUE_CAP_GAMEPAD_SENSORS 14
+core enum NUE_CAP_GAME_MODE 28
+core enum NUE_CAP_GFX_D3D11 42
+core enum NUE_CAP_GFX_D3D12 43
+core enum NUE_CAP_GFX_D3D9_LAYER 48
+core enum NUE_CAP_GFX_GLES 47
+core enum NUE_CAP_GFX_METAL 45
+core enum NUE_CAP_GFX_OPENGL 46
+core enum NUE_CAP_GFX_VULKAN 44
+core enum NUE_CAP_GPU_PREFERENCE 38
+core enum NUE_CAP_GYROSCOPE 18
+core enum NUE_CAP_HAPTICS 19
+core enum NUE_CAP_HIGH_DPI 5
+core enum NUE_CAP_KEEP_AWAKE 32
+core enum NUE_CAP_KEYBOARD 9
+core enum NUE_CAP_LIFECYCLE_PAUSE 41
+core enum NUE_CAP_LOW_POWER_MODE 31
+core enum NUE_CAP_MINIDUMP 40
+core enum NUE_CAP_MMAP_FILES 24
+core enum NUE_CAP_MOUSE 10
+core enum NUE_CAP_MULTIPLE_WINDOWS 1
+core enum NUE_CAP_PERF_HINT 37
+core enum NUE_CAP_RELATIVE_MOUSE 8
+core enum NUE_CAP_SAFE_AREA 6
+core enum NUE_CAP_SCREEN_KEYBOARD 16
+core enum NUE_CAP_THERMAL_STATE 29
+core enum NUE_CAP_THREAD_AFFINITY 35
+core enum NUE_CAP_THREAD_PRIORITY 34
+core enum NUE_CAP_TIMER_RESOLUTION 33
+core enum NUE_CAP_TOUCH 15
+core enum NUE_CAP_WINDOWS 0
+core enum NUE_CONFIG_BOOL 1
+core enum NUE_CONFIG_DOUBLE 3
+core enum NUE_CONFIG_INT 2
+core enum NUE_CONFIG_NONE 0
+core enum NUE_CONFIG_STRING 4
+core enum NUE_COUNTER_ACCUMULATOR 2
+core enum NUE_COUNTER_GAUGE 1
+core enum NUE_COUNTER_TIMER_NS 3
+core enum NUE_CPU_AVX 8
+core enum NUE_CPU_AVX2 16
+core enum NUE_CPU_AVX512 32
+core enum NUE_CPU_DEFAULT 0
+core enum NUE_CPU_EFFICIENCY_CORES 2
+core enum NUE_CPU_FMA 128
+core enum NUE_CPU_NEON 64
+core enum NUE_CPU_PERFORMANCE_CORES 1
+core enum NUE_CPU_POPCNT 256
+core enum NUE_CPU_SSE2 1
+core enum NUE_CPU_SSE41 2
+core enum NUE_CPU_SSE42 4
+core enum NUE_CRASH_DEFAULT 29
+core enum NUE_CRASH_FULL_DUMP 2
+core enum NUE_CRASH_INCLUDE_LOG 4
+core enum NUE_CRASH_MINIDUMP 1
+core enum NUE_CRASH_NO_UI 8
+core enum NUE_CRASH_RELEASE_CURSOR 16
+core enum NUE_CURSOR_CROSSHAIR 3
+core enum NUE_CURSOR_DEFAULT 0
+core enum NUE_CURSOR_HAND 4
+core enum NUE_CURSOR_MOVE 5
+core enum NUE_CURSOR_NOT_ALLOWED 10
+core enum NUE_CURSOR_RESIZE_EW 7
+core enum NUE_CURSOR_RESIZE_NESW 8
+core enum NUE_CURSOR_RESIZE_NS 6
+core enum NUE_CURSOR_RESIZE_NWSE 9
+core enum NUE_CURSOR_TEXT 1
+core enum NUE_CURSOR_WAIT 2
+core enum NUE_DEVICE_DESKTOP 1
+core enum NUE_DEVICE_HANDHELD 5
+core enum NUE_DEVICE_LAPTOP 2
+core enum NUE_DEVICE_PHONE 3
+core enum NUE_DEVICE_TABLET 4
+core enum NUE_DEVICE_TV 6
+core enum NUE_DEVICE_UNKNOWN 0
+core enum NUE_EFFECT_CALLBACK 6
+core enum NUE_EFFECT_COMPRESSOR 5
+core enum NUE_EFFECT_ECHO 3
+core enum NUE_EFFECT_HIGHPASS 2
+core enum NUE_EFFECT_LOWPASS 1
+core enum NUE_EFFECT_NONE 0
+core enum NUE_EFFECT_REVERB 4
+core enum NUE_ENTRY_DIRECTORY 2
+core enum NUE_ENTRY_FILE 1
+core enum NUE_ENTRY_NONE 0
+core enum NUE_ENTRY_OTHER 3
+core enum NUE_ERR_ACCESS_DENIED -10
+core enum NUE_ERR_ALREADY_EXISTS -9
+core enum NUE_ERR_ALREADY_INITIALIZED -5
+core enum NUE_ERR_BACKEND -23
+core enum NUE_ERR_BAD_STATE -15
+core enum NUE_ERR_BUFFER_TOO_SMALL -13
+core enum NUE_ERR_BUSY -20
+core enum NUE_ERR_CANCELLED -18
+core enum NUE_ERR_CORRUPT -22
+core enum NUE_ERR_DEVICE_LOST -17
+core enum NUE_ERR_END_OF_DATA -19
+core enum NUE_ERR_FAILED -1
+core enum NUE_ERR_INVALID_ARGUMENT -2
+core enum NUE_ERR_INVALID_HANDLE -3
+core enum NUE_ERR_IO -11
+core enum NUE_ERR_NOT_FOUND -8
+core enum NUE_ERR_NOT_INITIALIZED -4
+core enum NUE_ERR_OUT_OF_MEMORY -7
+core enum NUE_ERR_OVERFLOW -24
+core enum NUE_ERR_TIMEOUT -12
+core enum NUE_ERR_UNSUPPORTED -6
+core enum NUE_ERR_VERSION_MISMATCH -16
+core enum NUE_ERR_WOULD_BLOCK -21
+core enum NUE_ERR_WRONG_THREAD -14
+core enum NUE_EVENT_APP_LOW_MEMORY 258
+core enum NUE_EVENT_APP_PAUSED 260
+core enum NUE_EVENT_APP_PAUSING 259
+core enum NUE_EVENT_APP_RESUMED 262
+core enum NUE_EVENT_APP_RESUMING 261
+core enum NUE_EVENT_APP_TERMINATING 257
+core enum NUE_EVENT_AUDIO_DEFAULT_CHANGED 2050
+core enum NUE_EVENT_AUDIO_DEVICE_ADDED 2048
+core enum NUE_EVENT_AUDIO_DEVICE_REMOVED 2049
+core enum NUE_EVENT_AUDIO_INTERRUPTED 2051
+core enum NUE_EVENT_AUDIO_RESUMED 2052
+core enum NUE_EVENT_AUDIO_ROUTE_CHANGED 2053
+core enum NUE_EVENT_DISPLAY_ADDED 336
+core enum NUE_EVENT_DISPLAY_CHANGED 338
+core enum NUE_EVENT_DISPLAY_REMOVED 337
+core enum NUE_EVENT_FINGER_CANCELED 1539
+core enum NUE_EVENT_FINGER_DOWN 1536
+core enum NUE_EVENT_FINGER_MOTION 1538
+core enum NUE_EVENT_FINGER_UP 1537
+core enum NUE_EVENT_GAMEPAD_ADDED 1280
+core enum NUE_EVENT_GAMEPAD_AXIS 1284
+core enum NUE_EVENT_GAMEPAD_BATTERY_CHANGED 1285
+core enum NUE_EVENT_GAMEPAD_BUTTON_DOWN 1282
+core enum NUE_EVENT_GAMEPAD_BUTTON_UP 1283
+core enum NUE_EVENT_GAMEPAD_REMAPPED 1286
+core enum NUE_EVENT_GAMEPAD_REMOVED 1281
+core enum NUE_EVENT_GAME_MODE_CHANGED 2307
+core enum NUE_EVENT_IMPORT_FINISHED 2562
+core enum NUE_EVENT_IMPORT_PROGRESS 2561
+core enum NUE_EVENT_INPUT_DEVICE_CHANGED 1920
+core enum NUE_EVENT_IO_COMPLETE 2560
+core enum NUE_EVENT_KEY_DOWN 768
+core enum NUE_EVENT_KEY_UP 769
+core enum NUE_EVENT_LOCALE_CHANGED 263
+core enum NUE_EVENT_LOW_POWER_MODE_CHANGED 2306
+core enum NUE_EVENT_MEMORY_PRESSURE 2308
+core enum NUE_EVENT_MOUSE_BUTTON_DOWN 1025
+core enum NUE_EVENT_MOUSE_BUTTON_UP 1026
+core enum NUE_EVENT_MOUSE_MOTION 1024
+core enum NUE_EVENT_MOUSE_WHEEL 1027
+core enum NUE_EVENT_NONE 0
+core enum NUE_EVENT_POWER_CHANGED 2304
+core enum NUE_EVENT_QUIT 256
+core enum NUE_EVENT_SENSOR_UPDATE 1792
+core enum NUE_EVENT_SURFACE_CREATED 531
+core enum NUE_EVENT_SURFACE_LOST 532
+core enum NUE_EVENT_SYSTEM_RESUMED 2310
+core enum NUE_EVENT_SYSTEM_SUSPENDING 2309
+core enum NUE_EVENT_SYSTEM_THEME_CHANGED 264
+core enum NUE_EVENT_TEXT_EDITING 771
+core enum NUE_EVENT_TEXT_INPUT 770
+core enum NUE_EVENT_THERMAL_CHANGED 2305
+core enum NUE_EVENT_USER 32768
+core enum NUE_EVENT_WINDOW_CLOSE_REQUESTED 524
+core enum NUE_EVENT_WINDOW_CONTENT_SCALE_CHANGED 526
+core enum NUE_EVENT_WINDOW_DISPLAY_CHANGED 525
+core enum NUE_EVENT_WINDOW_ENTER_FULLSCREEN 528
+core enum NUE_EVENT_WINDOW_FOCUS_GAINED 520
+core enum NUE_EVENT_WINDOW_FOCUS_LOST 521
+core enum NUE_EVENT_WINDOW_HIDDEN 513
+core enum NUE_EVENT_WINDOW_LEAVE_FULLSCREEN 529
+core enum NUE_EVENT_WINDOW_MAXIMIZED 518
+core enum NUE_EVENT_WINDOW_MINIMIZED 517
+core enum NUE_EVENT_WINDOW_MOUSE_ENTER 522
+core enum NUE_EVENT_WINDOW_MOUSE_LEAVE 523
+core enum NUE_EVENT_WINDOW_MOVED 514
+core enum NUE_EVENT_WINDOW_OCCLUDED 530
+core enum NUE_EVENT_WINDOW_PIXEL_SIZE_CHANGED 516
+core enum NUE_EVENT_WINDOW_RESIZED 515
+core enum NUE_EVENT_WINDOW_RESTORED 519
+core enum NUE_EVENT_WINDOW_SAFE_AREA_CHANGED 527
+core enum NUE_EVENT_WINDOW_SHOWN 512
+core enum NUE_FMTSUP_BLEND 16
+core enum NUE_FMTSUP_EMULATED 256
+core enum NUE_FMTSUP_FILTER 2
+core enum NUE_FMTSUP_MIPMAPS 4
+core enum NUE_FMTSUP_MSAA 128
+core enum NUE_FMTSUP_RENDER_TARGET 8
+core enum NUE_FMTSUP_SAMPLE 1
+core enum NUE_FMTSUP_SRGB 32
+core enum NUE_FMTSUP_STORAGE 64
+core enum NUE_FMT_ASTC_HDR 28
+core enum NUE_FMT_ASTC_LDR 27
+core enum NUE_FMT_ATC 31
+core enum NUE_FMT_BC1 15
+core enum NUE_FMT_BC2 16
+core enum NUE_FMT_BC3 17
+core enum NUE_FMT_BC4 18
+core enum NUE_FMT_BC5 19
+core enum NUE_FMT_BC6H 20
+core enum NUE_FMT_BC7 21
+core enum NUE_FMT_BGRA8 1
+core enum NUE_FMT_DEPTH16 11
+core enum NUE_FMT_DEPTH24_STENCIL8 12
+core enum NUE_FMT_DEPTH32F 13
+core enum NUE_FMT_DEPTH32F_STENCIL8 14
+core enum NUE_FMT_EAC_R11 25
+core enum NUE_FMT_EAC_RG11 26
+core enum NUE_FMT_ETC1 22
+core enum NUE_FMT_ETC2_RGB 23
+core enum NUE_FMT_ETC2_RGBA 24
+core enum NUE_FMT_FAMILY_COUNT 32
+core enum NUE_FMT_PVRTC1 29
+core enum NUE_FMT_PVRTC2 30
+core enum NUE_FMT_R16F 7
+core enum NUE_FMT_R8 5
+core enum NUE_FMT_RG8 6
+core enum NUE_FMT_RGB10A2 10
+core enum NUE_FMT_RGB565 2
+core enum NUE_FMT_RGB5A1 4
+core enum NUE_FMT_RGBA16F 8
+core enum NUE_FMT_RGBA32F 9
+core enum NUE_FMT_RGBA4444 3
+core enum NUE_FMT_RGBA8 0
+core enum NUE_GAME_HINT_GAMEPLAY 1
+core enum NUE_GAME_HINT_LOADING 3
+core enum NUE_GAME_HINT_MENU 2
+core enum NUE_GAME_HINT_NONE 0
+core enum NUE_GAME_HINT_PAUSED 4
+core enum NUE_GAME_MODE_BATTERY 4
+core enum NUE_GAME_MODE_OFF 1
+core enum NUE_GAME_MODE_ON 2
+core enum NUE_GAME_MODE_PERFORMANCE 3
+core enum NUE_GAME_MODE_UNKNOWN 0
+core enum NUE_GFX_CAPTURE 128
+core enum NUE_GFX_DEBUG 2
+core enum NUE_GFX_HDR10 4
+core enum NUE_GFX_MAXANISOTROPY 64
+core enum NUE_GFX_NOTIFY_DESTROYING 6
+core enum NUE_GFX_NOTIFY_DEVICE_LOST 5
+core enum NUE_GFX_NOTIFY_DEVICE_RESET 7
+core enum NUE_GFX_NOTIFY_RESIZED 1
+core enum NUE_GFX_NOTIFY_RESUMED 4
+core enum NUE_GFX_NOTIFY_SUSPENDED 3
+core enum NUE_GFX_NOTIFY_VSYNC_CHANGED 2
+core enum NUE_GFX_PREPARE_ONLY 16
+core enum NUE_GFX_SINGLE_THREADED 32
+core enum NUE_GFX_SRGB_BACKBUFFER 8
+core enum NUE_GFX_STATE_DEVICE_LOST 2
+core enum NUE_GFX_STATE_NEEDS_RESET 3
+core enum NUE_GFX_STATE_OK 0
+core enum NUE_GFX_STATE_ORPHANED 4
+core enum NUE_GFX_STATE_SUSPENDED 1
+core enum NUE_GFX_VSYNC 1
+core enum NUE_GLYPHS_GENERIC_GAMEPAD 4
+core enum NUE_GLYPHS_KEYBOARD_MOUSE 0
+core enum NUE_GLYPHS_NINTENDO 3
+core enum NUE_GLYPHS_PLAYSTATION 2
+core enum NUE_GLYPHS_STEAM 6
+core enum NUE_GLYPHS_TOUCH 5
+core enum NUE_GLYPHS_XBOX 1
+core enum NUE_GPU_DEFAULT 0
+core enum NUE_GPU_HIGH_PERFORMANCE 1
+core enum NUE_GPU_LOW_POWER 2
+core enum NUE_IMPORT_FLATTEN_ROOT 8
+core enum NUE_IMPORT_MOVE 4
+core enum NUE_IMPORT_SKIP_EXISTING 2
+core enum NUE_IMPORT_SOURCE_PATH 1
+core enum NUE_IMPORT_SOURCE_PICKER 2
+core enum NUE_IMPORT_SOURCE_URI 3
+core enum NUE_IMPORT_VERIFY 1
+core enum NUE_INIT_DETERMINISTIC 16
+core enum NUE_INIT_HEADLESS 1
+core enum NUE_INIT_NO_CONFIG_LOAD 8
+core enum NUE_INIT_NO_CRASH_HANDLER 4
+core enum NUE_INIT_NO_LOG_FILE 2
+core enum NUE_INPUT_DEVICE_GAMEPAD 2
+core enum NUE_INPUT_DEVICE_KEYBOARD_MOUSE 1
+core enum NUE_INPUT_DEVICE_NONE 0
+core enum NUE_INPUT_DEVICE_TOUCH 3
+core enum NUE_KEEP_AWAKE_DISPLAY 1
+core enum NUE_KEEP_AWAKE_NONE 0
+core enum NUE_KEEP_AWAKE_SYSTEM 2
+core enum NUE_KMOD_ALT 768
+core enum NUE_KMOD_CAPS 8192
+core enum NUE_KMOD_CTRL 192
+core enum NUE_KMOD_GUI 3072
+core enum NUE_KMOD_LALT 256
+core enum NUE_KMOD_LCTRL 64
+core enum NUE_KMOD_LGUI 1024
+core enum NUE_KMOD_LSHIFT 1
+core enum NUE_KMOD_NUM 4096
+core enum NUE_KMOD_RALT 512
+core enum NUE_KMOD_RCTRL 128
+core enum NUE_KMOD_RGUI 2048
+core enum NUE_KMOD_RSHIFT 2
+core enum NUE_KMOD_SHIFT 3
+core enum NUE_LOG_DEBUG 2
+core enum NUE_LOG_ERROR 5
+core enum NUE_LOG_FATAL 6
+core enum NUE_LOG_INFO 3
+core enum NUE_LOG_OFF 100
+core enum NUE_LOG_SINK_CALLBACK 4
+core enum NUE_LOG_SINK_FILE 2
+core enum NUE_LOG_SINK_MEMORY_RING 5
+core enum NUE_LOG_SINK_PLATFORM 3
+core enum NUE_LOG_SINK_STDERR 1
+core enum NUE_LOG_TRACE 1
+core enum NUE_LOG_WARN 4
+core enum NUE_LOOP_ENGINE 1
+core enum NUE_LOOP_HOST 0
+core enum NUE_MIXER_MANUAL 1
+core enum NUE_MIXER_START_PAUSED 2
+core enum NUE_MOUNT_APPEND 8
+core enum NUE_MOUNT_CASE_SENSITIVE 2
+core enum NUE_MOUNT_CREATE_DIRECTORY 4
+core enum NUE_MOUNT_READ_ONLY 1
+core enum NUE_MOUSE_LEFT 1
+core enum NUE_MOUSE_MIDDLE 2
+core enum NUE_MOUSE_RIGHT 3
+core enum NUE_MOUSE_X1 4
+core enum NUE_MOUSE_X2 5
+core enum NUE_NATIVE_ANDROID_WINDOW 4
+core enum NUE_NATIVE_COCOA_WINDOW 6
+core enum NUE_NATIVE_NONE 0
+core enum NUE_NATIVE_UIKIT_WINDOW 5
+core enum NUE_NATIVE_WAYLAND_SURFACE 3
+core enum NUE_NATIVE_WIN32_HWND 1
+core enum NUE_NATIVE_X11_WINDOW 2
+core enum NUE_OK 0
+core enum NUE_OK_NOOP 3
+core enum NUE_OK_PARTIAL 2
+core enum NUE_OK_PENDING 1
+core enum NUE_OPEN_APPEND 16
+core enum NUE_OPEN_CREATE 4
+core enum NUE_OPEN_EXCLUSIVE 32
+core enum NUE_OPEN_RANDOM 128
+core enum NUE_OPEN_RAW 256
+core enum NUE_OPEN_READ 1
+core enum NUE_OPEN_SEQUENTIAL 64
+core enum NUE_OPEN_TRUNCATE 8
+core enum NUE_OPEN_WRITE 2
+core enum NUE_ORIENTATION_LANDSCAPE 1
+core enum NUE_ORIENTATION_LANDSCAPE_FLIPPED 2
+core enum NUE_ORIENTATION_PORTRAIT 3
+core enum NUE_ORIENTATION_PORTRAIT_FLIPPED 4
+core enum NUE_ORIENTATION_UNKNOWN 0
+core enum NUE_OS_ANDROID 3
+core enum NUE_OS_IOS 4
+core enum NUE_OS_LINUX 2
+core enum NUE_OS_MACOS 5
+core enum NUE_OS_UNKNOWN 0
+core enum NUE_OS_WINDOWS 1
+core enum NUE_PADCAP_ACCEL 32
+core enum NUE_PADCAP_GYRO 16
+core enum NUE_PADCAP_HAS_MAPPING 64
+core enum NUE_PADCAP_LED 4
+core enum NUE_PADCAP_RUMBLE 1
+core enum NUE_PADCAP_TOUCHPAD 8
+core enum NUE_PADCAP_TRIGGER_RUMBLE 2
+core enum NUE_PAD_AXIS_COUNT 6
+core enum NUE_PAD_AXIS_LEFTX 0
+core enum NUE_PAD_AXIS_LEFTY 1
+core enum NUE_PAD_AXIS_LEFT_TRIGGER 4
+core enum NUE_PAD_AXIS_RIGHTX 2
+core enum NUE_PAD_AXIS_RIGHTY 3
+core enum NUE_PAD_AXIS_RIGHT_TRIGGER 5
+core enum NUE_PAD_BACK 4
+core enum NUE_PAD_BUTTON_COUNT 21
+core enum NUE_PAD_DPAD_DOWN 12
+core enum NUE_PAD_DPAD_LEFT 13
+core enum NUE_PAD_DPAD_RIGHT 14
+core enum NUE_PAD_DPAD_UP 11
+core enum NUE_PAD_EAST 1
+core enum NUE_PAD_GUIDE 5
+core enum NUE_PAD_LEFT_SHOULDER 9
+core enum NUE_PAD_LEFT_STICK 7
+core enum NUE_PAD_MISC1 15
+core enum NUE_PAD_NORTH 3
+core enum NUE_PAD_PADDLE1 16
+core enum NUE_PAD_PADDLE2 17
+core enum NUE_PAD_PADDLE3 18
+core enum NUE_PAD_PADDLE4 19
+core enum NUE_PAD_POWER_CHARGING 3
+core enum NUE_PAD_POWER_FULL 4
+core enum NUE_PAD_POWER_ON_BATTERY 2
+core enum NUE_PAD_POWER_UNKNOWN 0
+core enum NUE_PAD_POWER_WIRED 1
+core enum NUE_PAD_RIGHT_SHOULDER 10
+core enum NUE_PAD_RIGHT_STICK 8
+core enum NUE_PAD_SOUTH 0
+core enum NUE_PAD_START 6
+core enum NUE_PAD_TOUCHPAD 20
+core enum NUE_PAD_TYPE_PS3 4
+core enum NUE_PAD_TYPE_PS4 5
+core enum NUE_PAD_TYPE_PS5 6
+core enum NUE_PAD_TYPE_STANDARD 1
+core enum NUE_PAD_TYPE_SWITCH_JOYCON_LEFT 8
+core enum NUE_PAD_TYPE_SWITCH_JOYCON_PAIR 10
+core enum NUE_PAD_TYPE_SWITCH_JOYCON_RIGHT 9
+core enum NUE_PAD_TYPE_SWITCH_PRO 7
+core enum NUE_PAD_TYPE_UNKNOWN 0
+core enum NUE_PAD_TYPE_XBOX360 2
+core enum NUE_PAD_TYPE_XBOXONE 3
+core enum NUE_PAD_WEST 2
+core enum NUE_PERF_BALANCED 1
+core enum NUE_PERF_DEFAULT 0
+core enum NUE_PERF_HIGH 2
+core enum NUE_PERF_POWER_SAVER 4
+core enum NUE_PERF_SUSTAINED 3
+core enum NUE_PLATFORM_COMPAT_LAYER 2048
+core enum NUE_PLATFORM_FLATPAK 256
+core enum NUE_PLATFORM_GAMESCOPE 32
+core enum NUE_PLATFORM_HANDHELD 1
+core enum NUE_PLATFORM_READ_ONLY_ROOT 512
+core enum NUE_PLATFORM_REMOVABLE_STORAGE 1024
+core enum NUE_PLATFORM_STEAMOS 2
+core enum NUE_PLATFORM_STEAM_DECK 4
+core enum NUE_PLATFORM_STEAM_FRAME 16
+core enum NUE_PLATFORM_STEAM_GAMING_MODE 64
+core enum NUE_PLATFORM_STEAM_MACHINE 8
+core enum NUE_PLATFORM_STEAM_RUNTIME 128
+core enum NUE_PLATFORM_TV_UI 4096
+core enum NUE_POWER_APPLIED_AUDIO 256
+core enum NUE_POWER_APPLIED_CPU 16
+core enum NUE_POWER_APPLIED_FRAME_TIME 64
+core enum NUE_POWER_APPLIED_GAME_HINT 2
+core enum NUE_POWER_APPLIED_GPU 8
+core enum NUE_POWER_APPLIED_KEEP_AWAKE 4
+core enum NUE_POWER_APPLIED_PROFILE 1
+core enum NUE_POWER_APPLIED_TDP 512
+core enum NUE_POWER_APPLIED_THROTTLING 128
+core enum NUE_POWER_APPLIED_TIMER 32
+core enum NUE_POWER_CHARGED 4
+core enum NUE_POWER_CHARGING 3
+core enum NUE_POWER_NO_BATTERY 2
+core enum NUE_POWER_ON_BATTERY 1
+core enum NUE_POWER_UNKNOWN 0
+core enum NUE_PRESSURE_CRITICAL 3
+core enum NUE_PRESSURE_HIGH 2
+core enum NUE_PRESSURE_MODERATE 1
+core enum NUE_PRESSURE_NONE 0
+core enum NUE_RENDERER_AUTO 0
+core enum NUE_RENDERER_D3D11 2
+core enum NUE_RENDERER_D3D12 3
+core enum NUE_RENDERER_GLES 7
+core enum NUE_RENDERER_METAL 5
+core enum NUE_RENDERER_NOOP 1
+core enum NUE_RENDERER_OPENGL 6
+core enum NUE_RENDERER_VULKAN 4
+core enum NUE_ROOT_CACHE 3
+core enum NUE_ROOT_CUSTOM 100
+core enum NUE_ROOT_DATA 1
+core enum NUE_ROOT_SETTINGS 4
+core enum NUE_ROOT_TEMP 5
+core enum NUE_ROOT_USER 2
+core enum NUE_SC_0 39
+core enum NUE_SC_1 30
+core enum NUE_SC_2 31
+core enum NUE_SC_3 32
+core enum NUE_SC_4 33
+core enum NUE_SC_5 34
+core enum NUE_SC_6 35
+core enum NUE_SC_7 36
+core enum NUE_SC_8 37
+core enum NUE_SC_9 38
+core enum NUE_SC_A 4
+core enum NUE_SC_AC_BACK 270
+core enum NUE_SC_APOSTROPHE 52
+core enum NUE_SC_APPLICATION 101
+core enum NUE_SC_B 5
+core enum NUE_SC_BACKSLASH 49
+core enum NUE_SC_BACKSPACE 42
+core enum NUE_SC_C 6
+core enum NUE_SC_CAPSLOCK 57
+core enum NUE_SC_COMMA 54
+core enum NUE_SC_D 7
+core enum NUE_SC_DELETE 76
+core enum NUE_SC_DOWN 81
+core enum NUE_SC_E 8
+core enum NUE_SC_END 77
+core enum NUE_SC_EQUALS 46
+core enum NUE_SC_ESCAPE 41
+core enum NUE_SC_F 9
+core enum NUE_SC_F1 58
+core enum NUE_SC_F10 67
+core enum NUE_SC_F11 68
+core enum NUE_SC_F12 69
+core enum NUE_SC_F13 104
+core enum NUE_SC_F14 105
+core enum NUE_SC_F15 106
+core enum NUE_SC_F16 107
+core enum NUE_SC_F17 108
+core enum NUE_SC_F18 109
+core enum NUE_SC_F19 110
+core enum NUE_SC_F2 59
+core enum NUE_SC_F20 111
+core enum NUE_SC_F21 112
+core enum NUE_SC_F22 113
+core enum NUE_SC_F23 114
+core enum NUE_SC_F24 115
+core enum NUE_SC_F3 60
+core enum NUE_SC_F4 61
+core enum NUE_SC_F5 62
+core enum NUE_SC_F6 63
+core enum NUE_SC_F7 64
+core enum NUE_SC_F8 65
+core enum NUE_SC_F9 66
+core enum NUE_SC_G 10
+core enum NUE_SC_GRAVE 53
+core enum NUE_SC_H 11
+core enum NUE_SC_HOME 74
+core enum NUE_SC_I 12
+core enum NUE_SC_INSERT 73
+core enum NUE_SC_J 13
+core enum NUE_SC_K 14
+core enum NUE_SC_KP_0 98
+core enum NUE_SC_KP_1 89
+core enum NUE_SC_KP_2 90
+core enum NUE_SC_KP_3 91
+core enum NUE_SC_KP_4 92
+core enum NUE_SC_KP_5 93
+core enum NUE_SC_KP_6 94
+core enum NUE_SC_KP_7 95
+core enum NUE_SC_KP_8 96
+core enum NUE_SC_KP_9 97
+core enum NUE_SC_KP_DIVIDE 84
+core enum NUE_SC_KP_ENTER 88
+core enum NUE_SC_KP_EQUALS 103
+core enum NUE_SC_KP_MINUS 86
+core enum NUE_SC_KP_MULTIPLY 85
+core enum NUE_SC_KP_PERIOD 99
+core enum NUE_SC_KP_PLUS 87
+core enum NUE_SC_L 15
+core enum NUE_SC_LALT 226
+core enum NUE_SC_LCTRL 224
+core enum NUE_SC_LEFT 80
+core enum NUE_SC_LEFTBRACKET 47
+core enum NUE_SC_LGUI 227
+core enum NUE_SC_LSHIFT 225
+core enum NUE_SC_M 16
+core enum NUE_SC_MINUS 45
+core enum NUE_SC_MUTE 127
+core enum NUE_SC_N 17
+core enum NUE_SC_NONUSBACKSLASH 100
+core enum NUE_SC_NONUSHASH 50
+core enum NUE_SC_NUMLOCK 83
+core enum NUE_SC_O 18
+core enum NUE_SC_P 19
+core enum NUE_SC_PAGEDOWN 78
+core enum NUE_SC_PAGEUP 75
+core enum NUE_SC_PAUSE 72
+core enum NUE_SC_PERIOD 55
+core enum NUE_SC_PRINTSCREEN 70
+core enum NUE_SC_Q 20
+core enum NUE_SC_R 21
+core enum NUE_SC_RALT 230
+core enum NUE_SC_RCTRL 228
+core enum NUE_SC_RETURN 40
+core enum NUE_SC_RGUI 231
+core enum NUE_SC_RIGHT 79
+core enum NUE_SC_RIGHTBRACKET 48
+core enum NUE_SC_RSHIFT 229
+core enum NUE_SC_S 22
+core enum NUE_SC_SCROLLLOCK 71
+core enum NUE_SC_SEMICOLON 51
+core enum NUE_SC_SLASH 56
+core enum NUE_SC_SPACE 44
+core enum NUE_SC_T 23
+core enum NUE_SC_TAB 43
+core enum NUE_SC_U 24
+core enum NUE_SC_UNKNOWN 0
+core enum NUE_SC_UP 82
+core enum NUE_SC_V 25
+core enum NUE_SC_VOLUMEDOWN 129
+core enum NUE_SC_VOLUMEUP 128
+core enum NUE_SC_W 26
+core enum NUE_SC_X 27
+core enum NUE_SC_Y 28
+core enum NUE_SC_Z 29
+core enum NUE_SEEK_CUR 1
+core enum NUE_SEEK_END 2
+core enum NUE_SEEK_SET 0
+core enum NUE_SENSOR_ACCELEROMETER 1
+core enum NUE_SENSOR_GRAVITY 3
+core enum NUE_SENSOR_GYROSCOPE 2
+core enum NUE_SENSOR_ROTATION_VECTOR 4
+core enum NUE_SLEEP_COARSE 0
+core enum NUE_SLEEP_PRECISE 1
+core enum NUE_SUBSYSTEM_AUDIO 8
+core enum NUE_SUBSYSTEM_EVENTS 1
+core enum NUE_SUBSYSTEM_GFX 32
+core enum NUE_SUBSYSTEM_INPUT 4
+core enum NUE_SUBSYSTEM_POWER 16
+core enum NUE_SUBSYSTEM_VIDEO 2
+core enum NUE_TEST_CRASH_ABORT 2
+core enum NUE_TEST_CRASH_DIVIDE_BY_ZERO 3
+core enum NUE_TEST_CRASH_NULL_WRITE 1
+core enum NUE_TEST_CRASH_STACK_OVERFLOW 4
+core enum NUE_THERMAL_CRITICAL 4
+core enum NUE_THERMAL_FAIR 2
+core enum NUE_THERMAL_NOMINAL 1
+core enum NUE_THERMAL_SERIOUS 3
+core enum NUE_THERMAL_UNKNOWN 0
+core enum NUE_THREAD_PRIORITY_ABOVE_NORMAL 3
+core enum NUE_THREAD_PRIORITY_DEFAULT 0
+core enum NUE_THREAD_PRIORITY_HIGH 4
+core enum NUE_THREAD_PRIORITY_LOW 1
+core enum NUE_THREAD_PRIORITY_NORMAL 2
+core enum NUE_THREAD_PRIORITY_REALTIME 5
+core enum NUE_VOICE_3D 4
+core enum NUE_VOICE_AUTO_RELEASE 2
+core enum NUE_VOICE_CALLBACK 3
+core enum NUE_VOICE_HEAD_RELATIVE 8
+core enum NUE_VOICE_LOOP 1
+core enum NUE_VOICE_NO_PITCH 16
+core enum NUE_VOICE_RING 2
+core enum NUE_VOICE_START_PLAYING 32
+core enum NUE_VOICE_STATIC 1
+core enum NUE_WINDOW_ALWAYS_ON_TOP 8
+core enum NUE_WINDOW_BORDERLESS 4
+core enum NUE_WINDOW_GFX_METAL 131072
+core enum NUE_WINDOW_GFX_NONE 0
+core enum NUE_WINDOW_GFX_OPENGL 262144
+core enum NUE_WINDOW_GFX_VULKAN 65536
+core enum NUE_WINDOW_HIDDEN 2
+core enum NUE_WINDOW_HIGH_DPI 16
+core enum NUE_WINDOW_MAXIMIZED 32
+core enum NUE_WINDOW_MINIMIZED 64
+core enum NUE_WINDOW_MODE_BORDERLESS 1
+core enum NUE_WINDOW_MODE_EXCLUSIVE 2
+core enum NUE_WINDOW_MODE_WINDOWED 0
+core enum NUE_WINDOW_NOT_FOCUSABLE 128
+core enum NUE_WINDOW_RESIZABLE 1
+core enum NUE_WINDOW_UTILITY 256
+core field nue_allocator.alloc off=16 size=8
+core field nue_allocator.free off=32 size=8
+core field nue_allocator.realloc off=24 size=8
+core field nue_allocator.struct_size off=0 size=4
+core field nue_allocator.userdata off=8 size=8
+core field nue_app_callbacks.on_event off=16 size=8
+core field nue_app_callbacks.on_frame off=24 size=8
+core field nue_app_callbacks.on_init off=8 size=8
+core field nue_app_callbacks.on_quit off=32 size=8
+core field nue_app_callbacks.struct_size off=0 size=4
+core field nue_app_callbacks.userdata off=40 size=8
+core field nue_audio_device_info.id off=4 size=4
+core field nue_audio_device_info.is_capture off=136 size=1
+core field nue_audio_device_info.is_default off=137 size=1
+core field nue_audio_device_info.name off=8 size=128
+core field nue_audio_device_info.preferred off=140 size=12
+core field nue_audio_device_info.preferred_buffer_frames off=152 size=4
+core field nue_audio_device_info.reserved off=156 size=16
+core field nue_audio_device_info.struct_size off=0 size=4
+core field nue_audio_latency.device_buffer_frames off=4 size=4
+core field nue_audio_latency.device_latency_ns off=8 size=8
+core field nue_audio_latency.queued_frames off=16 size=4
+core field nue_audio_latency.reserved off=32 size=16
+core field nue_audio_latency.struct_size off=0 size=4
+core field nue_audio_latency.total_latency_ns off=24 size=8
+core field nue_audio_spec.channels off=4 size=4
+core field nue_audio_spec.format off=0 size=4
+core field nue_audio_spec.sample_rate off=8 size=4
+core field nue_audio_stream_desc.callback off=24 size=8
+core field nue_audio_stream_desc.device off=4 size=4
+core field nue_audio_stream_desc.flags off=20 size=4
+core field nue_audio_stream_desc.latency_ms off=40 size=4
+core field nue_audio_stream_desc.name off=48 size=8
+core field nue_audio_stream_desc.queue_frames off=44 size=4
+core field nue_audio_stream_desc.reserved off=56 size=16
+core field nue_audio_stream_desc.spec off=8 size=12
+core field nue_audio_stream_desc.struct_size off=0 size=4
+core field nue_audio_stream_desc.userdata off=32 size=8
+core field nue_audio_stream_stats.cpu_load off=36 size=4
+core field nue_audio_stream_stats.dropped_frames off=24 size=8
+core field nue_audio_stream_stats.frames_played off=8 size=8
+core field nue_audio_stream_stats.peak_level off=32 size=4
+core field nue_audio_stream_stats.reserved off=40 size=16
+core field nue_audio_stream_stats.struct_size off=0 size=4
+core field nue_audio_stream_stats.underruns off=16 size=8
+core field nue_budget_desc.evict off=72 size=8
+core field nue_budget_desc.kind off=16 size=4
+core field nue_budget_desc.name off=8 size=8
+core field nue_budget_desc.policy off=24 size=48
+core field nue_budget_desc.struct_size off=0 size=4
+core field nue_budget_desc.userdata off=80 size=8
+core field nue_budget_policy.fixed_bytes off=8 size=8
+core field nue_budget_policy.fraction off=16 size=4
+core field nue_budget_policy.max_bytes off=32 size=8
+core field nue_budget_policy.min_bytes off=24 size=8
+core field nue_budget_policy.reserve_bytes off=40 size=8
+core field nue_budget_policy.struct_size off=0 size=4
+core field nue_budget_state.bytes_evicted off=40 size=8
+core field nue_budget_state.evictions off=32 size=8
+core field nue_budget_state.limit_bytes off=8 size=8
+core field nue_budget_state.peak_bytes off=24 size=8
+core field nue_budget_state.policy off=48 size=48
+core field nue_budget_state.struct_size off=0 size=4
+core field nue_budget_state.used_bytes off=16 size=8
+core field nue_buffer_desc.copy_data off=28 size=1
+core field nue_buffer_desc.data off=16 size=8
+core field nue_buffer_desc.debug_name off=40 size=8
+core field nue_buffer_desc.frame_count off=24 size=4
+core field nue_buffer_desc.loop_end off=36 size=4
+core field nue_buffer_desc.loop_start off=32 size=4
+core field nue_buffer_desc.spec off=4 size=12
+core field nue_buffer_desc.struct_size off=0 size=4
+core field nue_build_info.backends off=40 size=8
+core field nue_build_info.build_type off=32 size=8
+core field nue_build_info.compiler off=24 size=8
+core field nue_build_info.debug_build off=71 size=1
+core field nue_build_info.git_commit off=16 size=8
+core field nue_build_info.has_d3d9 off=70 size=1
+core field nue_build_info.has_gfx off=69 size=1
+core field nue_build_info.platform_layer off=48 size=8
+core field nue_build_info.pointer_size off=64 size=4
+core field nue_build_info.reserved off=72 size=16
+core field nue_build_info.sdl_version off=56 size=8
+core field nue_build_info.shared_library off=68 size=1
+core field nue_build_info.struct_size off=0 size=4
+core field nue_build_info.version off=4 size=4
+core field nue_build_info.version_string off=8 size=8
+core field nue_config_decl.default_double off=32 size=8
+core field nue_config_decl.default_int off=24 size=8
+core field nue_config_decl.default_string off=40 size=8
+core field nue_config_decl.description off=64 size=8
+core field nue_config_decl.key off=8 size=8
+core field nue_config_decl.max_value off=56 size=8
+core field nue_config_decl.min_value off=48 size=8
+core field nue_config_decl.struct_size off=0 size=4
+core field nue_config_decl.type off=16 size=4
+core field nue_counter_value.kind off=8 size=4
+core field nue_counter_value.name off=0 size=8
+core field nue_counter_value.value off=16 size=8
+core field nue_crash_desc.callback off=24 size=8
+core field nue_crash_desc.flags off=4 size=4
+core field nue_crash_desc.guest_pc off=40 size=8
+core field nue_crash_desc.guest_pc_userdata off=48 size=8
+core field nue_crash_desc.keep_reports off=16 size=4
+core field nue_crash_desc.report_root off=8 size=8
+core field nue_crash_desc.struct_size off=0 size=4
+core field nue_crash_desc.userdata off=32 size=8
+core field nue_crash_info.fault_address off=16 size=8
+core field nue_crash_info.fault_pc off=24 size=8
+core field nue_crash_info.reason off=8 size=8
+core field nue_crash_info.report_dir off=40 size=8
+core field nue_crash_info.signal_or_code off=32 size=4
+core field nue_crash_info.struct_size off=0 size=4
+core field nue_dir_entry.kind off=16 size=4
+core field nue_dir_entry.modified_unix_ms off=32 size=8
+core field nue_dir_entry.name off=8 size=8
+core field nue_dir_entry.size off=24 size=8
+core field nue_dir_entry.struct_size off=0 size=4
+core field nue_display_info.bounds off=136 size=16
+core field nue_display_info.content_scale off=216 size=4
+core field nue_display_info.current_mode off=168 size=24
+core field nue_display_info.desktop_mode off=192 size=24
+core field nue_display_info.hdr_enabled off=229 size=1
+core field nue_display_info.id off=4 size=4
+core field nue_display_info.is_primary off=228 size=1
+core field nue_display_info.max_refresh_hz off=268 size=4
+core field nue_display_info.min_refresh_hz off=264 size=4
+core field nue_display_info.name off=8 size=128
+core field nue_display_info.natural_orientation off=224 size=4
+core field nue_display_info.orientation off=220 size=4
+core field nue_display_info.reserved off=232 size=32
+core field nue_display_info.struct_size off=0 size=4
+core field nue_display_info.usable_bounds off=152 size=16
+core field nue_display_info.variable_refresh off=272 size=1
+core field nue_display_mode.format off=20 size=4
+core field nue_display_mode.height off=8 size=4
+core field nue_display_mode.pixel_density off=16 size=4
+core field nue_display_mode.refresh_rate_hz off=12 size=4
+core field nue_display_mode.struct_size off=0 size=4
+core field nue_display_mode.width off=4 size=4
+core field nue_effect_desc.callback off=40 size=8
+core field nue_effect_desc.kind off=4 size=4
+core field nue_effect_desc.params off=8 size=32
+core field nue_effect_desc.struct_size off=0 size=4
+core field nue_effect_desc.userdata off=48 size=8
+core field nue_effect_desc.wet_dry off=56 size=4
+core field nue_event.payload off=16 size=48
+core field nue_event.payload.audio_device off=16 size=8
+core field nue_event.payload.button off=16 size=16
+core field nue_event.payload.display off=16 size=12
+core field nue_event.payload.finger off=16 size=40
+core field nue_event.payload.gamepad off=16 size=16
+core field nue_event.payload.input_device off=16 size=12
+core field nue_event.payload.key off=16 size=16
+core field nue_event.payload.memory off=16 size=16
+core field nue_event.payload.motion off=16 size=28
+core field nue_event.payload.power off=16 size=16
+core field nue_event.payload.raw off=16 size=48
+core field nue_event.payload.sensor off=16 size=32
+core field nue_event.payload.text off=16 size=34
+core field nue_event.payload.user off=16 size=32
+core field nue_event.payload.wheel off=16 size=24
+core field nue_event.payload.window off=16 size=24
+core field nue_event.timestamp_ns off=8 size=8
+core field nue_event.type off=0 size=4
+core field nue_event.window_id off=4 size=4
+core field nue_event_audio_dev.device_id off=0 size=4
+core field nue_event_audio_dev.is_capture off=4 size=1
+core field nue_event_button.button off=12 size=1
+core field nue_event_button.clicks off=14 size=1
+core field nue_event_button.device_id off=0 size=4
+core field nue_event_button.down off=13 size=1
+core field nue_event_button.x off=4 size=4
+core field nue_event_button.y off=8 size=4
+core field nue_event_display.data1 off=4 size=4
+core field nue_event_display.data2 off=8 size=4
+core field nue_event_display.display_id off=0 size=4
+core field nue_event_finger.dx off=24 size=4
+core field nue_event_finger.dy off=28 size=4
+core field nue_event_finger.finger_id off=8 size=8
+core field nue_event_finger.pressure off=32 size=4
+core field nue_event_finger.touch_id off=0 size=8
+core field nue_event_finger.x off=16 size=4
+core field nue_event_finger.y off=20 size=4
+core field nue_event_gamepad.control off=4 size=4
+core field nue_event_gamepad.extra off=12 size=4
+core field nue_event_gamepad.gamepad_id off=0 size=4
+core field nue_event_gamepad.value off=8 size=4
+core field nue_event_input_dev.device_id off=8 size=4
+core field nue_event_input_dev.device_kind off=0 size=4
+core field nue_event_input_dev.glyph_family off=4 size=4
+core field nue_event_key.device_id off=0 size=4
+core field nue_event_key.down off=14 size=1
+core field nue_event_key.keycode off=8 size=4
+core field nue_event_key.mods off=12 size=2
+core field nue_event_key.repeat off=15 size=1
+core field nue_event_key.scancode off=4 size=4
+core field nue_event_memory.available_bytes off=8 size=8
+core field nue_event_memory.level off=0 size=4
+core field nue_event_motion.buttons off=20 size=4
+core field nue_event_motion.device_id off=0 size=4
+core field nue_event_motion.dx off=12 size=4
+core field nue_event_motion.dy off=16 size=4
+core field nue_event_motion.from_touch off=24 size=1
+core field nue_event_motion.x off=4 size=4
+core field nue_event_motion.y off=8 size=4
+core field nue_event_power.game_mode off=13 size=1
+core field nue_event_power.low_power off=12 size=1
+core field nue_event_power.percent off=8 size=4
+core field nue_event_power.power_state off=4 size=4
+core field nue_event_power.thermal off=0 size=4
+core field nue_event_sensor.kind off=4 size=4
+core field nue_event_sensor.sensor_id off=0 size=4
+core field nue_event_sensor.sensor_timestamp_ns off=24 size=8
+core field nue_event_sensor.values off=8 size=12
+core field nue_event_text.editing_length off=33 size=1
+core field nue_event_text.editing_start off=32 size=1
+core field nue_event_text.text off=0 size=32
+core field nue_event_user.code off=0 size=4
+core field nue_event_user.data1 off=8 size=8
+core field nue_event_user.data2 off=16 size=8
+core field nue_event_user.data3 off=24 size=8
+core field nue_event_wheel.device_id off=0 size=4
+core field nue_event_wheel.flipped off=20 size=1
+core field nue_event_wheel.mouse_x off=12 size=4
+core field nue_event_wheel.mouse_y off=16 size=4
+core field nue_event_wheel.x off=4 size=4
+core field nue_event_wheel.y off=8 size=4
+core field nue_event_window.reserved off=12 size=12
+core field nue_event_window.scale off=8 size=4
+core field nue_event_window.x off=0 size=4
+core field nue_event_window.y off=4 size=4
+core field nue_file_map_info.data off=8 size=8
+core field nue_file_map_info.emulated off=24 size=1
+core field nue_file_map_info.size off=16 size=8
+core field nue_file_map_info.struct_size off=0 size=4
+core field nue_finger.finger_id off=8 size=8
+core field nue_finger.pressure off=24 size=4
+core field nue_finger.touch_id off=0 size=8
+core field nue_finger.x off=16 size=4
+core field nue_finger.y off=20 size=4
+core field nue_frame_stats.cpu_busy_percent off=64 size=8
+core field nue_frame_stats.fps off=16 size=8
+core field nue_frame_stats.frame_ms_avg off=24 size=8
+core field nue_frame_stats.frame_ms_max off=56 size=8
+core field nue_frame_stats.frame_ms_p50 off=32 size=8
+core field nue_frame_stats.frame_ms_p95 off=40 size=8
+core field nue_frame_stats.frame_ms_p99 off=48 size=8
+core field nue_frame_stats.struct_size off=0 size=4
+core field nue_frame_stats.total_frames off=72 size=8
+core field nue_frame_stats.window_frames off=4 size=4
+core field nue_frame_stats.window_seconds off=8 size=8
+core field nue_gamepad_info.battery_percent off=180 size=4
+core field nue_gamepad_info.caps off=168 size=4
+core field nue_gamepad_info.connected off=196 size=1
+core field nue_gamepad_info.glyphs off=164 size=4
+core field nue_gamepad_info.guid off=136 size=16
+core field nue_gamepad_info.id off=4 size=4
+core field nue_gamepad_info.joystick_axes off=184 size=4
+core field nue_gamepad_info.joystick_buttons off=188 size=4
+core field nue_gamepad_info.joystick_hats off=192 size=4
+core field nue_gamepad_info.name off=8 size=128
+core field nue_gamepad_info.player_index off=172 size=4
+core field nue_gamepad_info.power_state off=176 size=4
+core field nue_gamepad_info.product_id off=154 size=2
+core field nue_gamepad_info.product_version off=156 size=2
+core field nue_gamepad_info.reserved off=200 size=16
+core field nue_gamepad_info.struct_size off=0 size=4
+core field nue_gamepad_info.type off=160 size=4
+core field nue_gamepad_info.vendor_id off=152 size=2
+core field nue_gamepad_state.axes off=8 size=12
+core field nue_gamepad_state.buttons off=4 size=4
+core field nue_gamepad_state.struct_size off=0 size=4
+core field nue_gamepad_state.timestamp_ns off=24 size=8
+core field nue_gfx_caps.adapter_name off=36 size=128
+core field nue_gfx_caps.compute off=176 size=1
+core field nue_gfx_caps.device_id off=220 size=4
+core field nue_gfx_caps.hdr10 off=179 size=1
+core field nue_gfx_caps.instancing off=177 size=1
+core field nue_gfx_caps.max_anisotropy off=172 size=4
+core field nue_gfx_caps.max_buffer_handles off=232 size=4
+core field nue_gfx_caps.max_draw_calls off=224 size=4
+core field nue_gfx_caps.max_framebuffer_attachments off=168 size=4
+core field nue_gfx_caps.max_texture_handles off=228 size=4
+core field nue_gfx_caps.max_texture_size off=164 size=4
+core field nue_gfx_caps.occlusion_query off=180 size=1
+core field nue_gfx_caps.renderer_name off=4 size=32
+core field nue_gfx_caps.reserved off=184 size=32
+core field nue_gfx_caps.struct_size off=0 size=4
+core field nue_gfx_caps.texture_compare off=178 size=1
+core field nue_gfx_caps.vendor_id off=216 size=4
+core field nue_gfx_desc.flags off=20 size=4
+core field nue_gfx_desc.height off=28 size=4
+core field nue_gfx_desc.max_buffer_handles off=40 size=4
+core field nue_gfx_desc.max_draw_calls off=104 size=4
+core field nue_gfx_desc.max_framebuffer_handles off=44 size=4
+core field nue_gfx_desc.max_texture_handles off=36 size=4
+core field nue_gfx_desc.msaa_samples off=32 size=4
+core field nue_gfx_desc.native_window off=96 size=8
+core field nue_gfx_desc.renderer off=16 size=4
+core field nue_gfx_desc.reserved off=64 size=32
+core field nue_gfx_desc.reserved2 off=108 size=28
+core field nue_gfx_desc.shader_cache_dir off=56 size=8
+core field nue_gfx_desc.struct_size off=0 size=4
+core field nue_gfx_desc.transient_index_mb off=52 size=4
+core field nue_gfx_desc.transient_vertex_mb off=48 size=4
+core field nue_gfx_desc.width off=24 size=4
+core field nue_gfx_desc.window off=8 size=8
+core field nue_gfx_native.backbuffer off=48 size=8
+core field nue_gfx_native.backbuffer_ds off=56 size=8
+core field nue_gfx_native.bgfx_initialized off=72 size=1
+core field nue_gfx_native.context off=40 size=8
+core field nue_gfx_native.generation off=96 size=4
+core field nue_gfx_native.pixel_height off=68 size=4
+core field nue_gfx_native.pixel_width off=64 size=4
+core field nue_gfx_native.platform_ndt off=80 size=8
+core field nue_gfx_native.platform_nwh off=88 size=8
+core field nue_gfx_native.renderer off=4 size=4
+core field nue_gfx_native.reserved off=100 size=20
+core field nue_gfx_native.single_threaded off=73 size=1
+core field nue_gfx_native.struct_size off=0 size=4
+core field nue_gfx_native.window off=8 size=32
+core field nue_gpu_caps.compute off=171 size=1
+core field nue_gpu_caps.dedicated_memory_bytes off=176 size=8
+core field nue_gpu_caps.format off=12 size=128
+core field nue_gpu_caps.instancing off=172 size=1
+core field nue_gpu_caps.max_anisotropy off=156 size=4
+core field nue_gpu_caps.max_array_layers off=152 size=4
+core field nue_gpu_caps.max_msaa_samples off=164 size=4
+core field nue_gpu_caps.max_render_targets off=160 size=4
+core field nue_gpu_caps.max_texture_2d off=140 size=4
+core field nue_gpu_caps.max_texture_3d off=144 size=4
+core field nue_gpu_caps.max_texture_cube off=148 size=4
+core field nue_gpu_caps.npot_mipmaps off=169 size=1
+core field nue_gpu_caps.probed off=4 size=1
+core field nue_gpu_caps.renderer off=8 size=4
+core field nue_gpu_caps.reserved off=184 size=32
+core field nue_gpu_caps.struct_size off=0 size=4
+core field nue_gpu_caps.tessellation off=173 size=1
+core field nue_gpu_caps.texture_compare off=170 size=1
+core field nue_gpu_caps.unified_memory off=168 size=1
+core field nue_gpu_info.dedicated_memory_bytes off=136 size=8
+core field nue_gpu_info.device_id off=132 size=4
+core field nue_gpu_info.is_default off=153 size=1
+core field nue_gpu_info.is_integrated off=152 size=1
+core field nue_gpu_info.name off=0 size=128
+core field nue_gpu_info.shared_memory_bytes off=144 size=8
+core field nue_gpu_info.vendor_id off=128 size=4
+core field nue_guid.data off=0 size=16
+core field nue_import_desc.dest_root off=16 size=8
+core field nue_import_desc.flags off=24 size=4
+core field nue_import_desc.manifest_length off=40 size=8
+core field nue_import_desc.manifest_text off=32 size=8
+core field nue_import_desc.progress off=48 size=8
+core field nue_import_desc.source off=8 size=8
+core field nue_import_desc.source_kind off=4 size=4
+core field nue_import_desc.struct_size off=0 size=4
+core field nue_import_desc.userdata off=56 size=8
+core field nue_import_status.last_error off=48 size=256
+core field nue_import_status.progress off=8 size=40
+core field nue_import_status.state off=4 size=4
+core field nue_import_status.struct_size off=0 size=4
+core field nue_init_desc.allocator off=56 size=8
+core field nue_init_desc.api_version off=4 size=4
+core field nue_init_desc.app_id off=16 size=8
+core field nue_init_desc.app_name off=8 size=8
+core field nue_init_desc.app_version off=32 size=8
+core field nue_init_desc.backend off=40 size=4
+core field nue_init_desc.config_file off=80 size=8
+core field nue_init_desc.event_queue_capacity off=100 size=4
+core field nue_init_desc.flags off=52 size=4
+core field nue_init_desc.game_data_path off=64 size=8
+core field nue_init_desc.log_file off=88 size=8
+core field nue_init_desc.log_level off=96 size=4
+core field nue_init_desc.loop_model off=44 size=4
+core field nue_init_desc.org_name off=24 size=8
+core field nue_init_desc.reserved off=104 size=32
+core field nue_init_desc.struct_size off=0 size=4
+core field nue_init_desc.subsystems off=48 size=4
+core field nue_init_desc.user_data_path off=72 size=8
+core field nue_io_desc.buffer off=16 size=8
+core field nue_io_desc.callback off=32 size=8
+core field nue_io_desc.file off=4 size=4
+core field nue_io_desc.offset off=8 size=8
+core field nue_io_desc.post_event off=48 size=1
+core field nue_io_desc.priority off=52 size=4
+core field nue_io_desc.size off=24 size=8
+core field nue_io_desc.struct_size off=0 size=4
+core field nue_io_desc.userdata off=40 size=8
+core field nue_last_input.device_id off=12 size=4
+core field nue_last_input.glyphs off=8 size=4
+core field nue_last_input.kind off=4 size=4
+core field nue_last_input.struct_size off=0 size=4
+core field nue_last_input.time_ns off=16 size=8
+core field nue_listener.forward off=28 size=12
+core field nue_listener.position off=4 size=12
+core field nue_listener.struct_size off=0 size=4
+core field nue_listener.up off=40 size=12
+core field nue_listener.velocity off=16 size=12
+core field nue_log_record.file off=48 size=8
+core field nue_log_record.level off=4 size=4
+core field nue_log_record.line off=56 size=4
+core field nue_log_record.message off=16 size=8
+core field nue_log_record.struct_size off=0 size=4
+core field nue_log_record.tag off=8 size=8
+core field nue_log_record.thread_id off=40 size=8
+core field nue_log_record.time_ns off=24 size=8
+core field nue_log_record.unix_time_ms off=32 size=8
+core field nue_log_sink_desc.callback off=32 size=8
+core field nue_log_sink_desc.keep_files off=28 size=4
+core field nue_log_sink_desc.kind off=4 size=4
+core field nue_log_sink_desc.max_bytes off=24 size=4
+core field nue_log_sink_desc.min_level off=8 size=4
+core field nue_log_sink_desc.path off=16 size=8
+core field nue_log_sink_desc.struct_size off=0 size=4
+core field nue_log_sink_desc.userdata off=40 size=8
+core field nue_memory_info.gpu_dedicated_available off=56 size=8
+core field nue_memory_info.gpu_dedicated_total off=48 size=8
+core field nue_memory_info.gpu_shared_total off=64 size=8
+core field nue_memory_info.physical_available off=16 size=8
+core field nue_memory_info.physical_total off=8 size=8
+core field nue_memory_info.pressure off=76 size=4
+core field nue_memory_info.process_available off=40 size=8
+core field nue_memory_info.process_limit off=32 size=8
+core field nue_memory_info.process_used off=24 size=8
+core field nue_memory_info.reserved off=80 size=32
+core field nue_memory_info.struct_size off=0 size=4
+core field nue_memory_info.unified_memory off=72 size=1
+core field nue_mixer_desc.block_frames off=20 size=4
+core field nue_mixer_desc.channels off=12 size=4
+core field nue_mixer_desc.device off=24 size=4
+core field nue_mixer_desc.flags off=4 size=4
+core field nue_mixer_desc.latency_ms off=28 size=4
+core field nue_mixer_desc.max_voices off=16 size=4
+core field nue_mixer_desc.reserved off=32 size=16
+core field nue_mixer_desc.sample_rate off=8 size=4
+core field nue_mixer_desc.struct_size off=0 size=4
+core field nue_mixer_stats.active_voices off=4 size=4
+core field nue_mixer_stats.blocks_mixed off=16 size=8
+core field nue_mixer_stats.clipped_samples off=24 size=8
+core field nue_mixer_stats.cpu_load off=64 size=4
+core field nue_mixer_stats.peak off=32 size=32
+core field nue_mixer_stats.reserved off=68 size=16
+core field nue_mixer_stats.struct_size off=0 size=4
+core field nue_mixer_stats.virtualized_voices off=8 size=4
+core field nue_mount_desc.flags off=24 size=4
+core field nue_mount_desc.native_path off=16 size=8
+core field nue_mount_desc.root off=8 size=8
+core field nue_mount_desc.struct_size off=0 size=4
+core field nue_native_thread_ref.handle off=8 size=8
+core field nue_native_thread_ref.id off=16 size=8
+core field nue_native_thread_ref.struct_size off=0 size=4
+core field nue_native_window.display off=16 size=8
+core field nue_native_window.extra off=24 size=8
+core field nue_native_window.kind off=4 size=4
+core field nue_native_window.struct_size off=0 size=4
+core field nue_native_window.window off=8 size=8
+core field nue_point_i.x off=0 size=4
+core field nue_point_i.y off=4 size=4
+core field nue_power_info.battery_percent off=8 size=4
+core field nue_power_info.display_keep_awake_active off=32 size=1
+core field nue_power_info.game_mode off=24 size=4
+core field nue_power_info.low_power_mode off=17 size=1
+core field nue_power_info.on_ac_power off=16 size=1
+core field nue_power_info.reserved off=36 size=24
+core field nue_power_info.seconds_left off=12 size=4
+core field nue_power_info.state off=4 size=4
+core field nue_power_info.struct_size off=0 size=4
+core field nue_power_info.suspend_supported off=72 size=1
+core field nue_power_info.tdp_watts_current off=60 size=4
+core field nue_power_info.tdp_watts_max off=68 size=4
+core field nue_power_info.tdp_watts_min off=64 size=4
+core field nue_power_info.thermal off=20 size=4
+core field nue_power_info.thermal_headroom off=28 size=4
+core field nue_power_request.cpu off=20 size=4
+core field nue_power_request.disable_power_throttling off=32 size=1
+core field nue_power_request.game_hint off=8 size=4
+core field nue_power_request.gpu off=16 size=4
+core field nue_power_request.keep_awake off=12 size=4
+core field nue_power_request.prefer_low_latency_audio off=33 size=1
+core field nue_power_request.profile off=4 size=4
+core field nue_power_request.reserved off=36 size=24
+core field nue_power_request.struct_size off=0 size=4
+core field nue_power_request.target_frame_time_us off=28 size=4
+core field nue_power_request.tdp_watts off=60 size=4
+core field nue_power_request.timer_resolution_us off=24 size=4
+core field nue_rect_f.h off=12 size=4
+core field nue_rect_f.w off=8 size=4
+core field nue_rect_f.x off=0 size=4
+core field nue_rect_f.y off=4 size=4
+core field nue_rect_i.h off=12 size=4
+core field nue_rect_i.w off=8 size=4
+core field nue_rect_i.x off=0 size=4
+core field nue_rect_i.y off=4 size=4
+core field nue_sha256_state.opaque off=0 size=112
+core field nue_size_i.h off=4 size=4
+core field nue_size_i.w off=0 size=4
+core field nue_stat.created_unix_ms off=24 size=8
+core field nue_stat.kind off=4 size=4
+core field nue_stat.modified_unix_ms off=16 size=8
+core field nue_stat.read_only off=32 size=1
+core field nue_stat.size off=8 size=8
+core field nue_stat.struct_size off=0 size=4
+core field nue_system_info.arch off=140 size=4
+core field nue_system_info.cpu_efficiency_cores off=388 size=4
+core field nue_system_info.cpu_features off=396 size=4
+core field nue_system_info.cpu_logical_cores off=376 size=4
+core field nue_system_info.cpu_max_mhz off=392 size=4
+core field nue_system_info.cpu_name off=248 size=128
+core field nue_system_info.cpu_performance_cores off=384 size=4
+core field nue_system_info.cpu_physical_cores off=380 size=4
+core field nue_system_info.dark_mode off=1740 size=1
+core field nue_system_info.device_class off=148 size=4
+core field nue_system_info.device_model off=152 size=96
+core field nue_system_info.display_count off=1704 size=4
+core field nue_system_info.gpu_count off=416 size=4
+core field nue_system_info.gpus off=424 size=1280
+core field nue_system_info.locale off=1708 size=32
+core field nue_system_info.memory_available_bytes off=408 size=8
+core field nue_system_info.memory_total_bytes off=400 size=8
+core field nue_system_info.os off=4 size=4
+core field nue_system_info.os_build off=136 size=4
+core field nue_system_info.os_name off=8 size=64
+core field nue_system_info.os_version off=72 size=64
+core field nue_system_info.platform_flags off=1776 size=4
+core field nue_system_info.platform_variant off=1780 size=64
+core field nue_system_info.reserved off=1744 size=32
+core field nue_system_info.running_under_translation off=144 size=1
+core field nue_system_info.runtime_name off=1844 size=48
+core field nue_system_info.struct_size off=0 size=4
+core field nue_thread_desc.affinity_mask off=24 size=8
+core field nue_thread_desc.name off=8 size=8
+core field nue_thread_desc.priority off=20 size=4
+core field nue_thread_desc.stack_size off=16 size=4
+core field nue_thread_desc.struct_size off=0 size=4
+core field nue_timer_desc.callback off=32 size=8
+core field nue_timer_desc.first_delay_ns off=16 size=8
+core field nue_timer_desc.name off=48 size=8
+core field nue_timer_desc.one_shot off=24 size=1
+core field nue_timer_desc.period_ns off=8 size=8
+core field nue_timer_desc.priority off=56 size=4
+core field nue_timer_desc.struct_size off=0 size=4
+core field nue_timer_desc.userdata off=40 size=8
+core field nue_vec3.x off=0 size=4
+core field nue_vec3.y off=4 size=4
+core field nue_vec3.z off=8 size=4
+core field nue_verify_progress.bytes_done off=24 size=8
+core field nue_verify_progress.bytes_total off=16 size=8
+core field nue_verify_progress.current_path off=32 size=8
+core field nue_verify_progress.files_done off=8 size=4
+core field nue_verify_progress.files_total off=4 size=4
+core field nue_verify_progress.struct_size off=0 size=4
+core field nue_verify_result.files_checked off=4 size=4
+core field nue_verify_result.files_hash_mismatch off=16 size=4
+core field nue_verify_result.files_missing off=8 size=4
+core field nue_verify_result.files_size_mismatch off=12 size=4
+core field nue_verify_result.first_bad_path off=20 size=260
+core field nue_verify_result.struct_size off=0 size=4
+core field nue_voice_3d.cone_direction off=44 size=12
+core field nue_voice_3d.cone_inner_angle_deg off=56 size=4
+core field nue_voice_3d.cone_outer_angle_deg off=60 size=4
+core field nue_voice_3d.cone_outer_gain off=64 size=4
+core field nue_voice_3d.max_distance off=32 size=4
+core field nue_voice_3d.min_distance off=28 size=4
+core field nue_voice_3d.model off=40 size=4
+core field nue_voice_3d.position off=4 size=12
+core field nue_voice_3d.rolloff off=36 size=4
+core field nue_voice_3d.struct_size off=0 size=4
+core field nue_voice_3d.velocity off=16 size=12
+core field nue_voice_desc.buffer off=20 size=4
+core field nue_voice_desc.bus off=12 size=4
+core field nue_voice_desc.debug_name off=80 size=8
+core field nue_voice_desc.flags off=8 size=4
+core field nue_voice_desc.kind off=4 size=4
+core field nue_voice_desc.on_end off=56 size=8
+core field nue_voice_desc.pan off=68 size=4
+core field nue_voice_desc.pitch off=72 size=4
+core field nue_voice_desc.priority off=16 size=4
+core field nue_voice_desc.pull off=40 size=8
+core field nue_voice_desc.ring_frames off=36 size=4
+core field nue_voice_desc.spec off=24 size=12
+core field nue_voice_desc.struct_size off=0 size=4
+core field nue_voice_desc.userdata off=48 size=8
+core field nue_voice_desc.volume off=64 size=4
+core field nue_voice_state.effective_gain off=36 size=4
+core field nue_voice_state.frames_played_total off=16 size=8
+core field nue_voice_state.looping off=6 size=1
+core field nue_voice_state.pan off=28 size=4
+core field nue_voice_state.paused off=5 size=1
+core field nue_voice_state.pitch off=32 size=4
+core field nue_voice_state.playing off=4 size=1
+core field nue_voice_state.position_frames off=8 size=8
+core field nue_voice_state.struct_size off=0 size=4
+core field nue_voice_state.volume off=24 size=4
+core field nue_window_desc.attach off=72 size=8
+core field nue_window_desc.display off=40 size=4
+core field nue_window_desc.flags off=32 size=4
+core field nue_window_desc.fullscreen_mode off=44 size=24
+core field nue_window_desc.height off=28 size=4
+core field nue_window_desc.max_height off=92 size=4
+core field nue_window_desc.max_width off=88 size=4
+core field nue_window_desc.min_height off=84 size=4
+core field nue_window_desc.min_width off=80 size=4
+core field nue_window_desc.mode off=36 size=4
+core field nue_window_desc.reserved off=96 size=32
+core field nue_window_desc.struct_size off=0 size=4
+core field nue_window_desc.title off=8 size=8
+core field nue_window_desc.width off=24 size=4
+core field nue_window_desc.x off=16 size=4
+core field nue_window_desc.y off=20 size=4
+core field nue_world_3d.distance_factor off=16 size=4
+core field nue_world_3d.doppler_factor off=4 size=4
+core field nue_world_3d.rolloff_factor off=12 size=4
+core field nue_world_3d.speed_of_sound off=8 size=4
+core field nue_world_3d.struct_size off=0 size=4
+core function nue_alloc
+core function nue_app_get_state
+core function nue_app_quit_requested
+core function nue_app_request_quit
+core function nue_app_run
+core function nue_audio_bytes_per_sample
+core function nue_audio_convert
+core function nue_audio_frame_size
+core function nue_audio_get_device_info
+core function nue_audio_list_devices
+core function nue_audio_stream_create
+core function nue_audio_stream_destroy
+core function nue_audio_stream_flush
+core function nue_audio_stream_free_frames
+core function nue_audio_stream_get_latency
+core function nue_audio_stream_get_position
+core function nue_audio_stream_get_spec
+core function nue_audio_stream_get_stats
+core function nue_audio_stream_is_running
+core function nue_audio_stream_push
+core function nue_audio_stream_push_wait
+core function nue_audio_stream_queued_frames
+core function nue_audio_stream_set_latency
+core function nue_audio_stream_set_volume
+core function nue_audio_stream_start
+core function nue_audio_stream_stop
+core function nue_budget_default_policy
+core function nue_budget_find
+core function nue_budget_get_state
+core function nue_budget_recompute
+core function nue_budget_register
+core function nue_budget_report
+core function nue_budget_request
+core function nue_budget_set_policy
+core function nue_budget_trim
+core function nue_budget_unregister
+core function nue_buffer_create
+core function nue_buffer_destroy
+core function nue_bus_create
+core function nue_bus_destroy
+core function nue_bus_set_effect
+core function nue_bus_set_mute
+core function nue_bus_set_volume
+core function nue_capability_name
+core function nue_centibels_to_linear
+core function nue_clear_last_error
+core function nue_cond_broadcast
+core function nue_cond_create
+core function nue_cond_destroy
+core function nue_cond_signal
+core function nue_cond_wait
+core function nue_config_declare
+core function nue_config_get_bool
+core function nue_config_get_double
+core function nue_config_get_int
+core function nue_config_get_string
+core function nue_config_has
+core function nue_config_load
+core function nue_config_load_text
+core function nue_config_remove
+core function nue_config_save
+core function nue_config_set_bool
+core function nue_config_set_double
+core function nue_config_set_int
+core function nue_config_set_string
+core function nue_config_type_of
+core function nue_config_unwatch
+core function nue_config_watch
+core function nue_counter_add
+core function nue_counter_get
+core function nue_counter_register
+core function nue_counter_set
+core function nue_counter_snapshot
+core function nue_crc32
+core function nue_cursor_is_visible
+core function nue_cursor_set_kind
+core function nue_cursor_set_visible
+core function nue_db_to_linear
+core function nue_diag_assert_failed
+core function nue_diag_breadcrumb
+core function nue_diag_clear_reports
+core function nue_diag_install_crash_handler
+core function nue_diag_list_reports
+core function nue_diag_set_assert_handler
+core function nue_diag_set_note
+core function nue_diag_test_crash
+core function nue_diag_uninstall_crash_handler
+core function nue_diag_write_report
+core function nue_display_find_mode
+core function nue_display_from_point
+core function nue_display_get_info
+core function nue_display_list
+core function nue_display_list_modes
+core function nue_display_primary
+core function nue_event_add_watcher
+core function nue_event_remove_watcher
+core function nue_file_close
+core function nue_file_flush
+core function nue_file_get_native_path
+core function nue_file_hash_crc32
+core function nue_file_hash_sha256
+core function nue_file_load
+core function nue_file_map
+core function nue_file_open
+core function nue_file_read
+core function nue_file_read_at
+core function nue_file_save
+core function nue_file_seek
+core function nue_file_set_size
+core function nue_file_size
+core function nue_file_sync
+core function nue_file_tell
+core function nue_file_unmap
+core function nue_file_write
+core function nue_file_write_at
+core function nue_flush_events
+core function nue_format_family_name
+core function nue_frame_get_stats
+core function nue_frame_limiter_reset
+core function nue_frame_limiter_wait
+core function nue_frame_mark
+core function nue_frame_set_log_interval
+core function nue_free
+core function nue_gamepad_add_mapping
+core function nue_gamepad_add_mappings_from_file
+core function nue_gamepad_add_mappings_from_text
+core function nue_gamepad_apply_deadzone
+core function nue_gamepad_button_name
+core function nue_gamepad_get_info
+core function nue_gamepad_get_mapping
+core function nue_gamepad_get_sensor
+core function nue_gamepad_get_state
+core function nue_gamepad_list
+core function nue_gamepad_rumble
+core function nue_gamepad_rumble_triggers
+core function nue_gamepad_set_led
+core function nue_gamepad_set_player_index
+core function nue_gamepad_set_sensor_enabled
+core function nue_get_build_info
+core function nue_get_capabilities
+core function nue_get_extension
+core function nue_get_last_error_message
+core function nue_get_version
+core function nue_get_version_string
+core function nue_gfx_add_evictor
+core function nue_gfx_add_listener
+core function nue_gfx_apply_pending
+core function nue_gfx_create
+core function nue_gfx_destroy
+core function nue_gfx_get_caps
+core function nue_gfx_get_gpu_caps
+core function nue_gfx_get_native
+core function nue_gfx_get_renderer
+core function nue_gfx_get_shader_cache_dir
+core function nue_gfx_get_state
+core function nue_gfx_get_tex_caps
+core function nue_gfx_handle_event
+core function nue_gfx_list_renderers
+core function nue_gfx_memory_report
+core function nue_gfx_memory_request
+core function nue_gfx_notify_initialized
+core function nue_gfx_present
+core function nue_gfx_remove_evictor
+core function nue_gfx_remove_listener
+core function nue_gfx_report_device_lost
+core function nue_gfx_request_capture
+core function nue_gfx_reset_device
+core function nue_gfx_resize
+core function nue_gfx_resume
+core function nue_gfx_set_auto_events
+core function nue_gfx_set_vsync
+core function nue_gfx_suspend
+core function nue_gpu_probe
+core function nue_haptics_is_available
+core function nue_haptics_vibrate
+core function nue_has_capability
+core function nue_hex_encode
+core function nue_import_cancel
+core function nue_import_get_status
+core function nue_import_is_complete
+core function nue_import_release
+core function nue_import_start
+core function nue_init
+core function nue_input_get_last_device
+core function nue_input_set_glyph_override
+core function nue_input_set_last_device_deadzone
+core function nue_io_cancel
+core function nue_io_poll
+core function nue_io_read_async
+core function nue_io_release
+core function nue_io_wait
+core function nue_is_event_thread
+core function nue_is_initialized
+core function nue_joystick_get_axis
+core function nue_joystick_get_button
+core function nue_joystick_get_hat
+core function nue_key_from_scancode
+core function nue_key_get_mods
+core function nue_key_get_state_array
+core function nue_key_is_down
+core function nue_key_to_scancode
+core function nue_linear_to_centibels
+core function nue_linear_to_db
+core function nue_log_add_sink
+core function nue_log_flush
+core function nue_log_get_level
+core function nue_log_get_recent
+core function nue_log_remove_sink
+core function nue_log_set_level
+core function nue_log_set_tag_level
+core function nue_log_write
+core function nue_log_writev
+core function nue_memory_get_info
+core function nue_memory_pressure_name
+core function nue_mixer_create
+core function nue_mixer_destroy
+core function nue_mixer_get_master_volume
+core function nue_mixer_get_spec
+core function nue_mixer_get_stats
+core function nue_mixer_get_stream
+core function nue_mixer_render
+core function nue_mixer_reset_stats
+core function nue_mixer_set_listener
+core function nue_mixer_set_master_volume
+core function nue_mixer_set_world_3d
+core function nue_mixer_start
+core function nue_mixer_stop
+core function nue_mouse_get_focus
+core function nue_mouse_get_relative_state
+core function nue_mouse_get_state
+core function nue_mouse_is_present
+core function nue_mutex_create
+core function nue_mutex_destroy
+core function nue_mutex_lock
+core function nue_mutex_trylock
+core function nue_mutex_unlock
+core function nue_native_thread_set_affinity
+core function nue_native_thread_set_core_class
+core function nue_native_thread_set_priority
+core function nue_null_add_gamepad
+core function nue_null_advance_time
+core function nue_null_audio_interruption
+core function nue_null_audio_read_played
+core function nue_null_audio_set_capture
+core function nue_null_inject_event
+core function nue_null_move_mouse
+core function nue_null_press_key
+core function nue_null_press_mouse
+core function nue_null_remove_gamepad
+core function nue_null_request_close
+core function nue_null_resize_window
+core function nue_null_set_app_state
+core function nue_null_set_display
+core function nue_null_set_gamepad_axis
+core function nue_null_set_gamepad_button
+core function nue_null_set_memory
+core function nue_null_set_power
+core function nue_null_set_thermal_state
+core function nue_null_signal_memory_pressure
+core function nue_null_system_suspend
+core function nue_null_touch
+core function nue_pan_from_centibels
+core function nue_path_normalize
+core function nue_peek_events
+core function nue_perf_hint_create
+core function nue_perf_hint_destroy
+core function nue_perf_hint_report
+core function nue_perf_hint_update_target
+core function nue_poll_event
+core function nue_power_apply
+core function nue_power_get_info
+core function nue_power_get_request
+core function nue_power_get_thermal_state
+core function nue_power_get_timer_resolution
+core function nue_power_set_keep_awake
+core function nue_power_set_timer_resolution
+core function nue_pump_events
+core function nue_push_event
+core function nue_push_user_event
+core function nue_realloc
+core function nue_renderer_name
+core function nue_result_name
+core function nue_scancode_name
+core function nue_semaphore_create
+core function nue_semaphore_destroy
+core function nue_semaphore_post
+core function nue_semaphore_wait
+core function nue_sensor_get
+core function nue_sensor_is_available
+core function nue_sensor_set_enabled
+core function nue_set_event_enabled
+core function nue_set_event_thread
+core function nue_set_last_error
+core function nue_sha256
+core function nue_sha256_begin
+core function nue_sha256_end
+core function nue_sha256_update
+core function nue_shutdown
+core function nue_sleep_ns
+core function nue_sleep_until_ns
+core function nue_system_get_info
+core function nue_system_get_memory
+core function nue_system_get_platform_flags
+core function nue_text_input_has_screen_keyboard
+core function nue_text_input_is_active
+core function nue_text_input_set_area
+core function nue_text_input_show_screen_keyboard
+core function nue_text_input_start
+core function nue_text_input_stop
+core function nue_thermal_state_name
+core function nue_thread_create
+core function nue_thread_current_id
+core function nue_thread_detach
+core function nue_thread_get_id
+core function nue_thread_get_priority
+core function nue_thread_join
+core function nue_thread_set_affinity
+core function nue_thread_set_core_class
+core function nue_thread_set_current_name
+core function nue_thread_set_priority
+core function nue_thread_yield
+core function nue_time_counter
+core function nue_time_counter_frequency
+core function nue_time_ns
+core function nue_time_unix_ms
+core function nue_timer_cancel
+core function nue_timer_create
+core function nue_timer_destroy
+core function nue_timer_set_period
+core function nue_tls_create
+core function nue_tls_destroy
+core function nue_tls_get
+core function nue_tls_set
+core function nue_touch_get_fingers
+core function nue_touch_is_present
+core function nue_touch_set_mouse_emulation
+core function nue_trace_begin
+core function nue_trace_enabled
+core function nue_trace_end
+core function nue_trace_start
+core function nue_trace_stop
+core function nue_vfs_clear_cache
+core function nue_vfs_create_directory
+core function nue_vfs_exists
+core function nue_vfs_get_root_path
+core function nue_vfs_glob
+core function nue_vfs_has_root
+core function nue_vfs_list
+core function nue_vfs_mount
+core function nue_vfs_remove
+core function nue_vfs_remove_tree
+core function nue_vfs_rename
+core function nue_vfs_resolve
+core function nue_vfs_stat
+core function nue_vfs_unmount
+core function nue_vfs_verify_manifest
+core function nue_voice_create
+core function nue_voice_destroy
+core function nue_voice_get_state
+core function nue_voice_is_playing
+core function nue_voice_pause
+core function nue_voice_play
+core function nue_voice_ring_fill_silence
+core function nue_voice_ring_get_cursors
+core function nue_voice_ring_get_size
+core function nue_voice_ring_set_notifications
+core function nue_voice_ring_write
+core function nue_voice_set_3d
+core function nue_voice_set_bus
+core function nue_voice_set_frequency
+core function nue_voice_set_looping
+core function nue_voice_set_pan
+core function nue_voice_set_pitch
+core function nue_voice_set_position
+core function nue_voice_set_volume
+core function nue_voice_stop
+core function nue_wait_event
+core function nue_window_create
+core function nue_window_destroy
+core function nue_window_flash
+core function nue_window_from_id
+core function nue_window_get_content_scale
+core function nue_window_get_display
+core function nue_window_get_flags
+core function nue_window_get_focused
+core function nue_window_get_frame_limit
+core function nue_window_get_id
+core function nue_window_get_mode
+core function nue_window_get_native
+core function nue_window_get_pixel_density
+core function nue_window_get_pixel_size
+core function nue_window_get_position
+core function nue_window_get_refresh_rate
+core function nue_window_get_relative_mouse
+core function nue_window_get_safe_area
+core function nue_window_get_size
+core function nue_window_get_title
+core function nue_window_has_focus
+core function nue_window_hide
+core function nue_window_is_visible
+core function nue_window_maximize
+core function nue_window_minimize
+core function nue_window_move_to_display
+core function nue_window_raise
+core function nue_window_request_refresh_rate
+core function nue_window_restore
+core function nue_window_set_always_on_top
+core function nue_window_set_bordered
+core function nue_window_set_cursor_clip
+core function nue_window_set_frame_limit
+core function nue_window_set_mode
+core function nue_window_set_position
+core function nue_window_set_relative_mouse
+core function nue_window_set_resizable
+core function nue_window_set_size
+core function nue_window_set_size_limits
+core function nue_window_set_title
+core function nue_window_show
+core function nue_window_warp_mouse
+core struct nue_allocator size=40 align=8
+core struct nue_app_callbacks size=48 align=8
+core struct nue_audio_device_info size=172 align=4
+core struct nue_audio_latency size=48 align=8
+core struct nue_audio_spec size=12 align=4
+core struct nue_audio_stream_desc size=72 align=8
+core struct nue_audio_stream_stats size=56 align=8
+core struct nue_budget_desc size=88 align=8
+core struct nue_budget_policy size=48 align=8
+core struct nue_budget_state size=96 align=8
+core struct nue_buffer_desc size=48 align=8
+core struct nue_build_info size=88 align=8
+core struct nue_config_decl size=72 align=8
+core struct nue_counter_value size=24 align=8
+core struct nue_crash_desc size=56 align=8
+core struct nue_crash_info size=48 align=8
+core struct nue_dir_entry size=40 align=8
+core struct nue_display_info size=276 align=4
+core struct nue_display_mode size=24 align=4
+core struct nue_effect_desc size=64 align=8
+core struct nue_event size=64 align=8
+core struct nue_event_audio_dev size=8 align=4
+core struct nue_event_button size=16 align=4
+core struct nue_event_display size=12 align=4
+core struct nue_event_finger size=40 align=8
+core struct nue_event_gamepad size=16 align=4
+core struct nue_event_input_dev size=12 align=4
+core struct nue_event_key size=16 align=4
+core struct nue_event_memory size=16 align=8
+core struct nue_event_motion size=28 align=4
+core struct nue_event_power size=16 align=4
+core struct nue_event_sensor size=32 align=8
+core struct nue_event_text size=34 align=1
+core struct nue_event_user size=32 align=8
+core struct nue_event_wheel size=24 align=4
+core struct nue_event_window size=24 align=4
+core struct nue_file_map_info size=32 align=8
+core struct nue_finger size=32 align=8
+core struct nue_frame_stats size=80 align=8
+core struct nue_gamepad_info size=216 align=4
+core struct nue_gamepad_state size=32 align=8
+core struct nue_gfx_caps size=236 align=4
+core struct nue_gfx_desc size=136 align=8
+core struct nue_gfx_native size=120 align=8
+core struct nue_gpu_caps size=216 align=8
+core struct nue_gpu_info size=160 align=8
+core struct nue_guid size=16 align=1
+core struct nue_import_desc size=64 align=8
+core struct nue_import_status size=304 align=8
+core struct nue_init_desc size=136 align=8
+core struct nue_io_desc size=56 align=8
+core struct nue_last_input size=24 align=8
+core struct nue_listener size=52 align=4
+core struct nue_log_record size=64 align=8
+core struct nue_log_sink_desc size=48 align=8
+core struct nue_memory_info size=112 align=8
+core struct nue_mixer_desc size=48 align=4
+core struct nue_mixer_stats size=88 align=8
+core struct nue_mount_desc size=32 align=8
+core struct nue_native_thread_ref size=24 align=8
+core struct nue_native_window size=32 align=8
+core struct nue_point_i size=8 align=4
+core struct nue_power_info size=76 align=4
+core struct nue_power_request size=64 align=4
+core struct nue_rect_f size=16 align=4
+core struct nue_rect_i size=16 align=4
+core struct nue_sha256_state size=112 align=4
+core struct nue_size_i size=8 align=4
+core struct nue_stat size=40 align=8
+core struct nue_system_info size=1896 align=8
+core struct nue_thread_desc size=32 align=8
+core struct nue_timer_desc size=64 align=8
+core struct nue_vec3 size=12 align=4
+core struct nue_verify_progress size=40 align=8
+core struct nue_verify_result size=280 align=4
+core struct nue_voice_3d size=68 align=4
+core struct nue_voice_desc size=88 align=8
+core struct nue_voice_state size=40 align=8
+core struct nue_window_desc size=128 align=8
+core struct nue_world_3d size=20 align=4
+texture define NUE_TEX_ASTC_BLOCK_SIZE_COUNT 14
+texture define NUE_TEX_BGFX_FORMAT_COUNT 105
+texture define NUE_TEX_CODEC_VERSION 1
+texture enum NUE_TEX_A1RGB5 48
+texture enum NUE_TEX_A2BGR10 53
+texture enum NUE_TEX_A2RGB10 52
+texture enum NUE_TEX_A8RGB332 51
+texture enum NUE_TEX_A8_UNORM 9
+texture enum NUE_TEX_ACTION_CONVERT_PIXELS 1
+texture enum NUE_TEX_ACTION_DECODE 2
+texture enum NUE_TEX_ACTION_ENCODE 3
+texture enum NUE_TEX_ACTION_TRANSCODE 4
+texture enum NUE_TEX_ACTION_UNSUPPORTED 5
+texture enum NUE_TEX_ACTION_UPLOAD_AS_IS 0
+texture enum NUE_TEX_ALPHA_INFO_BINARY 2
+texture enum NUE_TEX_ALPHA_INFO_OPAQUE 1
+texture enum NUE_TEX_ALPHA_INFO_SMOOTH 3
+texture enum NUE_TEX_ALPHA_INFO_UNKNOWN 0
+texture enum NUE_TEX_ALPHA_NONE 0
+texture enum NUE_TEX_ALPHA_PADDING 1
+texture enum NUE_TEX_ALPHA_PREMULTIPLIED 3
+texture enum NUE_TEX_ALPHA_PUNCHTHROUGH 4
+texture enum NUE_TEX_ALPHA_STRAIGHT 2
+texture enum NUE_TEX_ARGB4 44
+texture enum NUE_TEX_ASTC_12x12_HDR 205
+texture enum NUE_TEX_ASTC_12x12_SRGB 189
+texture enum NUE_TEX_ASTC_12x12_UNORM 173
+texture enum NUE_TEX_ASTC_4x4_HDR 192
+texture enum NUE_TEX_ASTC_4x4_SRGB 176
+texture enum NUE_TEX_ASTC_4x4_UNORM 160
+texture enum NUE_TEX_ATC_RGB 240
+texture enum NUE_TEX_ATC_RGBA_EXPLICIT 241
+texture enum NUE_TEX_ATC_RGBA_INTERPOLATED 242
+texture enum NUE_TEX_BC1_SRGB 101
+texture enum NUE_TEX_BC1_UNORM 100
+texture enum NUE_TEX_BC2_PMA_UNORM 104
+texture enum NUE_TEX_BC2_SRGB 103
+texture enum NUE_TEX_BC2_UNORM 102
+texture enum NUE_TEX_BC3_PMA_UNORM 107
+texture enum NUE_TEX_BC3_SRGB 106
+texture enum NUE_TEX_BC3_UNORM 105
+texture enum NUE_TEX_BC4_SNORM 109
+texture enum NUE_TEX_BC4_UNORM 108
+texture enum NUE_TEX_BC5_SNORM 111
+texture enum NUE_TEX_BC5_UNORM 110
+texture enum NUE_TEX_BC6H_SFLOAT 113
+texture enum NUE_TEX_BC6H_UFLOAT 112
+texture enum NUE_TEX_BC7_SRGB 115
+texture enum NUE_TEX_BC7_UNORM 114
+texture enum NUE_TEX_BGR565 41
+texture enum NUE_TEX_BGR5A1 47
+texture enum NUE_TEX_BGR8_SRGB 17
+texture enum NUE_TEX_BGR8_UNORM 4
+texture enum NUE_TEX_BGRA4 43
+texture enum NUE_TEX_BGRA8_SRGB 19
+texture enum NUE_TEX_BGRA8_UNORM 6
+texture enum NUE_TEX_BGRX8_SRGB 20
+texture enum NUE_TEX_BGRX8_UNORM 8
+texture enum NUE_TEX_BUDGET_BYTES 1
+texture enum NUE_TEX_BUDGET_FRACTION 2
+texture enum NUE_TEX_BUDGET_PRESET 3
+texture enum NUE_TEX_BUDGET_PRESET_DESKTOP 3
+texture enum NUE_TEX_BUDGET_PRESET_HIGH_END 4
+texture enum NUE_TEX_BUDGET_PRESET_LOW_MEMORY_MOBILE 1
+texture enum NUE_TEX_BUDGET_PRESET_MOBILE 2
+texture enum NUE_TEX_BUDGET_PRESET_UNLIMITED 0
+texture enum NUE_TEX_BUDGET_UNLIMITED 0
+texture enum NUE_TEX_COLORSPACE_LINEAR 0
+texture enum NUE_TEX_COLORSPACE_SRGB 1
+texture enum NUE_TEX_D16_UNORM 80
+texture enum NUE_TEX_D24_UNORM_S8_UINT 82
+texture enum NUE_TEX_D24_UNORM_X8 81
+texture enum NUE_TEX_D32_FLOAT 83
+texture enum NUE_TEX_D32_FLOAT_S8_UINT 84
+texture enum NUE_TEX_DEVICE_ANDROID_ASTC 3
+texture enum NUE_TEX_DEVICE_ANDROID_ETC2 4
+texture enum NUE_TEX_DEVICE_ANDROID_ETC2_BC 5
+texture enum NUE_TEX_DEVICE_APPLE_ASTC 6
+texture enum NUE_TEX_DEVICE_APPLE_PVRTC 7
+texture enum NUE_TEX_DEVICE_APPLE_SILICON_MAC 8
+texture enum NUE_TEX_DEVICE_COUNT 9
+texture enum NUE_TEX_DEVICE_DESKTOP_BC 1
+texture enum NUE_TEX_DEVICE_DESKTOP_BC_ETC2 2
+texture enum NUE_TEX_DEVICE_SOFTWARE 0
+texture enum NUE_TEX_EAC_R11_SNORM 138
+texture enum NUE_TEX_EAC_R11_UNORM 137
+texture enum NUE_TEX_EAC_RG11_SNORM 140
+texture enum NUE_TEX_EAC_RG11_UNORM 139
+texture enum NUE_TEX_ENC_ALPHA_WEIGHT 32
+texture enum NUE_TEX_ENC_DITHER 16
+texture enum NUE_TEX_ENC_NORMAL_MAP 1
+texture enum NUE_TEX_ENC_PERCEPTUAL 2
+texture enum NUE_TEX_ENC_PUNCHTHROUGH 8
+texture enum NUE_TEX_ENC_SRGB 4
+texture enum NUE_TEX_ETC1_RGB8 130
+texture enum NUE_TEX_ETC2_RGB8 131
+texture enum NUE_TEX_ETC2_RGB8A1 133
+texture enum NUE_TEX_ETC2_RGB8A1_SRGB 134
+texture enum NUE_TEX_ETC2_RGB8_SRGB 132
+texture enum NUE_TEX_ETC2_RGBA8 135
+texture enum NUE_TEX_ETC2_RGBA8_SRGB 136
+texture enum NUE_TEX_FCAP_3D 64
+texture enum NUE_TEX_FCAP_CUBE 128
+texture enum NUE_TEX_FCAP_EMULATED 16
+texture enum NUE_TEX_FCAP_FILTER 2
+texture enum NUE_TEX_FCAP_MIP_AUTOGEN 32
+texture enum NUE_TEX_FCAP_MSAA 256
+texture enum NUE_TEX_FCAP_RENDER 4
+texture enum NUE_TEX_FCAP_SAMPLE 1
+texture enum NUE_TEX_FCAP_SRGB_SAMPLE 8
+texture enum NUE_TEX_FILE_ASSUME_SRGB 4
+texture enum NUE_TEX_FILE_AUTO 0
+texture enum NUE_TEX_FILE_DDS 1
+texture enum NUE_TEX_FILE_DDS_FORCE_DX10 1
+texture enum NUE_TEX_FILE_DDS_LEGACY_ONLY 2
+texture enum NUE_TEX_FILE_FLIP_Y 8
+texture enum NUE_TEX_FILE_KTX2 2
+texture enum NUE_TEX_FILE_PNG 3
+texture enum NUE_TEX_FINFO_COMPRESSED 1
+texture enum NUE_TEX_FINFO_HAS_DECODER 32
+texture enum NUE_TEX_FINFO_HAS_ENCODER 64
+texture enum NUE_TEX_FINFO_HDR 2
+texture enum NUE_TEX_FINFO_LEGACY 16
+texture enum NUE_TEX_FINFO_LOSSY 8
+texture enum NUE_TEX_FINFO_REQUIRES_POT 128
+texture enum NUE_TEX_FINFO_REQUIRES_SQUARE 256
+texture enum NUE_TEX_FINFO_SIGNED 4
+texture enum NUE_TEX_FORMAT_COUNT 256
+texture enum NUE_TEX_FORMAT_UNKNOWN 0
+texture enum NUE_TEX_IMAGE_CUBE 1
+texture enum NUE_TEX_JOB_CRITICAL 3
+texture enum NUE_TEX_JOB_HIGH 2
+texture enum NUE_TEX_JOB_LOW 0
+texture enum NUE_TEX_JOB_NORMAL 1
+texture enum NUE_TEX_KIND_BLOCK 2
+texture enum NUE_TEX_KIND_DEPTH 3
+texture enum NUE_TEX_KIND_UNCOMPRESSED 1
+texture enum NUE_TEX_L16_UNORM 12
+texture enum NUE_TEX_L8_UNORM 10
+texture enum NUE_TEX_LA4_UNORM 13
+texture enum NUE_TEX_LA8_UNORM 11
+texture enum NUE_TEX_MIP_ALPHA_COVERAGE 4
+texture enum NUE_TEX_MIP_BOX 0
+texture enum NUE_TEX_MIP_KAISER 2
+texture enum NUE_TEX_MIP_LANCZOS 3
+texture enum NUE_TEX_MIP_NORMAL_MAP 2
+texture enum NUE_TEX_MIP_PREMULTIPLY 16
+texture enum NUE_TEX_MIP_SRGB 1
+texture enum NUE_TEX_MIP_TRIANGLE 1
+texture enum NUE_TEX_MIP_WRAP 8
+texture enum NUE_TEX_PLAN_ALPHA_DROPPED 2
+texture enum NUE_TEX_PLAN_ENCODE_SLOW 64
+texture enum NUE_TEX_PLAN_FALLBACK 4
+texture enum NUE_TEX_PLAN_LOSSY 1
+texture enum NUE_TEX_PLAN_MIPS_SKIPPED 16
+texture enum NUE_TEX_PLAN_NEEDS_SWIZZLE 32
+texture enum NUE_TEX_PLAN_PRECISION_LOSS 8
+texture enum NUE_TEX_PLAN_SRGB_IN_SHADER 128
+texture enum NUE_TEX_POLICY_ALLOW_16BIT 16
+texture enum NUE_TEX_POLICY_COMPRESS_RAW 4
+texture enum NUE_TEX_POLICY_FORCE_UNCOMPRESSED 8
+texture enum NUE_TEX_POLICY_KEEP_SOURCE_FORMAT 32
+texture enum NUE_TEX_POLICY_NO_LOSSY 1
+texture enum NUE_TEX_POLICY_NO_SHADER_SWIZZLE 2
+texture enum NUE_TEX_PRIORITY_BALANCED 0
+texture enum NUE_TEX_PRIORITY_MEMORY 3
+texture enum NUE_TEX_PRIORITY_QUALITY 1
+texture enum NUE_TEX_PRIORITY_SPEED 2
+texture enum NUE_TEX_PVRTC1_2BPP 224
+texture enum NUE_TEX_PVRTC1_2BPP_SRGB 225
+texture enum NUE_TEX_PVRTC1_4BPP 226
+texture enum NUE_TEX_PVRTC1_4BPP_SRGB 227
+texture enum NUE_TEX_PVRTC2_2BPP 228
+texture enum NUE_TEX_PVRTC2_2BPP_SRGB 229
+texture enum NUE_TEX_PVRTC2_4BPP 230
+texture enum NUE_TEX_PVRTC2_4BPP_SRGB 231
+texture enum NUE_TEX_QUALITY_BEST 4
+texture enum NUE_TEX_QUALITY_FAST 1
+texture enum NUE_TEX_QUALITY_FASTEST 0
+texture enum NUE_TEX_QUALITY_HIGH 3
+texture enum NUE_TEX_QUALITY_NORMAL 2
+texture enum NUE_TEX_R16_FLOAT 30
+texture enum NUE_TEX_R16_SNORM 27
+texture enum NUE_TEX_R16_UNORM 24
+texture enum NUE_TEX_R32_FLOAT 33
+texture enum NUE_TEX_R8_SNORM 21
+texture enum NUE_TEX_R8_SRGB 14
+texture enum NUE_TEX_R8_UNORM 1
+texture enum NUE_TEX_REQ_CUBE 16
+texture enum NUE_TEX_REQ_DYNAMIC 2
+texture enum NUE_TEX_REQ_NO_MIP_SKIP 4
+texture enum NUE_TEX_REQ_RENDER_TARGET 1
+texture enum NUE_TEX_REQ_SRGB 8
+texture enum NUE_TEX_REQ_VOLUME 32
+texture enum NUE_TEX_RES_PINNED 1
+texture enum NUE_TEX_RG11B10_FLOAT 54
+texture enum NUE_TEX_RG16_FLOAT 31
+texture enum NUE_TEX_RG16_SNORM 28
+texture enum NUE_TEX_RG16_UNORM 25
+texture enum NUE_TEX_RG32_FLOAT 34
+texture enum NUE_TEX_RG8_SNORM 22
+texture enum NUE_TEX_RG8_SRGB 15
+texture enum NUE_TEX_RG8_UNORM 2
+texture enum NUE_TEX_RGB32_FLOAT 35
+texture enum NUE_TEX_RGB332 50
+texture enum NUE_TEX_RGB565 40
+texture enum NUE_TEX_RGB5A1 46
+texture enum NUE_TEX_RGB8_SRGB 16
+texture enum NUE_TEX_RGB8_UNORM 3
+texture enum NUE_TEX_RGB9E5_FLOAT 55
+texture enum NUE_TEX_RGBA16_FLOAT 32
+texture enum NUE_TEX_RGBA16_SNORM 29
+texture enum NUE_TEX_RGBA16_UNORM 26
+texture enum NUE_TEX_RGBA32_FLOAT 36
+texture enum NUE_TEX_RGBA4 42
+texture enum NUE_TEX_RGBA8_SNORM 23
+texture enum NUE_TEX_RGBA8_SRGB 18
+texture enum NUE_TEX_RGBA8_UNORM 5
+texture enum NUE_TEX_RGBX8_UNORM 7
+texture enum NUE_TEX_S8_UINT 85
+texture enum NUE_TEX_TYPE_FLOAT 3
+texture enum NUE_TEX_TYPE_SNORM 2
+texture enum NUE_TEX_TYPE_SRGB 5
+texture enum NUE_TEX_TYPE_UINT 4
+texture enum NUE_TEX_TYPE_UNORM 1
+texture enum NUE_TEX_USAGE_COLOR 0
+texture enum NUE_TEX_USAGE_DATA 2
+texture enum NUE_TEX_USAGE_HDR 3
+texture enum NUE_TEX_USAGE_NORMAL_MAP 1
+texture enum NUE_TEX_USAGE_UI 4
+texture enum NUE_TEX_XRGB1555 49
+texture enum NUE_TEX_XRGB4 45
+texture field nue_tex_budget_policy.available_bytes off=32 size=8
+texture field nue_tex_budget_policy.fraction off=16 size=8
+texture field nue_tex_budget_policy.limit_bytes off=8 size=8
+texture field nue_tex_budget_policy.max_bytes off=48 size=8
+texture field nue_tex_budget_policy.min_bytes off=40 size=8
+texture field nue_tex_budget_policy.mode off=4 size=4
+texture field nue_tex_budget_policy.preset off=24 size=4
+texture field nue_tex_budget_policy.struct_size off=0 size=4
+texture field nue_tex_budget_stats.bytes_evicted off=48 size=8
+texture field nue_tex_budget_stats.evictions_requested off=40 size=8
+texture field nue_tex_budget_stats.limit off=8 size=8
+texture field nue_tex_budget_stats.over_budget_events off=56 size=4
+texture field nue_tex_budget_stats.peak off=24 size=8
+texture field nue_tex_budget_stats.pinned off=36 size=4
+texture field nue_tex_budget_stats.reserved off=60 size=16
+texture field nue_tex_budget_stats.resources off=32 size=4
+texture field nue_tex_budget_stats.struct_size off=0 size=4
+texture field nue_tex_budget_stats.used off=16 size=8
+texture field nue_tex_cache_stats.bytes off=56 size=8
+texture field nue_tex_cache_stats.corrupt_dropped off=32 size=8
+texture field nue_tex_cache_stats.entries off=48 size=8
+texture field nue_tex_cache_stats.evicted off=40 size=8
+texture field nue_tex_cache_stats.hit_bytes off=64 size=8
+texture field nue_tex_cache_stats.hits off=8 size=8
+texture field nue_tex_cache_stats.misses off=16 size=8
+texture field nue_tex_cache_stats.reserved off=80 size=16
+texture field nue_tex_cache_stats.store_bytes off=72 size=8
+texture field nue_tex_cache_stats.stores off=24 size=8
+texture field nue_tex_cache_stats.struct_size off=0 size=4
+texture field nue_tex_caps.astc_hdr off=1055 size=1
+texture field nue_tex_caps.astc_ldr_full_profile off=1056 size=1
+texture field nue_tex_caps.available_memory_bytes off=1064 size=8
+texture field nue_tex_caps.block_size_must_align off=1054 size=1
+texture field nue_tex_caps.device_class off=4 size=4
+texture field nue_tex_caps.format_flags off=8 size=1024
+texture field nue_tex_caps.max_anisotropy off=1048 size=4
+texture field nue_tex_caps.max_array_layers off=1044 size=4
+texture field nue_tex_caps.max_size_2d off=1032 size=4
+texture field nue_tex_caps.max_size_3d off=1036 size=4
+texture field nue_tex_caps.max_size_cube off=1040 size=4
+texture field nue_tex_caps.npot_full off=1052 size=1
+texture field nue_tex_caps.npot_with_mips off=1053 size=1
+texture field nue_tex_caps.reserved off=1072 size=32
+texture field nue_tex_caps.struct_size off=0 size=4
+texture field nue_tex_caps.supports_texture_swizzle off=1057 size=1
+texture field nue_tex_context_desc.budget off=48 size=56
+texture field nue_tex_context_desc.cache_dir off=24 size=8
+texture field nue_tex_context_desc.cache_max_bytes off=32 size=8
+texture field nue_tex_context_desc.caps off=8 size=8
+texture field nue_tex_context_desc.executor off=104 size=8
+texture field nue_tex_context_desc.policy off=16 size=8
+texture field nue_tex_context_desc.reserved off=112 size=16
+texture field nue_tex_context_desc.struct_size off=0 size=4
+texture field nue_tex_context_desc.worker_threads off=40 size=4
+texture field nue_tex_convert_request.alpha_info off=32 size=4
+texture field nue_tex_convert_request.flags off=20 size=4
+texture field nue_tex_convert_request.policy off=24 size=8
+texture field nue_tex_convert_request.reserved off=36 size=16
+texture field nue_tex_convert_request.source off=8 size=8
+texture field nue_tex_convert_request.struct_size off=0 size=4
+texture field nue_tex_convert_request.usage off=16 size=4
+texture field nue_tex_d3d9_format_entry.d3d off=0 size=4
+texture field nue_tex_d3d9_format_entry.d3d_name off=16 size=8
+texture field nue_tex_d3d9_format_entry.exact off=9 size=1
+texture field nue_tex_d3d9_format_entry.format off=4 size=4
+texture field nue_tex_d3d9_format_entry.is_fourcc off=8 size=1
+texture field nue_tex_d3d9_format_entry.premultiplied_alpha off=10 size=1
+texture field nue_tex_d3d9_format_entry.reserved off=11 size=1
+texture field nue_tex_d3d9_texture_desc.alpha_hint off=36 size=4
+texture field nue_tex_d3d9_texture_desc.content off=32 size=4
+texture field nue_tex_d3d9_texture_desc.cube off=28 size=1
+texture field nue_tex_d3d9_texture_desc.d3d_format off=4 size=4
+texture field nue_tex_d3d9_texture_desc.height off=12 size=4
+texture field nue_tex_d3d9_texture_desc.levels off=16 size=4
+texture field nue_tex_d3d9_texture_desc.pool off=24 size=4
+texture field nue_tex_d3d9_texture_desc.reserved off=40 size=12
+texture field nue_tex_d3d9_texture_desc.srgb off=29 size=1
+texture field nue_tex_d3d9_texture_desc.struct_size off=0 size=4
+texture field nue_tex_d3d9_texture_desc.usage off=20 size=4
+texture field nue_tex_d3d9_texture_desc.width off=8 size=4
+texture field nue_tex_d3d9_texture_info.action off=12 size=4
+texture field nue_tex_d3d9_texture_info.defer_to_worker off=48 size=1
+texture field nue_tex_d3d9_texture_info.gpu_bytes off=32 size=8
+texture field nue_tex_d3d9_texture_info.gpu_format off=8 size=4
+texture field nue_tex_d3d9_texture_info.gpu_height off=28 size=4
+texture field nue_tex_d3d9_texture_info.gpu_levels off=16 size=4
+texture field nue_tex_d3d9_texture_info.gpu_width off=24 size=4
+texture field nue_tex_d3d9_texture_info.needs_shader_swizzle off=40 size=1
+texture field nue_tex_d3d9_texture_info.pad off=46 size=2
+texture field nue_tex_d3d9_texture_info.reserved off=52 size=16
+texture field nue_tex_d3d9_texture_info.shader_swizzle off=41 size=5
+texture field nue_tex_d3d9_texture_info.skip_mips off=20 size=4
+texture field nue_tex_d3d9_texture_info.source_format off=4 size=4
+texture field nue_tex_d3d9_texture_info.struct_size off=0 size=4
+texture field nue_tex_encode_params.alpha_threshold off=12 size=1
+texture field nue_tex_encode_params.executor off=24 size=8
+texture field nue_tex_encode_params.flags off=8 size=4
+texture field nue_tex_encode_params.max_threads off=32 size=4
+texture field nue_tex_encode_params.pad off=18 size=2
+texture field nue_tex_encode_params.quality off=4 size=4
+texture field nue_tex_encode_params.reserved off=36 size=16
+texture field nue_tex_encode_params.struct_size off=0 size=4
+texture field nue_tex_encode_params.swizzle off=13 size=5
+texture field nue_tex_executor_desc.host_userdata off=32 size=8
+texture field nue_tex_executor_desc.name off=8 size=8
+texture field nue_tex_executor_desc.reserved off=40 size=16
+texture field nue_tex_executor_desc.struct_size off=0 size=4
+texture field nue_tex_executor_desc.submit off=24 size=8
+texture field nue_tex_executor_desc.thread_priority off=16 size=4
+texture field nue_tex_executor_desc.threads off=4 size=4
+texture field nue_tex_format_info.alpha off=28 size=4
+texture field nue_tex_format_info.bits_per_pixel off=56 size=4
+texture field nue_tex_format_info.block_bytes off=38 size=1
+texture field nue_tex_format_info.block_height off=37 size=1
+texture field nue_tex_format_info.block_width off=36 size=1
+texture field nue_tex_format_info.channel_bits off=42 size=4
+texture field nue_tex_format_info.channels off=41 size=1
+texture field nue_tex_format_info.colorspace off=24 size=4
+texture field nue_tex_format_info.flags off=32 size=4
+texture field nue_tex_format_info.format off=4 size=4
+texture field nue_tex_format_info.kind off=16 size=4
+texture field nue_tex_format_info.layout off=46 size=8
+texture field nue_tex_format_info.linear_twin off=64 size=4
+texture field nue_tex_format_info.min_height off=40 size=1
+texture field nue_tex_format_info.min_width off=39 size=1
+texture field nue_tex_format_info.name off=8 size=8
+texture field nue_tex_format_info.reserved off=68 size=16
+texture field nue_tex_format_info.srgb_twin off=60 size=4
+texture field nue_tex_format_info.struct_size off=0 size=4
+texture field nue_tex_format_info.type off=20 size=4
+texture field nue_tex_gl_format.format off=4 size=4
+texture field nue_tex_gl_format.internal_format off=0 size=4
+texture field nue_tex_gl_format.type off=8 size=4
+texture field nue_tex_image_desc.depth off=16 size=4
+texture field nue_tex_image_desc.faces off=28 size=4
+texture field nue_tex_image_desc.flags off=32 size=4
+texture field nue_tex_image_desc.format off=4 size=4
+texture field nue_tex_image_desc.height off=12 size=4
+texture field nue_tex_image_desc.layers off=24 size=4
+texture field nue_tex_image_desc.mip_levels off=20 size=4
+texture field nue_tex_image_desc.reserved off=36 size=16
+texture field nue_tex_image_desc.struct_size off=0 size=4
+texture field nue_tex_image_desc.width off=8 size=4
+texture field nue_tex_import_item.flags off=44 size=4
+texture field nue_tex_import_item.load off=24 size=8
+texture field nue_tex_import_item.name off=8 size=8
+texture field nue_tex_import_item.path off=16 size=8
+texture field nue_tex_import_item.reserved off=48 size=16
+texture field nue_tex_import_item.struct_size off=0 size=4
+texture field nue_tex_import_item.usage off=40 size=4
+texture field nue_tex_import_item.userdata off=32 size=8
+texture field nue_tex_import_progress.cancelled off=57 size=1
+texture field nue_tex_import_progress.current off=59 size=96
+texture field nue_tex_import_progress.done off=8 size=4
+texture field nue_tex_import_progress.elapsed_seconds off=40 size=8
+texture field nue_tex_import_progress.eta_seconds off=48 size=8
+texture field nue_tex_import_progress.failed off=16 size=4
+texture field nue_tex_import_progress.finished off=58 size=1
+texture field nue_tex_import_progress.produced_bytes off=32 size=8
+texture field nue_tex_import_progress.reserved off=156 size=16
+texture field nue_tex_import_progress.running off=56 size=1
+texture field nue_tex_import_progress.skipped_cached off=12 size=4
+texture field nue_tex_import_progress.source_bytes off=24 size=8
+texture field nue_tex_import_progress.struct_size off=0 size=4
+texture field nue_tex_import_progress.total off=4 size=4
+texture field nue_tex_level_view.blocks_x off=36 size=4
+texture field nue_tex_level_view.blocks_y off=40 size=4
+texture field nue_tex_level_view.data off=8 size=8
+texture field nue_tex_level_view.depth off=32 size=4
+texture field nue_tex_level_view.height off=28 size=4
+texture field nue_tex_level_view.row_pitch off=44 size=4
+texture field nue_tex_level_view.size off=16 size=8
+texture field nue_tex_level_view.slice_pitch off=48 size=8
+texture field nue_tex_level_view.struct_size off=0 size=4
+texture field nue_tex_level_view.width off=24 size=4
+texture field nue_tex_memory_item.count off=16 size=4
+texture field nue_tex_memory_item.format off=0 size=4
+texture field nue_tex_memory_item.height off=8 size=4
+texture field nue_tex_memory_item.mip_levels off=12 size=4
+texture field nue_tex_memory_item.width off=4 size=4
+texture field nue_tex_metrics.delta_e_max off=48 size=8
+texture field nue_tex_metrics.delta_e_mean off=40 size=8
+texture field nue_tex_metrics.max_abs_error off=56 size=8
+texture field nue_tex_metrics.psnr_alpha_db off=24 size=8
+texture field nue_tex_metrics.psnr_db off=8 size=8
+texture field nue_tex_metrics.psnr_rgb_db off=16 size=8
+texture field nue_tex_metrics.reserved off=64 size=16
+texture field nue_tex_metrics.ssim off=32 size=8
+texture field nue_tex_metrics.struct_size off=0 size=4
+texture field nue_tex_mip_params.executor off=16 size=8
+texture field nue_tex_mip_params.filter off=4 size=4
+texture field nue_tex_mip_params.flags off=8 size=4
+texture field nue_tex_mip_params.reserved off=24 size=16
+texture field nue_tex_mip_params.struct_size off=0 size=4
+texture field nue_tex_plan.action off=12 size=4
+texture field nue_tex_plan.alternatives off=64 size=24
+texture field nue_tex_plan.encode_ms_per_mpixel off=60 size=4
+texture field nue_tex_plan.expected_psnr_db off=56 size=4
+texture field nue_tex_plan.explanation off=88 size=512
+texture field nue_tex_plan.flags off=16 size=4
+texture field nue_tex_plan.pad off=33 size=3
+texture field nue_tex_plan.quality off=20 size=4
+texture field nue_tex_plan.reserved off=600 size=16
+texture field nue_tex_plan.shader_swizzle off=28 size=5
+texture field nue_tex_plan.skip_mips off=24 size=4
+texture field nue_tex_plan.source_bytes off=40 size=8
+texture field nue_tex_plan.source_format off=4 size=4
+texture field nue_tex_plan.struct_size off=0 size=4
+texture field nue_tex_plan.target_bytes off=48 size=8
+texture field nue_tex_plan.target_format off=8 size=4
+texture field nue_tex_plan_request.alpha_info off=36 size=4
+texture field nue_tex_plan_request.depth off=16 size=4
+texture field nue_tex_plan_request.faces off=28 size=4
+texture field nue_tex_plan_request.flags off=40 size=4
+texture field nue_tex_plan_request.height off=12 size=4
+texture field nue_tex_plan_request.layers off=24 size=4
+texture field nue_tex_plan_request.mip_levels off=20 size=4
+texture field nue_tex_plan_request.policy off=48 size=8
+texture field nue_tex_plan_request.reserved off=56 size=16
+texture field nue_tex_plan_request.source_format off=4 size=4
+texture field nue_tex_plan_request.struct_size off=0 size=4
+texture field nue_tex_plan_request.usage off=32 size=4
+texture field nue_tex_plan_request.width off=8 size=4
+texture field nue_tex_policy.flags off=8 size=4
+texture field nue_tex_policy.max_dimension off=16 size=4
+texture field nue_tex_policy.memory_tolerance off=12 size=4
+texture field nue_tex_policy.min_recompress_dimension off=20 size=4
+texture field nue_tex_policy.priority off=4 size=4
+texture field nue_tex_policy.quality off=24 size=4
+texture field nue_tex_policy.reserved off=28 size=16
+texture field nue_tex_policy.struct_size off=0 size=4
+texture field nue_tex_scan_result.alpha_info off=4 size=4
+texture field nue_tex_scan_result.constant_color off=11 size=1
+texture field nue_tex_scan_result.max_alpha off=9 size=1
+texture field nue_tex_scan_result.min_alpha off=8 size=1
+texture field nue_tex_scan_result.reserved off=12 size=16
+texture field nue_tex_scan_result.struct_size off=0 size=4
+texture field nue_tex_scan_result.uses_punchthrough off=10 size=1
+texture function nue_tex_action_name
+texture function nue_tex_budget_add
+texture function nue_tex_budget_attach_engine
+texture function nue_tex_budget_create
+texture function nue_tex_budget_destroy
+texture function nue_tex_budget_detach_engine
+texture function nue_tex_budget_evict
+texture function nue_tex_budget_get_stats
+texture function nue_tex_budget_policy_preset
+texture function nue_tex_budget_remove
+texture function nue_tex_budget_resize
+texture function nue_tex_budget_resolve
+texture function nue_tex_budget_set_flags
+texture function nue_tex_budget_set_policy
+texture function nue_tex_budget_touch
+texture function nue_tex_cache_clear
+texture function nue_tex_cache_get_stats
+texture function nue_tex_cache_scan
+texture function nue_tex_cache_trim
+texture function nue_tex_caps_can_use
+texture function nue_tex_caps_clear
+texture function nue_tex_caps_for_class
+texture function nue_tex_caps_from_bgfx
+texture function nue_tex_caps_from_gpu_caps
+texture function nue_tex_caps_get_format
+texture function nue_tex_caps_set_format
+texture function nue_tex_caps_to_string
+texture function nue_tex_chain_size
+texture function nue_tex_codec_info
+texture function nue_tex_compare_images
+texture function nue_tex_compare_level
+texture function nue_tex_context_convert
+texture function nue_tex_context_create
+texture function nue_tex_context_destroy
+texture function nue_tex_context_executor
+texture function nue_tex_context_get_caps
+texture function nue_tex_context_set_caps
+texture function nue_tex_convert_level
+texture function nue_tex_d3d9_convert_level
+texture function nue_tex_d3d9_format_table
+texture function nue_tex_d3d9_level_gpu_size
+texture function nue_tex_d3d9_texture_create
+texture function nue_tex_d3d9_texture_destroy
+texture function nue_tex_d3d9_texture_info_get
+texture function nue_tex_decode_level
+texture function nue_tex_detect_file_kind
+texture function nue_tex_device_class_from_name
+texture function nue_tex_device_class_name
+texture function nue_tex_encode_level
+texture function nue_tex_encode_params_default
+texture function nue_tex_executor_create
+texture function nue_tex_executor_destroy
+texture function nue_tex_executor_submit
+texture function nue_tex_executor_thread_count
+texture function nue_tex_executor_wait_idle
+texture function nue_tex_format_from_bgfx
+texture function nue_tex_format_from_d3d9
+texture function nue_tex_format_from_dxgi
+texture function nue_tex_format_from_gl
+texture function nue_tex_format_from_metal
+texture function nue_tex_format_from_name
+texture function nue_tex_format_from_vk
+texture function nue_tex_format_is_compressed
+texture function nue_tex_format_list
+texture function nue_tex_format_name
+texture function nue_tex_format_to_bgfx
+texture function nue_tex_format_to_d3d9
+texture function nue_tex_format_to_dxgi
+texture function nue_tex_format_to_gl
+texture function nue_tex_format_to_linear
+texture function nue_tex_format_to_metal
+texture function nue_tex_format_to_srgb
+texture function nue_tex_format_to_vk
+texture function nue_tex_free
+texture function nue_tex_generate_mips
+texture function nue_tex_get_format_info
+texture function nue_tex_image_clone
+texture function nue_tex_image_convert
+texture function nue_tex_image_create
+texture function nue_tex_image_destroy
+texture function nue_tex_image_drop_top_mips
+texture function nue_tex_image_get_desc
+texture function nue_tex_image_get_level
+texture function nue_tex_image_load_file
+texture function nue_tex_image_load_memory
+texture function nue_tex_image_save_file
+texture function nue_tex_image_save_memory
+texture function nue_tex_image_total_size
+texture function nue_tex_importer_add
+texture function nue_tex_importer_cancel
+texture function nue_tex_importer_create
+texture function nue_tex_importer_destroy
+texture function nue_tex_importer_get_progress
+texture function nue_tex_importer_pause
+texture function nue_tex_importer_start
+texture function nue_tex_importer_wait
+texture function nue_tex_level_size
+texture function nue_tex_make_plan
+texture function nue_tex_memory_estimate
+texture function nue_tex_mip_count
+texture function nue_tex_mip_extent
+texture function nue_tex_mip_params_default
+texture function nue_tex_pack_pixels
+texture function nue_tex_policy_default
+texture function nue_tex_request_async
+texture function nue_tex_request_cancel
+texture function nue_tex_row_pitch
+texture function nue_tex_rows
+texture function nue_tex_scan_level
+texture function nue_tex_set_log_callback
+texture function nue_tex_unpack_pixels
+texture function nue_tex_wait_idle
+texture struct nue_tex_budget_policy size=56 align=8
+texture struct nue_tex_budget_stats size=80 align=8
+texture struct nue_tex_cache_stats size=96 align=8
+texture struct nue_tex_caps size=1104 align=8
+texture struct nue_tex_context_desc size=128 align=8
+texture struct nue_tex_convert_request size=56 align=8
+texture struct nue_tex_d3d9_format_entry size=24 align=8
+texture struct nue_tex_d3d9_texture_desc size=52 align=4
+texture struct nue_tex_d3d9_texture_info size=72 align=8
+texture struct nue_tex_encode_params size=56 align=8
+texture struct nue_tex_executor_desc size=56 align=8
+texture struct nue_tex_format_info size=88 align=8
+texture struct nue_tex_gl_format size=12 align=4
+texture struct nue_tex_image_desc size=52 align=4
+texture struct nue_tex_import_item size=64 align=8
+texture struct nue_tex_import_progress size=176 align=8
+texture struct nue_tex_level_view size=56 align=8
+texture struct nue_tex_memory_item size=20 align=4
+texture struct nue_tex_metrics size=80 align=8
+texture struct nue_tex_mip_params size=40 align=8
+texture struct nue_tex_plan size=616 align=8
+texture struct nue_tex_plan_request size=72 align=8
+texture struct nue_tex_policy size=44 align=4
+texture struct nue_tex_scan_result size=28 align=4

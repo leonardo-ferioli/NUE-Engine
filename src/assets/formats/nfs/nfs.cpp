@@ -289,13 +289,14 @@ NUE_ASSETS_API nue_result NUE_CALL nue_assets_register_nfs(nue_assets_context ct
     NUE_STRUCT_INIT(&f);
     f.name = "nfs-bun";
     f.description = "Need for Speed Underground 2 chunk stream (.BUN, and .LZC = JDLZ compressed .BUN)";
-    f.extensions = "bun;lzc";
+    f.extensions = "bun;lzc;bin";
     f.probe = nfs::probe;
     f.open = nfs::open;
     f.close = nfs::close;
     f.index = nfs::index;
     f.get_image = nfs::get_image;
     f.get_native = nfs::get_native;
+    f.get_mesh = nfs::get_mesh;
     f.write = nfs::write;
     f.default_codec = nfs::default_codec;
     nue_result r = nue_assets_register_format(ctx, &f);

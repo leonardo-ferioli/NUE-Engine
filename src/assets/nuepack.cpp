@@ -149,6 +149,20 @@ NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_device_class(nue_t
     }
 }
 
+NUE_ASSETS_API nue_pack_variant NUE_CALL nue_pack_variant_for_caps(const nue_tex_caps* caps) {
+    if (!caps) return NUE_PACK_VARIANT_RGBA8;
+    struct Probe { nue_pack_variant variant; nue_tex_format a, b; };
+    static const Probe probes[] = {
+        {NUE_PACK_VARIANT_BC, NUE_TEX_BC1_UNORM, NUE_TEX_BC3_UNORM},
+        {NUE_PACK_VARIANT_ASTC, NUE_TEX_ASTC_4x4_UNORM, NUE_TEX_ASTC_4x4_UNORM},
+        {NUE_PACK_VARIANT_ETC2, NUE_TEX_ETC2_RGB8, NUE_TEX_ETC2_RGBA8},
+        {NUE_PACK_VARIANT_PVRTC, NUE_TEX_PVRTC1_4BPP, NUE_TEX_PVRTC1_4BPP},
+    };
+    for (const Probe& p : probes)
+        if (nue_tex_caps_can_use(caps, p.a) && nue_tex_caps_can_use(caps, p.b)) return p.variant;
+    return NUE_PACK_VARIANT_RGBA8;
+}
+
 // ======================================================================================================== builder
 struct nue_pack_builder_s {
     Ctx* ctx = nullptr;
@@ -246,10 +260,19 @@ nue_result make_variant(nue_tex_image src, nue_pack_variant variant, const nue_p
         nue_tex_policy pol;
         nue_tex_policy_default(&pol);
         pol.max_dimension = o.max_dimension;
+        pol.flags |= NUE_TEX_POLICY_COMPRESS_RAW;                  // a package is built to be small: uncompressed sources are compressed for the target
         pol.quality = uint32_t(o.quality) + 1;
         nue_tex_plan_request req;
         NUE_STRUCT_INIT(&req);
         req.source_format = d.format; req.width = d.width; req.height = d.height; req.depth = d.depth ? d.depth : 1; req.mip_levels = d.mip_levels;
+        // what the pixels really use: an opaque DXT1 / BC2 / BC3 texture plans to an RGB target (half the memory of an RGBA one)
+        nue_tex_level_view v0;
+        NUE_STRUCT_INIT(&v0);
+        if (nue_tex_image_get_level(src, 0, 0, 0, &v0) == NUE_OK) {
+            nue_tex_scan_result sr;
+            NUE_STRUCT_INIT(&sr);
+            if (nue_tex_scan_level(d.format, d.width, d.height, v0.data, size_t(v0.size), &sr) == NUE_OK) req.alpha_info = sr.alpha_info;
+        }
         req.layers = d.layers; req.faces = d.faces; req.policy = &pol;
         if (d.faces == 6) req.flags |= NUE_TEX_REQ_CUBE;
         nue_tex_plan plan;

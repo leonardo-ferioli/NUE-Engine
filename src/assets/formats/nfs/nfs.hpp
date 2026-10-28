@@ -73,11 +73,19 @@ nue_result NUE_CALL get_image(void*, nue_asset_container c, void*, uint32_t reso
 nue_result NUE_CALL get_native(void*, nue_asset_container c, void*, uint32_t resource, nue_asset_native_texture* out, void** out_memory);
 nue_result NUE_CALL write(void*, nue_asset_container c, void*, uint32_t flags, nue_asset_sink* sink);
 const char* NUE_CALL default_codec(void*, const char* ext);
+nue_result index_meshes(nue_asset_container c, const nue_asset_resource_ops* ops, void* builder);
+nue_result NUE_CALL get_mesh(void*, nue_asset_container c, void*, uint32_t resource, nue_asset_mesh* out, void** out_memory);
 
 // texture packs
 bool load_tpk(nue_asset_container c, uint32_t tpk_node, Tpk* out);
 nue_result plan_tpk(nue_asset_container c, const Tpk& t, TpkPlan* out);
 nue_result emit_tpk_data(nue_asset_container c, nue_asset_sink* sink, const TpkPlan& plan, uint64_t payload_pos);
+
+bool parse_texrec(const uint8_t* p, TexRec* t);
+nue_result texrec_to_image(const TexRec& x, const std::vector<uint8_t>& raw, const std::vector<uint8_t>& pal, nue_tex_image* out);
+// car packs (TEXTURES.BIN: per texture compressed blobs)
+nue_result index_car_pack(nue_asset_container c, uint32_t tpk_node, uint32_t pack_resource, const nue_asset_resource_ops* ops, void* builder);
+nue_result car_load_texture(nue_asset_container c, uint32_t tpk_node, uint32_t sub_index, TexRec* x, std::vector<uint8_t>* image, std::vector<uint8_t>* palette);
 
 nue_tex_format format_of_ct(uint8_t ct);                      // pixel format of the stored data (P8 -> R8_UNORM); UNKNOWN if not understood
 bool ct_known(uint8_t ct);

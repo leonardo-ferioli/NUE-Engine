@@ -9,8 +9,9 @@ Written against core API 0.1 (`include/nue/*.h`, `src/core/internal/platform_ops
 |---|---|
 | **Compiled and run on the host (12 ctest suites, all green)** | everything in `src/platform/android/logic/` (lifecycle state machine, memory budget, display mode choice, thermal governor, ADPF target planner, GPU/texture-format policy, input/key/axis tables, audio plan + focus state machine, CPU big/little classification, storage path sanitising, manifest/journal/marker formats, **the import engine** (copy + CRC-32 + journal + resume + cancel + disk-full handling, run against real directories), crash-report text, event queue incl. a threaded test) |
 | **Built for Android (2026-10-22, NDK r28c 28.2.13676358, AGP 9.4.1, Gradle 9.8.2, JDK 21)** | `gradle :nue-engine:assembleDebug` -> `nue-engine-debug.aar` (libnue.so for arm64-v8a = core + SDL3 backend + this platform layer, all Java compiled against the real `android.jar`, prefab package `nue-engine`); `gradle :sample:assembleDebug` -> `sample-debug.apk` (libmain.so, libnue.so, libc++_shared.so). Checked on the binaries: `zipalign -c -P 16` ok, every `LOAD` segment aligned 0x4000, the 30 `Java_org_nue_engine_NueBridge_*` entry points are exported, exactly one `JNI_OnLoad` (SDL's) |
-| **Not built / not checked** | release build with R8 (`assembleRelease`), x86_64/armeabi-v7a, `lint`; Android Studio itself (its installer download failed twice, not needed for building) |
-| **Run on a device or emulator** | **nothing**. No device or emulator was used, nothing was installed on any phone |
+| **Also built** | the sample for x86_64 (`-Pnue.abis=arm64-v8a,x86_64`): `libnue.so`, `libmain.so`, `libc++_shared.so` for both ABIs in one APK |
+| **Not built / not checked** | release build with R8 (`assembleRelease`), armeabi-v7a, `lint`; Android Studio itself (its installer download failed twice, not needed for building) |
+| **Run on a device or emulator** | **nothing**. The emulator (37.2.12) and the Android 16 x86_64 image are installed and the AVD `nue_test` exists, but this machine has **no hardware acceleration for the emulator** (`emulator -accel-check`: "Android Emulator hypervisor driver is not installed", no hypervisor active; BIOS virtualisation and SLAT are on). A software-only start (`-no-accel`) crashed right after launch (exit 255). Enabling "Windows Hypervisor Platform" (or the AEHD driver) needs administrator rights and a reboot and was not done. `scripts/run_emulator_tests.ps1` is written and parse-checked but has **never run end to end** |
 | **Not possible / deliberately absent** | see section 9 |
 
 Errors found and fixed by the first real build: Kotlin DSL import in the sample script, a namespace slip in `android_crash.cpp`, `c++_static` vs prefab (a prefab library built with a static STL cannot be used by another library: both modules use `c++_shared` now), the prefab package is named after the module (`find_package(nue-engine)`, target `nue-engine::nue`). Section 8 has the commands.
@@ -180,6 +181,21 @@ cmake --build build_android_host
 ctest --test-dir build_android_host --output-on-failure
 ```
 Resultado esperado: 12 pruebas (`android_storage`, `android_import`, ...) en verde.
+
+### 8.3 Ejecutar en un emulador (SOLO si tu PC tiene aceleración por hardware; no se ha ejecutado nunca)
+Estado: el script `android/scripts/run_emulator_tests.ps1` está escrito y su sintaxis comprobada, pero **nunca se ha ejecutado de principio a fin**: el PC donde se
+desarrolló no tiene aceleración para el emulador (`emulator -accel-check` falla) y se decidió no activarla. Sin aceleración el emulador x86_64 se cierra al
+arrancar. Para repetirlo en un PC que sí la tenga (Windows con "Plataforma de hipervisor de Windows" activada, o el controlador AEHD; Linux con KVM):
+```
+cd android
+gradle :sample:assembleDebug -Pnue.abis=x86_64
+powershell -File scripts/run_emulator_tests.ps1 -Install        # -Install baja el emulador y la imagen Android 16 x86_64 (~1,3 GB)
+```
+El script comprueba la aceleración, crea el AVD `nue_test`, arranca sin ventana ni sonido, instala el APK y verifica en `adb logcat` (etiqueta `NUE`): informe de
+capacidades, pausa/reanudación, eventos de poca memoria (`am send-trim-memory`), térmico (`cmd thermalservice`), ahorro de batería, Game Mode, importación
+desde carpeta, y el manejador de fallos (SIGSEGV y conversión del informe en el siguiente arranque). Los resultados quedan en `android/emulator_results/`
+(ignorado por git) y el código de salida es distinto de cero si algo falla. Se niega a ejecutar si hay un móvil real conectado. Lo que NO cubre: audio real,
+Vulkan/GPU real, ADPF y térmico reales del SoC, rendimiento, el selector de carpetas (SAF), mando/táctil físicos.
 
 ### 8.2 Compilar el AAR y la app de ejemplo (necesita instalar cosas; no se ha hecho)
 Qué instalar y para qué (todo gratis, unos 6-8 GB en total):

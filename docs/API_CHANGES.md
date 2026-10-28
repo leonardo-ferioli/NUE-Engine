@@ -9,6 +9,30 @@ avoided and, when unavoidable, listed under "Breaking" with the migration. Platf
 Initial public headers: base, core, app, window, input, audio, mixer, storage, power, system, gfx, diag, entry, null_backend.
 Internal contracts for implementers: `src/core/internal/backend.h` (devices) and `src/core/internal/platform_ops.h` (per-OS layer).
 
+## Without a version bump (behaviour and tooling, no change of the C layout)
+
+* `nue_file_map` is a real memory mapping now (MapViewOfFile / mmap) instead of a heap copy; `emulated` stays `NUE_TRUE` only for empty ranges and files the OS cannot map. A mapping survives
+  `nue_file_close`; `nue_file_unmap` rejects pointers that are not live mappings. `NUE_CAP_MMAP_FILES` is reported. Documented in `include/nue/storage.h`.
+* ABI guard (`tests/test_abi.cpp`, `tests/abi/reference`, `tools/abi`): from now on any change of the public layout needs a version bump, see `docs/ABI.md` 3.2.
+* The SDK installs completely (`nue::entry`, `nue::assets` exported under those names, tools, docs, SDL3 for static SDKs) and `samples/consume_sdk` proves it, see `docs/ABI.md` 3.1.
+* Portable mode (explicit `user_data_path`) keeps cache, settings and temp below it even when a platform layer is linked (the platform layer is not asked for those roots).
+
+## 0.1.3 (additive; gfx session)
+
+* `gfx.h`: MANAGED mode is real with `-DNUE_WITH_GFX=ON` (`nue_gfx_create` initialises bgfx). New: `nue_gfx_desc.native_window` (adopt a window the caller owns), `.max_draw_calls`;
+  `nue_gfx_native.platform_ndt/platform_nwh/generation`; `nue_gfx_caps.vendor_id/device_id/max_*_handles`; `nue_gfx_state` + `nue_gfx_get_state` (the `TestCooperativeLevel` answer),
+  `nue_gfx_reset_device`, `nue_gfx_apply_pending`, `nue_gfx_report_device_lost`, `nue_gfx_get_shader_cache_dir`, `nue_gfx_request_capture` + `nue_gfx_capture_fn`, GPU memory
+  (`nue_gfx_memory_request/report`, `nue_gfx_add/remove_evictor`, `nue_gfx_evict_fn`), `nue_gfx_get_tex_caps`, notification `NUE_GFX_NOTIFY_DEVICE_RESET`. Thread rules rewritten in the header
+  (render thread = the thread that created the context; other threads only record changes). Behaviour: `nue_gfx_get_gpu_caps` merges the live renderer's caps (returns `NUE_OK`, was
+  always `NUE_OK_PARTIAL`) except for NOOP contexts; the null backend's invented window handles are refused by real renderers. See `GFX.md`, requests in `REQUESTS_gfx.md`.
+
+## assets module (include/nue/assets.h, own version NUE_ASSETS_API_VERSION)
+
+* 2: texture pack / mesh / model export layer. New: mesh resources (`NUE_ASSET_RES_MESH`, `nue_asset_mesh`, `nue_asset_resource_get_mesh`, `nue_asset_format.get_mesh` appended at the end of the
+  struct), `nue_asset_export_model` (glTF / OBJ), the HUFF codec (`nue_huff_*`), `NUE_ASSET_RESFLAG_READONLY`, `nue_pack_variant_for_caps`, `nue_pack_mount_create_for_caps`,
+  `nue_pack_mount_create_container`. Additive only; `tests/abi/reference/{ptr64,ptr32}.txt` refreshed.
+* 1: first version (containers, JDLZ, NFS plugin, `.nuepack`, mounts).
+
 ## 0.1.2 (additive)
 
 * `gfx.h`: `NUE_FMTSUP_EMULATED` (driver decompresses at upload; requested by nue-texture).

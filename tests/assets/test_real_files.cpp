@@ -5,6 +5,7 @@
 #include "test_env.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 using namespace asstest;
@@ -143,6 +144,109 @@ TEST_CASE(round_trip_every_game_file) {
     nue_assets_context_destroy(ctx);
 }
 
+// Cars (GEOMETRY.BIN, TEXTURES.BIN, VINYLS.BIN with NUE_TEST_GAME_BIG) and the city (STREAM*.BUN): every mesh and texture reads, files round trip.
+static void check_models_and_textures(nue_assets_context ctx, const std::string& path, size_t& meshes, size_t& tex, size_t& verts, size_t& tris) {
+    std::vector<uint8_t> file;
+    CHECK(load_file(path, file));
+    nue_asset_open_desc d;
+    NUE_STRUCT_INIT(&d);
+    d.path = path.c_str();
+    d.name_hint = path.c_str();
+    nue_asset_container c = nullptr;
+    nue_result r = nue_asset_container_open(ctx, &d, &c);
+    if (r < 0) { std::printf("  FAIL open %s: %s\n", path.c_str(), nue_get_last_error_message()); CHECK(r >= 0); return; }
+    nue_result w;
+    CHECK(write_mem(c, 0, &w) == file);
+    CHECK(write_mem(c, NUE_ASSET_WRITE_REBUILD, &w) == file);
+    for (uint32_t i = 0; i < nue_asset_resource_count(c); ++i) {
+        nue_asset_resource_info ri;
+        NUE_STRUCT_INIT(&ri);
+        nue_asset_resource_get(c, i, &ri);
+        if (ri.kind == NUE_ASSET_RES_MESH) {
+            nue_asset_mesh m;
+            void* mem = nullptr;
+            NUE_STRUCT_INIT(&m);
+            r = nue_asset_resource_get_mesh(c, i, &m, &mem);
+            if (r < 0) { std::printf("  FAIL mesh %s in %s: %s\n", ri.name, path.c_str(), nue_get_last_error_message()); CHECK(r >= 0); continue; }
+            CHECK_EQ(m.vertex_count, ri.width);
+            CHECK_EQ(m.index_count, ri.height * 3);
+            for (uint32_t k = 0; k < m.index_count; ++k) if (m.indices[k] >= m.vertex_count) { CHECK(false); break; }
+            for (uint32_t k = 0; k < m.vertex_count * 3; ++k) if (!(std::fabs(m.positions[k]) < 1e6f)) { std::printf("  FAIL wild vertex in %s of %s\n", ri.name, path.c_str()); CHECK(false); break; }
+            ++meshes; verts += m.vertex_count; tris += m.index_count / 3;
+            nue_free(mem);
+        } else if (ri.kind == NUE_ASSET_RES_TEXTURE) {
+            nue_tex_image im = nullptr;
+            r = nue_asset_resource_get_image(c, i, &im);
+            CHECK(r >= 0);
+            if (r >= 0) { ++tex; nue_tex_image_destroy(im); }
+        }
+    }
+    nue_asset_container_close(c);
+}
+
+TEST_CASE(cars_and_city_models) {
+    if (!game_dir()) { std::printf("  (skipped: set NUE_TEST_GAME_DIR to run on the game files)\n"); return; }
+    nue_test::Engine eng;
+    nue_assets_context ctx = nullptr;
+    CHECK_EQ(nue_assets_context_create(nullptr, &ctx), NUE_OK);
+    const bool big = std::getenv("NUE_TEST_GAME_BIG") != nullptr;
+    size_t cars = 0, meshes = 0, tex = 0, verts = 0, tris = 0;
+    std::error_code ec;
+    std::vector<fs::path> dirs;
+    for (auto& e : fs::directory_iterator(fs::path(game_dir()) / "CARS", ec)) if (e.is_directory()) dirs.push_back(e.path());
+    std::sort(dirs.begin(), dirs.end());
+    for (const auto& dir : dirs) {
+        bool any = false;
+        for (const char* name : {"GEOMETRY.BIN", "TEXTURES.BIN", "VINYLS.BIN"}) {
+            if (std::string(name) == "VINYLS.BIN" && !big) continue;
+            const fs::path f = dir / name;
+            if (!fs::exists(f, ec) || fs::file_size(f, ec) == 0) continue;
+            check_models_and_textures(ctx, f.generic_string(), meshes, tex, verts, tris);
+            any = true;
+        }
+        if (any) ++cars;
+    }
+    std::printf("  %zu car folders: %zu meshes (%zu vertices, %zu triangles), %zu textures decoded\n", cars, meshes, verts, tris, tex);
+    CHECK(cars > 30);
+    CHECK(meshes > 15000);
+    size_t cm = 0, ct = 0, cv = 0, cr = 0;
+    for (const char* n : {"STREAML4RB.BUN", "STREAML4RC.BUN", "STREAML4RF.BUN", "STREAML4RG.BUN", "STREAML4RH.BUN", "STREAML4RR.BUN", "L4RA.BUN"})
+        check_models_and_textures(ctx, game_path((std::string("TRACKS/") + n).c_str()), cm, ct, cv, cr);
+    if (big) for (const char* n : {"STREAML4RA.BUN", "STREAML4RD.BUN"}) check_models_and_textures(ctx, game_path((std::string("TRACKS/") + n).c_str()), cm, ct, cv, cr);
+    std::printf("  city files: %zu meshes (%zu vertices, %zu triangles), %zu textures\n", cm, cv, cr, ct);
+    CHECK(cm > 5000);
+    // a car with its textures and the global ones as one glTF
+    const std::string car = game_path("CARS/240SX/GEOMETRY.BIN"), tx = game_path("CARS/240SX/TEXTURES.BIN"), gl = game_path("GLOBAL/GlobalB.lzc");
+    nue_asset_container cs[3] = {nullptr, nullptr, nullptr};
+    const std::string paths[3] = {car, tx, gl};
+    for (int i = 0; i < 3; ++i) {
+        nue_asset_open_desc od;
+        NUE_STRUCT_INIT(&od);
+        od.path = paths[i].c_str();
+        CHECK_EQ(nue_asset_container_open(ctx, &od, &cs[i]), NUE_OK);
+    }
+    const std::string out = nue_test::unique_temp_dir("assets_car") + "/car.glb";
+    nue_asset_model_desc md;
+    NUE_STRUCT_INIT(&md);
+    md.containers = cs;
+    md.container_count = 3;
+    md.format = NUE_ASSET_MODEL_GLB;
+    md.flags = NUE_ASSET_MODEL_BEST_LOD;
+    md.name_filter = "240SX";
+    md.path = out.c_str();
+    nue_asset_model_stats st;
+    NUE_STRUCT_INIT(&st);
+    CHECK_EQ(nue_asset_export_model(&md, &st), NUE_OK);
+    std::printf("  240SX.glb: %u meshes, %llu triangles, %u textures, %llu bytes\n", st.meshes, (unsigned long long)st.triangles, st.textures, (unsigned long long)st.bytes_written);
+    CHECK(st.meshes > 250);
+    CHECK_EQ(st.meshes_skipped, 0u);
+    CHECK(st.textures >= 10);
+    for (auto c : cs) nue_asset_container_close(c);
+    std::filesystem::remove_all(fs::path(out).parent_path(), ec);
+    nue_assets_context_destroy(ctx);
+}
+
 TEST_MAIN_BEGIN
     RUN(round_trip_every_game_file);
+    RUN(cars_and_city_models);
 TEST_MAIN_END

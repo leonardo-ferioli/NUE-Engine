@@ -15,7 +15,8 @@ template <class Tag> struct Id {
 };
 
 enum class Status : int32_t {
-    ok, invalid_argument, not_found, already_exists, unsupported, out_of_memory, io_error, would_block, timed_out, device_lost, closed
+    ok, invalid_argument, not_found, already_exists, unsupported, out_of_memory, io_error, would_block, timed_out, device_lost, closed,
+    device_not_reset   // the device can be reset now (Direct3D 9: D3DERR_DEVICENOTRESET)
 };
 
 template <class T> struct Result {

@@ -172,6 +172,11 @@ or deliberately not done, with the reason.
   reads the priority after registering and undoes any registration that lands at 13 or above, leaving the thread at plain ABOVE_NORMAL.
 - **Virtual machines and CI runners have no hardware GPU.** DXGI offers only the Microsoft Basic Render Driver; `system_info` lists it when nothing else exists (it is hidden
   when a real adapter is present), while `gpu_probe` and `memory_info_ex` keep ignoring software adapters, so the core falls back to its conservative table there.
+- **Two crash-report failures that only showed on the GitHub runner (never locally in 40+ repeats):** (1) a 32-bit stack overflow ended as an access violation with no report:
+  after the guard page is used up the filter itself found almost no stack left. `install_crash_handler`/`install_crash_hook` now call `SetThreadStackGuarantee` (128 KiB) for
+  the installing thread, and `reserve_crash_stack()` is exported for every other thread that can run deep code (tested with an overflow on a 256 KiB worker thread).
+  (2) Writing a dump into a file that had just been written failed with a sharing violation, most likely a virus scanner holding it: dump files are opened with
+  `FILE_SHARE_READ` and the open is retried for about a second.
 
 - **clang 23 and `__try`/`__except`:** a hardware fault (not a call) inside `__try` is **not caught** unless `-fasync-exceptions` is used; on x86 that option
   corrupted callee-saved registers in the caller in our test (vector returned through a garbage `sret` pointer). The backend therefore never relies on
