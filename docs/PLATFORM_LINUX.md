@@ -17,7 +17,7 @@ The development machine is Windows 11 without WSL. Zig 0.17 (bundled clang + gli
 | Window, input, audio on a real X11/Wayland/PipeWire session, gamescope, Steam Deck hardware, Flatpak, AppImage | **not possible here**, not tried |
 | Integration into the `nue` CMake build with SDL3 | built for x86-64 with Zig as a console SDL3 build (no X11 / Wayland video drivers); **never run** |
 
-What is needed to turn "compiled" into "run": WSL2 with a distribution or a Linux machine. The cross build is reproducible with `cmake/toolchain-linux-zig.cmake` (see "Building and testing").
+What turns "compiled" into "run": the Linux jobs of GitHub Actions (`.github/workflows/ci.yml`), the only place Linux code is built and run from now on (project rule: local builds are Windows 32/64-bit only). The Zig cross builds listed here were done earlier on the development machine and are reproducible with `cmake/toolchain-linux-zig.cmake`, but are no longer run locally.
 
 ## Architecture
 
@@ -261,8 +261,8 @@ None of this has been checked by Valve's process; it is the engineering list, no
 
 ## Packaging scripts, containers and extra verification
 
-Everything is in `src/platform/linux/packaging/` (scripts, AppImage files, Flatpak manifest, README) and `src/platform/linux/ci/linux-extra.yml` (the GitHub job that runs it).
-**Written, not run:** there is no WSL, Docker or Linux machine here, so no script, no AppImage, no Flatpak and no container job has executed. The user chose Zig plus GitHub Actions for testing.
+Everything is in `src/platform/linux/packaging/` (scripts, AppImage files, Flatpak manifest, README); the jobs that run it are `linux-sanitizers`, `linux-musl`, `linux-arch`, `linux-packaging` and `linux-flatpak` in `.github/workflows/ci.yml`.
+**Written, not run:** by project rule, Linux builds and tests happen only in GitHub Actions (local builds are for Windows 32/64-bit); until those jobs have run green, no script, AppImage, Flatpak or container job has executed anywhere. The Zig cross-builds mentioned below were done once before that rule and their build trees are deleted.
 
 | Item | Written | Compiled / built | Run |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 # Packaging the NUE runtime on Linux
 
 Scripts to produce the SDK, the sample runtime, an AppImage and a Flatpak, and to prove the result runs in a clean container. **Status: written, none of it has been run**
-(the development machine is Windows without WSL or Docker). `ci/linux-extra.yml` is the job that runs all of it on GitHub; until the main session enables it, treat every step as unverified.
+(by project rule Linux builds and tests run only in GitHub Actions). The jobs `linux-sanitizers`, `linux-musl`, `linux-arch`, `linux-packaging` and `linux-flatpak` in `.github/workflows/ci.yml` run all of it on GitHub (they are the only place Linux packaging and the extra Linux tests run: the project rule is local builds for Windows only); until a run is green, treat every step as unverified.
 
 | Script | What it makes | Needs |
 |---|---|---|

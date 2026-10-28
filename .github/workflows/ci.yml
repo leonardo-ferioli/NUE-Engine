@@ -90,3 +90,115 @@ jobs:
           brew install ninja || true
           cmake --preset ios-arm64
           cmake --build --preset ios-arm64
+
+  # ---- Linux layer extras (owner: linux session). Only on the linux and main branches and on pull requests: they build SDL3 or pull containers.
+  linux-sanitizers:
+    name: linux-sanitizers
+    if: github.ref_name == 'linux' || github.ref_name == 'main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build valgrind dbus
+      - name: AddressSanitizer + UBSan on the Linux layer's own tests
+        run: |
+          cmake -S src/platform/linux -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNUE_LINUX_SANITIZE=address,undefined
+          cmake --build build-asan
+          export ASAN_OPTIONS=detect_leaks=1:abort_on_error=0:strict_string_checks=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          # a real session bus makes the D-Bus code paths run instead of failing gracefully
+          dbus-run-session -- build-asan/nue_linux_tests
+          dbus-run-session -- build-asan/nue_linux_ops_tests
+      - name: valgrind (memcheck)
+        run: |
+          cmake -S src/platform/linux -B build-vg -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-vg
+          # the fork + SIGSEGV self-test and the io_uring probe are noisy under valgrind; invalid accesses and definite leaks are what matter
+          valgrind --error-exitcode=9 --leak-check=full --errors-for-leak-kinds=definite --track-origins=yes build-vg/nue_linux_tests
+          valgrind --error-exitcode=9 --leak-check=full --errors-for-leak-kinds=definite build-vg/nue_linux_ops_tests
+
+  # musl (Alpine): same sources without glibc extensions (execinfo.h is absent: the crash handler then writes no backtrace)
+  linux-musl:
+    name: linux-musl
+    if: github.ref_name == 'linux' || github.ref_name == 'main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - run: apk add --no-cache build-base cmake ninja linux-headers git dbus
+      - uses: actions/checkout@v4
+      - run: |
+          cmake -S src/platform/linux -B build-musl -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-musl
+          dbus-run-session -- build-musl/nue_linux_tests
+          build-musl/nue_linux_ops_tests
+          build-musl/linux_probe --headless
+
+  # Arch Linux is the base of SteamOS: build, run the tests, then the probe the way Steam starts a game in Gaming Mode.
+  # This is a stand-in for the distribution and its libc/toolchain only. It is NOT a Steam Deck (no gamescope, Steam Input, logind suspend, steamos-manager).
+  linux-arch:
+    name: linux-arch-steamos-standin
+    if: github.ref_name == 'linux' || github.ref_name == 'main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - run: pacman -Syu --noconfirm base-devel cmake ninja git dbus
+      - uses: actions/checkout@v4
+      - run: |
+          cmake -S src/platform/linux -B build-arch -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-arch
+          dbus-run-session -- build-arch/nue_linux_tests
+          build-arch/nue_linux_ops_tests
+      - name: Probe with the environment Steam sets in Gaming Mode
+        run: |
+          export SteamDeck=1 SteamGamepadUI=1 SteamGameId=1234567 DISPLAY=:1
+          build-arch/linux_probe --headless | tee probe.txt
+          grep -q "gaming mode" probe.txt
+          grep -q "launched by steam *yes" probe.txt
+          grep -q "not SteamOS-like" probe.txt   # a plain Arch image must NOT be reported as SteamOS
+
+  # Packaging: SDK + runtime tarballs, AppImage, then the headless smoke test in clean containers.
+  linux-packaging:
+    name: linux-packaging
+    if: github.ref_name == 'linux' || github.ref_name == 'main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev libxfixes-dev libxtst-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev
+      - name: Redistributables
+        run: src/platform/linux/packaging/build-redist.sh --static-cxx --out dist
+      - name: AppImage
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage   # pin a version and checksum before relying on it
+          chmod +x appimagetool
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          src/platform/linux/packaging/build-appimage.sh --runtime-tar dist/nue-runtime-*-linux-x86_64.tar.gz --tool ./appimagetool --out dist
+      - name: Clean containers (no desktop libraries, no sound server)
+        run: |
+          for image in debian:stable-slim ubuntu:22.04 archlinux:latest fedora:latest; do
+            src/platform/linux/packaging/clean-container-test.sh dist/nue-runtime-*-linux-x86_64.tar.gz "$image"
+            src/platform/linux/packaging/clean-container-test.sh dist/NUE-Sample-x86_64.AppImage "$image"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/
+
+  linux-flatpak:
+    name: linux-flatpak
+    if: github.ref_name == 'linux' || github.ref_name == 'main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: org.nue.Sample.flatpak
+          manifest-path: src/platform/linux/packaging/flatpak/org.nue.Sample.yml
+          cache-key: flatpak-builder-${{ github.sha }}
