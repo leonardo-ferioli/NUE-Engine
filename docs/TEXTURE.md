@@ -201,7 +201,7 @@ encodes a fixed synthetic image with every encoder, and compares with a golden f
 decoders are **bit exact across all instruction sets**; astc-encoder, PVRTC and BC4/BC5 encoders produce identical bytes in every set; the etcpak based encoders (BC1, BC3, BC7, ETC, EAC) differ between their scalar/SSE/AVX2 code paths by up to 1.5 dB PSNR
 (scalar BC1 +0.7 dB, AVX2 BC7 -1.2 dB, AVX2 ETC2 +1.5 dB against SSE4.1), so the test accepts 2.5 dB for them. Consequence for the cache: a cook made with another instruction set is a *different but equivalent* result, never a cache-key issue (the key does not contain the ISA).
 The NEON build was **compiled** with Android NDK 28.2 for arm64-v8a (standalone module, tests and `nue_texconv`), but **not run**: no emulator or device was available. `tests/texture/run_on_android.sh` pushes the test executables and the golden file with `adb` and runs them;
-it is ready for the emulator nue-android is preparing. Until then NEON is "compiled, reviewed, not executed".
+it is ready for an emulator or device. Rule of the project (2026-10-27): local builds are Windows x86/x64 only, every other target (arm64/NEON included) is built and run by GitHub Actions (`ci.yml`); until a CI job runs `test_simd` on arm64, NEON is "compiled, reviewed, not executed".
 
 **Speed** (cook of `TRACKS/STREAML4RB`, 473 textures, every device class, one thread, SSE4.1, Release, `nue_texconv cook --profile`): **29-31 s -> 19.3 s** after the hotspot work below. Per target format, thread time of the encoder:
 
