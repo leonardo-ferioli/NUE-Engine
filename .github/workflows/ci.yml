@@ -73,6 +73,64 @@ jobs:
           cmake --preset android-arm64
           cmake --build --preset android-arm64
 
+  android-aar:
+    # The engine AAR and the sample APK (Gradle + NDK) are built here, not on developer machines. Also runs the host tests of the
+    # Android logic and checks the binaries (16 KB alignment, exported JNI entry points).
+    name: android-aar-apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Check for the Android project
+        id: project
+        run: |
+          if [ -f android/settings.gradle.kts ] && [ -f third_party/SDL/CMakeLists.txt ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Host tests of the Android logic
+        if: steps.project.outputs.present == 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          cmake -S src/platform/android/tests -B build_android_host -G Ninja
+          cmake --build build_android_host
+          ctest --test-dir build_android_host --output-on-failure
+      - uses: actions/setup-java@v4
+        if: steps.project.outputs.present == 'true'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Android SDK components
+        if: steps.project.outputs.present == 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.project.outputs.present == 'true'
+        with:
+          gradle-version: "9.8.2"
+      - name: Build AAR and sample APK (arm64-v8a)
+        if: steps.project.outputs.present == 'true'
+        working-directory: android
+        run: gradle :nue-engine:assembleDebug :sample:assembleDebug --console=plain -Pnue.abis=arm64-v8a
+      - name: Check the binaries
+        if: steps.project.outputs.present == 'true'
+        working-directory: android
+        run: |
+          APK=sample/build/outputs/apk/debug/sample-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$APK" | tail -1
+          mkdir -p x && cd x && unzip -oq "../$APK" 'lib/arm64-v8a/*'
+          NDK="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$NDK/llvm-readelf" -lW lib/arm64-v8a/libnue.so | grep LOAD | awk '{print $NF}' | sort -u | tee align.txt
+          grep -qx 0x4000 align.txt
+          test "$("$NDK/llvm-nm" -D --defined-only lib/arm64-v8a/libnue.so | grep -c Java_org_nue_engine_NueBridge)" -ge 30
+          test "$("$NDK/llvm-nm" -D --defined-only lib/arm64-v8a/libnue.so | grep -c ' T JNI_OnLoad')" -eq 1
+      - uses: actions/upload-artifact@v4
+        if: steps.project.outputs.present == 'true'
+        with:
+          name: nue-android-aar-apk
+          path: |
+            android/nue-engine/build/outputs/aar/*.aar
+            android/sample/build/outputs/apk/debug/*.apk
+
   ios:
     name: ios-arm64
     runs-on: macos-latest
