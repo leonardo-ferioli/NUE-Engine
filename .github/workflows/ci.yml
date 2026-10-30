@@ -54,6 +54,37 @@ jobs:
             exit 1
           fi
 
+  gfx-windows:
+    name: windows-x64-gfx
+    runs-on: windows-latest
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure (nue_gfx on bgfx + legacy Direct3D 9)
+        run: cmake --preset windows-x64-gfx
+      - name: Build
+        run: cmake --build --preset windows-x64-gfx
+      - name: Test
+        run: ctest --preset windows-x64-gfx --output-on-failure
+
+  gfx-android:
+    name: android-arm64-gfx
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure and build (NDK, no tests on the runner)
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
+          cmake --preset android-arm64-gfx
+          cmake --build --preset android-arm64-gfx
+
   android:
     name: android-arm64
     runs-on: ubuntu-latest
