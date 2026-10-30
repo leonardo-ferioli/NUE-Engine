@@ -1,7 +1,7 @@
 # NUE public C ABI reference for layout 'ptr64'. GENERATED: do not edit by hand.
 # Regenerate with  NUE_ABI_UPDATE=1 ctest -R nue_test_abi  after bumping the API version (docs/ABI.md, "ABI guard").
 version assets 2
-version core 4099
+version core 4100
 version texture 1
 assets define NUE_ASSET_NO_NODE 4294967295
 assets define NUE_ASSET_OPEN_COPY 16
@@ -1020,6 +1020,12 @@ core enum NUE_THREAD_PRIORITY_HIGH 4
 core enum NUE_THREAD_PRIORITY_LOW 1
 core enum NUE_THREAD_PRIORITY_NORMAL 2
 core enum NUE_THREAD_PRIORITY_REALTIME 5
+core enum NUE_VM_CAN_ALIGN 1
+core enum NUE_VM_CAN_EXEC 2
+core enum NUE_VM_EXEC 4
+core enum NUE_VM_READ 1
+core enum NUE_VM_RESERVE_EXACT 1
+core enum NUE_VM_WRITE 2
 core enum NUE_VOICE_3D 4
 core enum NUE_VOICE_AUTO_RELEASE 2
 core enum NUE_VOICE_CALLBACK 3
@@ -1603,6 +1609,28 @@ core field nue_verify_result.files_missing off=8 size=4
 core field nue_verify_result.files_size_mismatch off=12 size=4
 core field nue_verify_result.first_bad_path off=20 size=260
 core field nue_verify_result.struct_size off=0 size=4
+core field nue_vm_info.address_bits off=12 size=4
+core field nue_vm_info.address_limit_bytes off=24 size=8
+core field nue_vm_info.committed_bytes off=40 size=8
+core field nue_vm_info.flags off=16 size=4
+core field nue_vm_info.granularity off=8 size=4
+core field nue_vm_info.page_size off=4 size=4
+core field nue_vm_info.region_count off=20 size=4
+core field nue_vm_info.reserved off=48 size=16
+core field nue_vm_info.reserved_bytes off=32 size=8
+core field nue_vm_info.struct_size off=0 size=4
+core field nue_vm_region_info.base off=8 size=8
+core field nue_vm_region_info.committed_bytes off=24 size=8
+core field nue_vm_region_info.reserved off=32 size=16
+core field nue_vm_region_info.reserved0 off=4 size=4
+core field nue_vm_region_info.size off=16 size=8
+core field nue_vm_region_info.struct_size off=0 size=4
+core field nue_vm_reserve_desc.alignment off=16 size=8
+core field nue_vm_reserve_desc.flags off=4 size=4
+core field nue_vm_reserve_desc.preferred off=24 size=8
+core field nue_vm_reserve_desc.reserved off=32 size=16
+core field nue_vm_reserve_desc.size off=8 size=8
+core field nue_vm_reserve_desc.struct_size off=0 size=4
 core field nue_voice_3d.cone_direction off=44 size=12
 core field nue_voice_3d.cone_inner_angle_deg off=56 size=4
 core field nue_voice_3d.cone_outer_angle_deg off=60 size=4
@@ -2016,6 +2044,13 @@ core function nue_vfs_resolve
 core function nue_vfs_stat
 core function nue_vfs_unmount
 core function nue_vfs_verify_manifest
+core function nue_vm_commit
+core function nue_vm_decommit
+core function nue_vm_get_info
+core function nue_vm_protect
+core function nue_vm_region_get_info
+core function nue_vm_release
+core function nue_vm_reserve
 core function nue_voice_create
 core function nue_voice_destroy
 core function nue_voice_get_state
@@ -2154,6 +2189,9 @@ core struct nue_timer_desc size=64 align=8
 core struct nue_vec3 size=12 align=4
 core struct nue_verify_progress size=40 align=8
 core struct nue_verify_result size=280 align=4
+core struct nue_vm_info size=64 align=8
+core struct nue_vm_region_info size=48 align=8
+core struct nue_vm_reserve_desc size=48 align=8
 core struct nue_voice_3d size=68 align=4
 core struct nue_voice_desc size=88 align=8
 core struct nue_voice_state size=40 align=8

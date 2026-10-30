@@ -45,6 +45,17 @@ struct OsMapping { void* base = nullptr; size_t length = 0; };
 nue_result os_file_map(OsHandle h, uint64_t offset, size_t length, const void** out_data, OsMapping* out_mapping);
 void os_file_unmap(const OsMapping& mapping);
 
+// Virtual address space (nue/vm.h). Raw OS layer: sizes are multiples of the page size (granularity for reservations) and already validated by the caller.
+struct OsVmInfo { uint32_t page_size = 4096, granularity = 4096, address_bits = 47; uint64_t address_limit = 0; bool can_exec = true; };
+OsVmInfo os_vm_info();
+// Reserves `size` bytes of address space (no commit charge, PROT_NONE / PAGE_NOACCESS) at a multiple of `alignment`. `hint` is a placement hint, or the exact
+// address when `exact`. NUE_ERR_OUT_OF_MEMORY when the OS refuses.
+nue_result os_vm_reserve(size_t size, size_t alignment, const void* hint, bool exact, void** out_base);
+nue_result os_vm_commit(void* address, size_t size, uint32_t protection /* NUE_VM_* */);
+nue_result os_vm_protect(void* address, size_t size, uint32_t protection);
+nue_result os_vm_decommit(void* address, size_t size);   // back to reserved; contents dropped
+void os_vm_release(void* base, size_t size);
+
 std::string os_executable_dir();       // directory of the running executable, '/' separated, no trailing slash
 std::string os_temp_dir();
 std::string os_getenv(const char* name);

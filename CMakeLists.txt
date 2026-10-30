@@ -13,7 +13,7 @@
 # src/platform/<os>/ belongs to the platform sessions; see docs/PORTING.md for the contract of its CMakeLists.txt.
 cmake_minimum_required(VERSION 3.21)
 
-project(nue VERSION 0.1.3 LANGUAGES C CXX)
+project(nue VERSION 0.1.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -351,10 +351,11 @@ if(NUE_INSTALL)
             INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(DIRECTORY include/nue include/nuepp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
             FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+    # legacy-layer headers (header-only GuestMemory / GuestCpu contracts, the layers' public headers): installed even when libnue_legacy itself is not built
+    install(DIRECTORY include/nue_legacy DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
     if(TARGET nue_legacy)
         install(TARGETS nue_legacy EXPORT nueTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
                 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-        install(DIRECTORY include/nue_legacy DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
     endif()
     # Extension headers published by platform layers (optional): src/platform/<os>/include/nue_ext_*.h
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${NUE_OS}/include")

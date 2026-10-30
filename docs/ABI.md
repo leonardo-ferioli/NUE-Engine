@@ -65,7 +65,7 @@ code never sees a host pointer.
 | Model | Used when | Guest address -> host address | Notes |
 |---|---|---|---|
 | `IDENTITY32` | 32-bit host (Windows x86 today) | `host = guest` | the fast backend reads/writes guest memory directly; guest image and heaps are real mappings at their addresses |
-| `WINDOW64` | 64-bit host | `host = base + guest`, `base` = a reserved 4 GiB window | generated code adds the base (one register); Windows x64 / Linux / Android reserve the window with low-address hints (`MAP_32BIT`, `MAP_FIXED_NOREPLACE`, `VirtualAlloc` low range) |
+| `WINDOW64` | 64-bit host | `host = base + guest`, `base` = a reserved, 4 GiB aligned window (the arena) | generated code adds the base (one register). The base can be **anywhere** 4 GiB aligned: no low-address hint is needed (only `IDENTITY32` needs low addresses). Windows x64 reserves it with `VirtualAlloc2` (alignment requirement, measured), POSIX with `mmap(PROT_NONE)` + trim. Guest page protections are a software table (4 KiB guest pages on 16 KiB hosts). Proposal for the shared interface and the generic `nue_vm` service: `docs/GUEST_MEMORY.md` |
 | `INDIRECT` | hosts that cannot reserve a window (iOS arm64: nothing is mapped below 4 GiB, `__PAGEZERO` is 4 GiB; a reduced page zero via linker flags is unverified) | every access goes through a translation | slowest; correctness fallback, decided at translation time |
 
 The model is a compile-time property of the generated code (`NUE_GUEST_MEM_MODEL`), not a run-time switch. **Open item (not implemented, not verified on
@@ -134,11 +134,40 @@ its own semantic version (`NUE_LEGACY_VERSION`) that bumps minor for new entries
 | registry (`RegOpenKey/QueryValue/SetValue`) | `nue_config_*` store under a `registry.` prefix, persisted in the settings root | available |
 | DirectSound (primary + secondary buffers, play/write cursor, `SetFrequency/Volume/Pan`, 3D buffers, notifications) | `nue_mixer` ring voices, static buffers, 3D voices, buses | mixer engine pending; **notification positions on ring voices still to be added to mixer.h** |
 | DirectInput (device enumeration, action maps, polled state, force feedback) | key/mouse/gamepad snapshots and events, `nue_gamepad_rumble`, raw joystick API; action mapping is legacy-side | available (force-feedback effects beyond rumble: not planned) |
-| Direct3D 9 | `nue_gfx` + bgfx; `nue_gfx_add_listener` for `Reset`/`TestCooperativeLevel`; `nue_gpu_probe` for caps | PREPARE mode available; MANAGED pending |
+| Direct3D 9 | `nue_gfx` + bgfx (MANAGED); `nue::d3d9::create_gfx_device` (2.8); `nue_gpu_probe` for caps | MANAGED available (Noop-tested); real renderers and Android unverified |
 | textures: `D3DFMT_*` / FOURCC (DXT1-5, ...) | `nue_texture` formats (nue-texture session) plus `nue_gpu_caps` format families; the legacy layer maps `D3DFMT`/FOURCC <-> `nue_texture_format` and asks the texture module to transcode when the GPU cannot sample the format | texture module in progress |
 | `GetSystemInfo`, `GlobalMemoryStatus`, `GetVersionEx` | `nue_system_get_info`, `nue_memory_get_info` (reports are shaped to what the guest expects) | available |
 | `VirtualAlloc/Protect` for run-time generated code | guest memory model (2.2); executable pages exist only for the interpreter-free paths allowed by the platform | legacy-side |
 | crash reporting | `nue_diag_*`, `nue_crash_desc.guest_pc` provider | available |
+
+### 2.8 legacy_d3d9 on nue_gfx (how a Direct3D 9 game shows its picture)
+
+Text from the legacy-d3d9 session, reviewed by core. The same chain on every platform; the game's facade (COM objects, guest pointers, calling convention) stays outside the engine and drives Level A.
+
+```
+host                                      engine                                        game's facade
+nue_window_create  ------------------>  window (SDL3 backend on desktop, ANativeWindow on Android)
+nue_gfx_create(window)  MANAGED  ---->  bgfx on that window (Direct3D 11 on Windows, Vulkan on Android)
+nue::d3d9::create_gfx_device(gfx) --->  the Direct3D 9 layer on that bgfx  ------------>  device() (Level A, nue/d3d9_device.hpp)
+                                        present: back buffer fitted into the window,      IDirect3DDevice9::Present
+                                        then nue_gfx_present
+```
+
+* Header `include/nue_legacy/d3d9_gfx.hpp` (C++17, no OS type, no guest pointer), library `nue_d3d9_gfx` (built with `-DNUE_WITH_GFX=ON -DNUE_WITH_LEGACY_D3D9=ON`; presets `windows-x64-gfx`, `android-arm64-gfx`).
+* Only MANAGED contexts: nue_gfx owns `bgfx::init` / `shutdown` / `reset`; the layer's bgfx adapter runs with `external_init` and submits frames with
+  `nue_gfx_present`, never `bgfx::frame`. A PREPARE context is refused.
+* Thread: the render thread (the one that called `nue_gfx_create`) for every call.
+* Window: the layer never creates, adopts or polls one. The swap chain follows the window in nue_gfx; `NUE_GFX_NOTIFY_RESIZED` only moves the layer's
+  letterbox. The game's back buffer keeps the size the game asked for (`Reset` is not `nue_gfx_resize`).
+* Device loss (Direct3D 9 meaning): nue_gfx `SUSPENDED` / `DEVICE_LOST` / `ORPHANED` -> `D3DERR_DEVICELOST` (draws and clears do nothing, `Present` fails);
+  `NEEDS_RESET` -> `D3DERR_DEVICENOTRESET`, and the game's `Reset` calls `nue_gfx_reset_device`. When nue_gfx re-creates its device by itself (a new
+  `ANativeWindow` on Android: generation changes), the layer re-creates its GPU objects at once (textures from the copies it keeps, bounded by
+  `LayerOptions::texture_copy_mb`; render targets and levels without a copy come back empty) and reports `D3DERR_DEVICENOTRESET` until the game's `Reset`.
+* Shaders: SPIR-V for Vulkan, HLSL through `d3dcompiler_47.dll` for Direct3D 11/12 (Windows only), cached in `nue_gfx_desc.shader_cache_dir`. OpenGL / GLES
+  output exists in the translator but is untested: Android starts with Vulkan.
+* Verified: Windows x64 on bgfx's Noop renderer (no window): frames, resize, suspend, device re-creation with texture contents restored. Not verified:
+  a real renderer through this path on any platform, anything on an Android device (CI builds only).
+* Dependency: the header and library live in the legacy-d3d9 branch until the main session merges it; this section describes that interface.
 
 ## 3. Package layout
 

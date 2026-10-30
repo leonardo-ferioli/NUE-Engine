@@ -17,6 +17,14 @@ Internal contracts for implementers: `src/core/internal/backend.h` (devices) and
 * The SDK installs completely (`nue::entry`, `nue::assets` exported under those names, tools, docs, SDL3 for static SDKs) and `samples/consume_sdk` proves it, see `docs/ABI.md` 3.1.
 * Portable mode (explicit `user_data_path`) keeps cache, settings and temp below it even when a platform layer is linked (the platform layer is not asked for those roots).
 
+## 0.1.4 (additive; core, approved by the user for the 64-bit guest memory model)
+
+* New header `include/nue/vm.h` (included by `nue.h`): `nue_vm_get_info`, `nue_vm_reserve` (size, power-of-two alignment such as 4 GiB, placement hint or `NUE_VM_RESERVE_EXACT`),
+  `nue_vm_region_get_info`, `nue_vm_commit`, `nue_vm_protect`, `nue_vm_decommit`, `nue_vm_release`; structs `nue_vm_info`, `nue_vm_reserve_desc`, `nue_vm_region_info`; flags `NUE_VM_READ/WRITE/EXEC`,
+  `NUE_VM_CAN_ALIGN/CAN_EXEC`. Windows: `VirtualAlloc2` (alignment requirement) with a probe-and-re-reserve fallback; POSIX: `mmap(PROT_NONE)` trimmed to the alignment. Regions are owned by
+  the caller (not released by `nue_shutdown`); the service works without `nue_init`. EXEC is refused with `NUE_ERR_UNSUPPORTED` on iOS. Offsets and sizes are in host pages.
+* `include/nue_legacy/guest_memory.hpp` (legacy-side C++, not part of the C ABI): `nue::legacy::GuestMemory`, `ArenaMemory`, `IdentityMemory`; `guest_cpu.hpp`: abstract `GuestCpu`. See `GUEST_MEMORY.md`.
+
 ## 0.1.3 (additive; gfx session)
 
 * `gfx.h`: MANAGED mode is real with `-DNUE_WITH_GFX=ON` (`nue_gfx_create` initialises bgfx). New: `nue_gfx_desc.native_window` (adopt a window the caller owns), `.max_draw_calls`;

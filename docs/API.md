@@ -44,6 +44,7 @@ our own code where SDL3 is not enough (see `ARCHITECTURE.md`).
 | `memory.h` | memory information, pressure events, **configurable budgets** (policies resolved against the machine, config-key overrides, eviction hooks); no hard-coded limits anywhere |
 | `gfx.h` | graphics context on a window (bgfx), renderer selection per platform, resize/suspend handling, listeners, **seam to the Direct3D 9 layer** |
 | `diag.h` | crash handler framework + reports/minidumps, notes, breadcrumbs, asserts, counters, frame statistics (`--fps-log` style), Chrome-trace zones |
+| `vm.h` | **virtual address space service** (0.1.4): reserve (aligned, hinted) / commit / protect / decommit / release, 32-bit generation-checked region ids; the base of the 4 GiB guest arena of the legacy layers (`GUEST_MEMORY.md`) |
 | `entry.h` | portable `nue_main` entry contract (`nue::entry` target) |
 | `null_backend.h` | test control of the headless backend (inject input/lifecycle/power, advance virtual time, read played audio) |
 
