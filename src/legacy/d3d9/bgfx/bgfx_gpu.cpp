@@ -852,7 +852,8 @@ Status BgfxGpuImpl::read_back(Texture id, uint32_t& width, uint32_t& height, std
     region.init(readback_);
     const uint32_t ready = bgfx::read(region, bgra.data());
     uint32_t guard = 0;
-    while (submit_frame() < ready && guard++ < 8) {}
+    if (options_.submit_frame) { for (int i = 0; i < 3; ++i) submit_frame(); }   // the owner's frame counter is not bgfx's: a read is ready after two frames
+    else while (bgfx::frame() < ready && guard++ < 8) {}
     next_view_ = 0;
     if (src->format == Format::rgba8) for (size_t i = 0; i < bgra.size(); i += 4) std::swap(bgra[i], bgra[i + 2]);
     return Status::ok;

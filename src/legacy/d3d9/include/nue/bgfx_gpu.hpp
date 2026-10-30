@@ -17,8 +17,8 @@ struct BgfxOptions {
     // (window, renderer, transient sizes and bgfx's log callback are theirs), does not reset bgfx for window size changes (set_window_size only moves
     // the letterbox), and on destruction frees only the bgfx objects it made. It must be created on the thread that initialised bgfx.
     bool external_init = false;
-    // Submits the frame instead of bgfx::frame() and returns bgfx's frame number (with external_init: the owner's present, e.g. nue_gfx_present, which also
-    // applies its pending resize / suspend / resume). Null = bgfx::frame().
+    // Submits the frame instead of bgfx::frame() (with external_init: the owner's present, e.g. nue_gfx_present, which also applies its pending resize /
+    // suspend / resume). The number it returns is the owner's frame counter, not bgfx's (read_back then waits a fixed number of frames). Null = bgfx::frame().
     uint32_t (*submit_frame)(void* user) = nullptr;
     void* submit_frame_user = nullptr;
     uint32_t window_width = 1280, window_height = 720;
