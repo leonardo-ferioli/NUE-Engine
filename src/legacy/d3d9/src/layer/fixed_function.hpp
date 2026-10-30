@@ -16,7 +16,7 @@
 
 namespace nue::d3d9 {
 
-struct FfVertexInput { bool position = true, rhw = false, normal = false, diffuse = false, specular = false; uint8_t texcoords = 0; uint8_t texcoord_present_mask = 0; };
+struct FfVertexInput { bool position = true, rhw = false, normal = false, diffuse = false, specular = false; uint8_t texcoords = 0; uint8_t texcoord_present_mask = 0; bool operator==(const FfVertexInput&) const = default; };
 
 struct FfVertexKey {
     FfVertexInput in;
@@ -33,7 +33,7 @@ struct FfVertexKey {
     uint64_t hash() const;
 };
 
-struct FfPixelStage { uint8_t color_op = 1, color_arg0 = 1, color_arg1 = 2, color_arg2 = 1, alpha_op = 1, alpha_arg0 = 1, alpha_arg1 = 2, alpha_arg2 = 1, result_arg = 1; bool texture = false; };
+struct FfPixelStage { uint8_t color_op = 1, color_arg0 = 1, color_arg1 = 2, color_arg2 = 1, alpha_op = 1, alpha_arg0 = 1, alpha_arg1 = 2, alpha_arg2 = 1, result_arg = 1; bool texture = false; bool operator==(const FfPixelStage&) const = default; };
 struct FfPixelKey {
     FfPixelStage stage[8];
     uint8_t stage_count = 0;               // stages up to the first disabled one

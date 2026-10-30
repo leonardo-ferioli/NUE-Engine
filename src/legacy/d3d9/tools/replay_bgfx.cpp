@@ -10,6 +10,7 @@
 #include "native_d3d9.hpp"
 #endif
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -19,6 +20,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -190,8 +192,6 @@ static int run_native(const std::string& folder, const std::string& out_dir, uin
 #ifdef _WIN32
 #include <dbghelp.h>
 #include <timeapi.h>
-#include <atomic>
-#include <thread>
 // A sampling profiler: another thread suspends the replaying thread every millisecond and records where it was; symbols come from the PDB.
 struct Sampler {
     // Each sample keeps where the thread was and, when that is outside this program (a Windows or driver function), the first return address on its stack that
