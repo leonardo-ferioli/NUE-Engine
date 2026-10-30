@@ -216,6 +216,56 @@ void LayerImpl::recreate_auto_depth(uint32_t width, uint32_t height) {
     auto_depth_surface_ = surfaces_.add(std::move(s));
 }
 
+static gpu::Format render_target_format(const FormatInfo& info);
+
+void LayerImpl::gpu_objects_lost() {
+    ++stats_.gpu_resets;
+    // nothing of the old device may be used again: the open pass, every cache of Gpu ids, the objects waiting to be destroyed
+    pass_open_ = pass_submitted_ = false;
+    pass_ = gpu::PassDesc{}; pass_attachments_ = Attachment{}; pass_key_ = PassKey{};
+    ++surface_generation_; ++program_epoch_; ++vs_version_; ++ps_version_;
+    program_cache_ = ProgramCache{};
+    last_vs_key_ = ConstantsKey{}; last_ps_key_ = ConstantsKey{};
+    programs_.clear();
+    for (auto& e : transient_cache_) e = TransientEntry{};
+    retired_buffers_.clear(); pending_destroy_textures_.clear(); matching_depth_.clear();
+    dummy_2d_ = dummy_cube_ = checker_2d_ = checker_cube_ = gpu::Texture{};
+    for (auto& b : buffers_.items) if (b.alive) { b.gpu = gpu::Buffer{}; b.gpu_version = 0; }   // made again from the shadow by their next draw
+    for (auto& t : textures_.items) {
+        if (!t.alive || !t.gpu) continue;   // system-memory textures have no Gpu object
+        const uint32_t faces = t.cube ? 6u : 1u;
+        auto r = gpu_.create_texture(t.width, t.height, t.render_target ? 1 : t.levels, t.gpu_format, t.render_target, t.cube);
+        t.gpu = r ? r.value : gpu::Texture{};
+        if (!r) { ++stats_.texture_create_failures; note_create_failure(t.cube ? "cube texture (after a device reset)" : "texture (after a device reset)", t.width, t.height, t.levels, t.format); continue; }
+        if (t.render_target) { t.uploaded_levels = ~0u; continue; }   // a render target's contents are gone, as on Direct3D 9
+        t.uploaded_levels = 0;
+        for (uint32_t face = 0; face < faces; ++face) {
+            for (uint32_t level = 0; level < t.levels; ++level) {
+                const auto& copy = t.contents[size_t(face) * t.levels + level];
+                if (copy.empty()) { ++stats_.levels_lost; continue; }
+                const uint32_t lw = mip_dimension(t.width, level), lh = mip_dimension(t.height, level);
+                const uint32_t rect[4] = {0, 0, lw, lh};
+                upload_level_region(t, level, face, rect, true, copy.data(), copy.size(), level_pitch(*t.info, lw), lw, lh);
+                ++stats_.levels_restored;
+            }
+        }
+    }
+    for (auto& s : surfaces_.items) {
+        if (!s.alive || !s.gpu) continue;   // the back buffer is the adapter's; texture levels use their texture
+        const FormatInfo& info = format_info(s.format);
+        const gpu::Format f = s.kind == SurfaceObject::Kind::depth ? (info.valid ? info.native : gpu::Format::d24s8) : render_target_format(info);
+        auto r = gpu_.create_texture(s.width, s.height, 1, f, true, false, s.samples);
+        s.gpu = r ? r.value : gpu::Texture{};
+        if (r && s.kind == SurfaceObject::Kind::render_target && !format_has_alpha(s.format)) init_opaque_target(s.gpu);
+    }
+    if (params_.back_width && params_.back_height) {   // the adapter's back buffer
+        gpu_.set_backbuffer_samples(backbuffer_samples_);
+        gpu_.resize(params_.back_width, params_.back_height);
+        if (!format_has_alpha(params_.back_format)) init_opaque_target(gpu::backbuffer);
+    }
+    log("the GPU device was re-created: " + std::to_string(stats_.levels_restored) + " texture levels restored from their copies, " + std::to_string(stats_.levels_lost) + " without a copy (so far)");
+}
+
 Status LayerImpl::reset(const DeviceParams& p) {
     ++surface_generation_;
     end_pass();

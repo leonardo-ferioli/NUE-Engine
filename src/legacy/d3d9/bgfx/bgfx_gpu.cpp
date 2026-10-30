@@ -188,6 +188,8 @@ public:
     Result<Program> create_program(const ProgramDesc&) override;
     bool finish_init();                 // after bgfx::init (or with external_init): caps, uniforms, the blit program
     void release_own_objects();         // external_init: the adapter's bgfx objects, freed without shutting bgfx down
+    void device_reset() override;       // bgfx was shut down and initialised again by its owner: forget every handle, make the adapter's own objects again
+    uint32_t submit_frame() { return options_.submit_frame ? options_.submit_frame(options_.submit_frame_user) : bgfx::frame(); }
     bool external_ = false;
     // the reset flags of bgfx, the same at init and at every later reset: a reset without BGFX_RESET_MAXANISOTROPY turns every anisotropic sampler
     // into 1x (distant textures blurred, the game asks for 16x on most draws)
@@ -290,7 +292,7 @@ BgfxGpuImpl::~BgfxGpuImpl() {
     if (!initialised_) return;
     if (external_) {   // bgfx stays alive for its owner: give back what the adapter made
         release_own_objects();
-        bgfx::frame();
+        submit_frame();
         return;
     }
     bgfx::frame();
@@ -310,6 +312,19 @@ void BgfxGpuImpl::release_own_objects() {
     if (bgfx::isValid(u_ps_)) bgfx::destroy(u_ps_);
     for (auto& u : u_tex_) if (bgfx::isValid(u)) bgfx::destroy(u);
     textures_ = {}; buffers_ = {}; programs_ = {}; framebuffers_.clear(); layouts_.clear(); backbuffer_ = TextureEntry{};
+}
+
+void BgfxGpuImpl::device_reset() {
+    // The old handles belong to a bgfx that no longer exists: nothing is destroyed, the tables are emptied. The window size the owner gave stays.
+    const uint32_t width = window_width_, height = window_height_;
+    textures_ = {}; buffers_ = {}; programs_ = {}; framebuffers_.clear(); layouts_.clear(); layout_storage_.clear(); backbuffer_ = TextureEntry{};
+    dummy_vertex_layout_ = BGFX_INVALID_HANDLE; u_vs_ = BGFX_INVALID_HANDLE; u_ps_ = BGFX_INVALID_HANDLE;
+    for (auto& u : u_tex_) u = BGFX_INVALID_HANDLE;
+    blit_program_ = BGFX_INVALID_HANDLE; readback_ = BGFX_INVALID_HANDLE; readback_w_ = readback_h_ = 0;
+    last_vs_.clear(); last_ps_.clear();
+    next_view_ = 0; current_view_ = 0; pass_draws_ = 0; pass_open_ = false;
+    finish_init();
+    window_width_ = width; window_height_ = height;
 }
 
 namespace {
@@ -799,7 +814,7 @@ Status BgfxGpuImpl::present(uint32_t) {
         draw_quad(view, backbuffer_.handle, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | (fit.width == backbuffer_.width && fit.height == backbuffer_.height ? BGFX_SAMPLER_POINT : 0), uv);
     }
     const uint64_t t_frame = now_ns();
-    bgfx::frame();
+    submit_frame();
     const uint64_t frame_ns = now_ns() - t_frame;
     prof_frame_ns_ += frame_ns; ++prof_frames_;
     stats_.frame_call_ms = double(frame_ns) * 1e-6;
@@ -837,7 +852,7 @@ Status BgfxGpuImpl::read_back(Texture id, uint32_t& width, uint32_t& height, std
     region.init(readback_);
     const uint32_t ready = bgfx::read(region, bgra.data());
     uint32_t guard = 0;
-    while (bgfx::frame() < ready && guard++ < 8) {}
+    while (submit_frame() < ready && guard++ < 8) {}
     next_view_ = 0;
     if (src->format == Format::rgba8) for (size_t i = 0; i < bgra.size(); i += 4) std::swap(bgra[i], bgra[i + 2]);
     return Status::ok;

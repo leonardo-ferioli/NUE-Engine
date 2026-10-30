@@ -455,6 +455,7 @@ void ThreadedLayer::post(std::function<void()> fn) {
 gpu::BgfxStats ThreadedLayer::gpu_stats() const { std::lock_guard<std::mutex> lock(impl_->snapshot_mutex); return impl_->gpu_stats; }
 const d3d9::LayerStats& ThreadedLayer::stats() const { std::lock_guard<std::mutex> lock(impl_->snapshot_mutex); stats_view_ = impl_->layer_stats; return stats_view_; }
 void ThreadedLayer::flush() { sync([this] { real_->flush(); }); }
+void ThreadedLayer::gpu_objects_lost() { sync([this] { real_->gpu_objects_lost(); }); }
 std::string ThreadedLayer::report() const {
     { std::lock_guard<std::mutex> lock(impl_->snapshot_mutex); if (!impl_->report_text.empty()) return impl_->report_text; }
     std::string text;

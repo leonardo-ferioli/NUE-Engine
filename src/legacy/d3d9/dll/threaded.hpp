@@ -42,6 +42,7 @@ public:
     // ---- Layer
     const d3d9::LayerStats& stats() const override;
     void flush() override;
+    void gpu_objects_lost() override;   // on the worker, which owns the adapter
     std::string report() const override;
     std::string audit() const override;
     void request_texture_report() override;

@@ -479,6 +479,28 @@ All of it is off by default: the game's path (PREPARE mode: the adapter initiali
   owns bgfx. Not done yet: re-creating the layer's GPU objects after the engine re-created the device (logged), and the provider on top of the real
   nue_gfx (after gfx's MANAGED mode is merged into main). Unit tests: `nue_tests` (`test_gfx_provider`).
 
+## The layer on nue_gfx (MANAGED mode): `include/nue_legacy/d3d9_gfx.hpp`, library `nue_d3d9_gfx`
+
+How any host (the game's 64-bit port, an Android app) shows the picture: `nue_window_create` -> `nue_gfx_create(window)` (MANAGED) ->
+`nue::d3d9::create_gfx_device(gfx, layer options)`; the game's facade drives `device()` (Level A). Built when the engine has `-DNUE_WITH_GFX=ON` and
+`-DNUE_WITH_LEGACY_D3D9=ON`. Agreed with nue-core (2026-10-29); the text for `docs/ABI.md` (2.8) goes through core.
+
+* The adapter runs with `external_init` on nue_gfx's bgfx and submits frames through `BgfxOptions::submit_frame` = `nue_gfx_present` (never
+  `bgfx::frame`, so nue_gfx applies its pending resize / vsync / suspend / resume). A PREPARE context is refused.
+* `NUE_GFX_NOTIFY_RESIZED` -> `WindowSizeMailbox` -> `set_window_size` at the next Present (letterbox only). The layer never touches a window.
+* Lifecycle of `device()`: `test_cooperative_level` / `present` / `reset` follow `nue_gfx_get_state` after `nue_gfx_apply_pending`: SUSPENDED / DEVICE_LOST /
+  ORPHANED = `Status::device_lost` (draws, clears and StretchRect do nothing, Present fails), NEEDS_RESET = `device_not_reset` and `reset` calls
+  `nue_gfx_reset_device`. When the generation changes (nue_gfx re-created bgfx: a new `ANativeWindow` on Android, a forced reset) the adapter forgets its
+  handles and makes its own objects again (`Gpu::device_reset`), the layer re-creates its GPU objects (`Layer::gpu_objects_lost`: textures with their kept
+  copies uploaded again, render targets and depth surfaces empty, buffers from their shadows and programs at their next draw, the back buffer), and the
+  game sees `device_not_reset` until it calls Reset, as after a lost Direct3D 9 device. Levels without a copy (beyond `texture_copy_mb`) come back empty:
+  `LayerStats::levels_lost` counts them.
+* Shader cache: `nue_gfx_get_shader_cache_dir`; `LayerOptions::program_list` defaults to `nue_programs.txt` there.
+* Test: `nue_d3d9_gfx_tests` (ctest; bgfx Noop through nue_gfx, no window): frames, resize, suspend / resume, a refused PREPARE context, a forced device
+  re-creation with the texels of a managed texture intact, a reported device loss followed by Reset. Not verified: a real renderer through this path, and
+  anything on an Android device (the layer's own portability fixes for that build: `fseeko`, the x86 allocator only on Windows). OpenGL / GLES output of the
+  translator is untested: Android starts with Vulkan.
+
 ## What the NUE engine's graphics seam expects (nue_engine/docs/GFX_D3D9_SEAM.md, API.md, branch claude/nue-core-0454cf)
 
 * Direction: nue_d3d9 depends on the engine (core + gfx), never the other way round. `nue_gfx` provides the window, the renderer choice, lifecycle

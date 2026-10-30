@@ -87,6 +87,17 @@ if(NUE_WITH_BGFX)
 
 endif()
 
+# The layer on the engine's graphics context (include/nue_legacy/d3d9_gfx.hpp): needs the engine built with -DNUE_WITH_GFX=ON (nue_gfx MANAGED mode owns bgfx).
+if(NUE_WITH_BGFX AND TARGET nue AND NUE_WITH_GFX)
+    add_library(nue_d3d9_gfx STATIC gfx/gfx_device.cpp)
+    target_link_libraries(nue_d3d9_gfx PUBLIC nue_d3d9_bgfx nue)
+    target_include_directories(nue_d3d9_gfx PRIVATE src)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        target_compile_options(nue_d3d9_gfx PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/dll/x86_stdcall_fix.h)
+    endif()
+    set(NUE_D3D9_GFX ON)
+endif()
+
 # The drop-in d3d9.dll (Windows): the COM objects of Direct3D 9 on the layer + bgfx. Copy it next to the game's executable.
 if(WIN32 AND NUE_WITH_BGFX)
     add_library(nue_d3d9_dll SHARED dll/main.cpp dll/device.cpp dll/resources.cpp dll/threaded.cpp dll/spikes.cpp)
@@ -145,4 +156,14 @@ if(NUE_WITH_BGFX)
         target_compile_options(nue_bgfx_tests PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/dll/x86_stdcall_fix.h)
     endif()
     add_test(NAME nue_bgfx_tests COMMAND nue_bgfx_tests)
+endif()
+if(NUE_D3D9_GFX)
+    # the layer on a MANAGED nue_gfx context with the Noop renderer (no window, no GPU): frames, resize, suspend, device loss and re-creation
+    add_executable(nue_d3d9_gfx_tests tests/gfx_device_tests.cpp)
+    target_link_libraries(nue_d3d9_gfx_tests PRIVATE nue_d3d9_gfx)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        target_compile_options(nue_d3d9_gfx_tests PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/dll/x86_stdcall_fix.h)
+    endif()
+    add_test(NAME nue_d3d9_gfx_tests COMMAND nue_d3d9_gfx_tests)
+    set_tests_properties(nue_d3d9_gfx_tests PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 endif()

@@ -120,7 +120,11 @@ std::vector<uint8_t> TraceReader::read_blob(uint64_t offset, uint32_t size) cons
     if (!blobs_ || !size) return {};
     const uint64_t key = offset * 1000003ull + size;
     if (caching_) { auto hit = cache_.find(key); if (hit != cache_.end()) return hit->second; }
+#ifdef _WIN32
     _fseeki64(blobs_, static_cast<long long>(offset), SEEK_SET);
+#else
+    fseeko(blobs_, static_cast<off_t>(offset), SEEK_SET);   // 64-bit off_t: _FILE_OFFSET_BITS=64 on 32-bit Linux
+#endif
     if (std::fread(data.data(), 1, size, blobs_) != size) return {};
     if (caching_) cache_[key] = data;
     return data;

@@ -43,6 +43,7 @@ struct LayerStats {
     uint64_t texture_create_failures = 0, buffer_create_failures = 0, sampled_before_upload = 0, textures_created = 0;
     uint64_t relocks_with_data = 0, relocks_without_discard = 0, texture_updates_after_use = 0, rt_sampled_stale = 0, missing_texture_draws = 0, texture_copy_bytes = 0, texture_update_calls = 0;
     uint64_t stretch_rects = 0, unsupported_calls = 0, bad_handles = 0;
+    uint64_t gpu_resets = 0, levels_restored = 0, levels_lost = 0;   // gpu_objects_lost: calls, texture levels uploaded again from their kept copy, levels that had none
     uint64_t draw_by_primitive[8] = {};
 };
 
@@ -50,6 +51,10 @@ class Layer : public Device {
 public:
     virtual const LayerStats& stats() const = 0;
     virtual void flush() = 0;                 // closes the open pass so that everything drawn so far is submitted to the Gpu
+    // The Gpu lost every object it had made (Gpu::device_reset was called: the engine re-created its device). The layer drops its Gpu ids and makes
+    // its objects again: textures from their kept copies (LayerOptions::texture_copy_mb; levels without a copy come back empty, render targets empty),
+    // buffers from their shadows at their next draw, programs at their next draw, the back buffer and depth surfaces empty. Direct3D 9 state is unchanged.
+    virtual void gpu_objects_lost() = 0;
     virtual std::string report() const = 0;
     virtual std::string audit() const = 0;
     // Debug aids for the live game: ask for a report of every texture the draws of the NEXT frame use (take_texture_report() returns it once it is ready, then empty),

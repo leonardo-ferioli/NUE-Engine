@@ -139,6 +139,7 @@ public:
     const LayerStats& stats() const override { return stats_; }
     std::string report() const override;
     void flush() override { end_pass(); }
+    void gpu_objects_lost() override;
     std::string profile_report() const override;
     std::string audit() const override;
     void request_texture_report() override { capture_request_ = true; }

@@ -146,6 +146,10 @@ public:
     virtual void   destroy(Buffer) = 0;
     virtual void   destroy(Texture) = 0;
     virtual void   destroy(Program) = 0;
+    // The backend was re-created under the adapter (the engine reset its device: Android surface change, device removal): every Buffer, Texture and
+    // Program made before is gone and their ids are no longer valid. The adapter forgets them without destroying anything and starts again; the caller
+    // re-creates what it needs (Layer::gpu_objects_lost).
+    virtual void   device_reset() {}
 };
 
 }  // namespace nue::gpu
