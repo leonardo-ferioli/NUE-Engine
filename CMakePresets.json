@@ -34,6 +34,12 @@
       }
     },
     {
+      "name": "windows-x64-gfx",
+      "displayName": "Windows x64 + nue_gfx (bgfx) + legacy Direct3D 9 layer; needs: git submodule update --init --recursive third_party/bgfx.cmake",
+      "inherits": "windows-x64",
+      "cacheVariables": { "NUE_WITH_GFX": "ON", "NUE_WITH_LEGACY_D3D9": "ON" }
+    },
+    {
       "name": "windows-x86",
       "displayName": "Windows x86 / 32-bit (clang + Ninja) - the launcher of the recompiled game is 32-bit",
       "inherits": "windows-base",
@@ -64,6 +70,12 @@
       }
     },
     {
+      "name": "android-arm64-gfx",
+      "displayName": "Android arm64-v8a + nue_gfx (bgfx) + legacy Direct3D 9 layer; needs: git submodule update --init --recursive third_party/bgfx.cmake",
+      "inherits": "android-arm64",
+      "cacheVariables": { "NUE_WITH_GFX": "ON", "NUE_WITH_LEGACY_D3D9": "ON" }
+    },
+    {
       "name": "ios-arm64",
       "displayName": "iOS arm64 (Xcode, macOS host)",
       "inherits": "base",
@@ -86,14 +98,17 @@
   ],
   "buildPresets": [
     { "name": "windows-x64", "configurePreset": "windows-x64" },
+    { "name": "windows-x64-gfx", "configurePreset": "windows-x64-gfx" },
     { "name": "windows-x86", "configurePreset": "windows-x86" },
     { "name": "linux-x64", "configurePreset": "linux-x64" },
     { "name": "android-arm64", "configurePreset": "android-arm64" },
+    { "name": "android-arm64-gfx", "configurePreset": "android-arm64-gfx" },
     { "name": "ios-arm64", "configurePreset": "ios-arm64" },
     { "name": "host-debug", "configurePreset": "host-debug" }
   ],
   "testPresets": [
     { "name": "windows-x64", "configurePreset": "windows-x64", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-gfx", "configurePreset": "windows-x64-gfx", "output": { "outputOnFailure": true } },
     { "name": "windows-x86", "configurePreset": "windows-x86", "output": { "outputOnFailure": true } },
     { "name": "linux-x64", "configurePreset": "linux-x64", "output": { "outputOnFailure": true } },
     { "name": "host-debug", "configurePreset": "host-debug", "output": { "outputOnFailure": true } }
