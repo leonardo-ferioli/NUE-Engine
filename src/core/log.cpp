@@ -4,6 +4,8 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <map>
 #include <mutex>
@@ -110,6 +112,15 @@ void log_init(const InitInfo& info) {
     std::lock_guard<std::mutex> lock(s.mutex);
     if (!s.defaults_done) add_default_stderr_locked(s);
     s.level = static_cast<nue_log_level>(info.log_level ? info.log_level : NUE_LOG_INFO);
+    // NUE_LOG_LEVEL=trace|debug|info|warn|error: diagnostics without touching the host; it lowers the global level and lets stderr show that level too
+    if (const char* env = std::getenv("NUE_LOG_LEVEL")) {
+        static const struct { const char* name; nue_log_level level; } names[] = {{"trace", NUE_LOG_TRACE}, {"debug", NUE_LOG_DEBUG}, {"info", NUE_LOG_INFO}, {"warn", NUE_LOG_WARN}, {"error", NUE_LOG_ERROR}};
+        for (const auto& n : names) {
+            if (std::strcmp(env, n.name) != 0) continue;
+            s.level = n.level;
+            for (Sink& k : s.sinks) if (k.kind == NUE_LOG_SINK_STDERR) k.min_level = n.level;
+        }
+    }
     bool have_ring = false;
     bool have_platform = false;
     for (const Sink& k : s.sinks) { have_ring |= k.kind == NUE_LOG_SINK_MEMORY_RING; have_platform |= k.kind == NUE_LOG_SINK_PLATFORM; }
