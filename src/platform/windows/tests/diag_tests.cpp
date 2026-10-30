@@ -201,6 +201,11 @@ static void test_sampling() {
          m.user_objects, m.threads);
     CHECK(m.valid && m.working_set > 0 && m.handle_count > 0 && m.threads >= 1);
 
+    // the Quick sample is what win_pump uses every second: it must not do the system-wide thread walk (60 ms on a laptop = one stuttering frame per second)
+    const MemorySample q = sample_memory(MemoryDetail::Quick);
+    CHECK(q.valid && q.working_set > 0 && q.private_bytes > 0);
+    CHECK(q.threads == 0 && q.handle_count == 0 && q.gdi_objects == 0 && q.user_objects == 0);
+
     GpuEngineSampler gpu;
     Status s = gpu.open();
     if (!s.ok) { SKIP("GPU engine counters unavailable (%s)", s.what); }

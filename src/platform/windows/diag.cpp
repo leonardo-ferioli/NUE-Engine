@@ -496,7 +496,7 @@ CpuUsage cpu_usage_between(const ProcessSample& a, const ProcessSample& b, uint3
     return u;
 }
 
-MemorySample sample_memory() {
+MemorySample sample_memory(MemoryDetail detail) {
     MemorySample m;
     PROCESS_MEMORY_COUNTERS_EX pmc{};
     pmc.cb = sizeof pmc;
@@ -507,6 +507,7 @@ MemorySample sample_memory() {
         m.private_bytes = pmc.PrivateUsage;
         m.pagefile_usage = pmc.PagefileUsage;
     }
+    if (detail == MemoryDetail::Quick) return m;
     DWORD handles = 0;
     if (GetProcessHandleCount(GetCurrentProcess(), &handles)) m.handle_count = handles;
     m.gdi_objects = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);

@@ -309,7 +309,7 @@ struct ProcessMemory { uint64_t used = 0, limit = 0, available = 0; double free_
 // limit = the smaller of the Job Object memory limit and the user address space of a 32-bit process (a 2 GiB process cannot use more than 2 GiB, whatever the RAM).
 ProcessMemory process_memory(uint64_t physical_available) {
     ProcessMemory r;
-    const MemorySample m = sample_memory();
+    const MemorySample m = sample_memory(MemoryDetail::Quick);   // runs from win_pump once a second on the host's thread: nothing that walks the system
     r.used = m.working_set;
     MEMORYSTATUSEX ms{};
     ms.dwLength = sizeof ms;

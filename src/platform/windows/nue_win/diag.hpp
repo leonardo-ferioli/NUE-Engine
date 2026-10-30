@@ -115,7 +115,11 @@ struct MemorySample {
     uint32_t handle_count = 0, gdi_objects = 0, user_objects = 0, threads = 0;
     bool valid = false;
 };
-MemorySample sample_memory();
+// Quick = working set / peak / private bytes / pagefile only: one K32GetProcessMemoryInfo call, cheap enough for a per-second pump. Full also fills handles,
+// GDI/USER objects and the thread count; the thread count walks a snapshot of every thread of the whole system (60 ms measured on a laptop), so Full belongs
+// to explicit diagnostics (crash reports, nue_diag queries), never to nue_pump_events.
+enum class MemoryDetail { Quick, Full };
+MemorySample sample_memory(MemoryDetail detail = MemoryDetail::Full);
 
 // GPU engine utilisation of this process from the "GPU Engine" performance counters (PDH; Windows 10 1709+, no admin). Expensive (a few ms):
 // call about once per second, never per frame.
