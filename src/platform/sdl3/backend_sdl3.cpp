@@ -211,6 +211,9 @@ void translate(const SDL_Event& ev) {
                 case SDL_EVENT_WINDOW_ENTER_FULLSCREEN: t = NUE_EVENT_WINDOW_ENTER_FULLSCREEN; break;
                 default: t = NUE_EVENT_WINDOW_LEAVE_FULLSCREEN; break;
             }
+            if (t == NUE_EVENT_WINDOW_FOCUS_GAINED || t == NUE_EVENT_WINDOW_FOCUS_LOST || t == NUE_EVENT_WINDOW_ENTER_FULLSCREEN || t == NUE_EVENT_WINDOW_LEAVE_FULLSCREEN)
+                NUE_LOGD("sdl3", "window %u: %s", unsigned(w->id), t == NUE_EVENT_WINDOW_FOCUS_GAINED ? "keyboard focus gained" : t == NUE_EVENT_WINDOW_FOCUS_LOST ? "keyboard focus lost" :
+                         t == NUE_EVENT_WINDOW_ENTER_FULLSCREEN ? "entered fullscreen" : "left fullscreen");
             e.payload.window.x = ev.window.data1;
             e.payload.window.y = ev.window.data2;
             if (ev.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || ev.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) e.payload.window.scale = SDL_GetWindowPixelDensity(w->win);
@@ -229,6 +232,7 @@ void translate(const SDL_Event& ev) {
             e.payload.key.mods = uint16_t(ev.key.mod);
             e.payload.key.down = ev.key.down ? 1 : 0;
             e.payload.key.repeat = ev.key.repeat ? 1 : 0;
+            if (!ev.key.repeat) NUE_LOGD("sdl3", "key %s: scancode %u, window %u", ev.key.down ? "down" : "up", unsigned(ev.key.scancode), unsigned(nue_win_from_sdl(ev.key.windowID)));
             push(ev.key.down ? NUE_EVENT_KEY_DOWN : NUE_EVENT_KEY_UP, nue_win_from_sdl(ev.key.windowID), e);
             break;
         case SDL_EVENT_TEXT_INPUT: {
@@ -624,6 +628,8 @@ nue_result v_flash(void* impl, nue_bool until_focused) { return SDL_FlashWindow(
 
 nue_result v_set_mode(void* impl, nue_window_mode mode, const nue_display_mode* m) {
     Win* w = W(impl);
+    NUE_LOGD("sdl3", "window %u: set mode %d (%s, called from the %s thread)", unsigned(w->id), int(mode), w->attached ? "attached window: refused" : "own window",
+             nue_is_event_thread() ? "event" : "a non-event");
     if (w->attached) return NUE_ERR_UNSUPPORTED;
     if (mode == NUE_WINDOW_MODE_EXCLUSIVE && compositor_owns_modes()) mode = NUE_WINDOW_MODE_BORDERLESS;
     if (mode == NUE_WINDOW_MODE_WINDOWED) { w->mode = mode; return SDL_SetWindowFullscreen(w->win, false) ? NUE_OK_PENDING : sdl_fail("SDL_SetWindowFullscreen"); }
